@@ -2,9 +2,8 @@
 
 from typing import Any, Dict, List, Optional, Type, TypeVar, Union
 
-from pydantic import BaseModel
-
 from cfb_data.base.api.base_api import CFBDAPIBase
+from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -30,9 +29,7 @@ class CFBDValidationAPI(CFBDAPIBase):
         :rtype: Union[T, List[T]]
         :raises TypeError: If the returned data is not a ``list`` or ``dict``
         """
-        data: Union[List[Any], Dict[str, Any]] = await super().make_request(
-            path, params
-        )
+        data: Union[List[Any], Dict[str, Any]] = await self.make_request(path, params)
         if isinstance(data, list):
             return [model.model_validate(item) for item in data]
         if isinstance(data, dict):
