@@ -1,3 +1,5 @@
+"""Tests for games API validation layer."""
+
 import asyncio
 import sys
 import types
@@ -19,16 +21,25 @@ class DummyGamesValidationAPI(CFBDGamesValidationAPI):
     """Expose protected validation methods for testing."""
 
     def __init__(self) -> None:
+        """Initialize the dummy validation API with a fake key."""
+
         super().__init__(api_key="fake")
 
 
 def run(coro):
-    """Execute a coroutine for synchronous test code."""
+    """Execute ``coro`` synchronously.
+
+    :param coro: Coroutine to execute.
+    :type coro: Coroutine
+    :return: Result of the coroutine.
+    :rtype: Any
+    """
 
     return asyncio.run(coro)
 
 
-def test_get_calendar_validated_returns_models():
+def test_make_request_returns_models():
+    """Return Pydantic models when data are valid."""
     sample = {
         "season": 2024,
         "week": 1,
@@ -37,19 +48,19 @@ def test_get_calendar_validated_returns_models():
         "last_game_start": "2024-08-02T00:00:00Z",
     }
     mocked = AsyncMock(return_value=[sample])
-    mocked._api_path = CFBDGamesValidationAPI._get_calendar._api_path
-    with patch.object(CFBDGamesValidationAPI, "_get_calendar", mocked):
+    with patch.object(CFBDGamesValidationAPI, "_make_request", mocked):
         api = DummyGamesValidationAPI()
-        result = run(api.get_calendar_validated({"year": 2024}))
-        mocked.assert_awaited_once_with({"year": 2024})
+        result = run(api.make_request("/calendar", {"year": 2024}))
+        mocked.assert_awaited_once_with("/calendar", {"year": 2024})
         assert isinstance(result, list)
         assert result[0].week == 1
 
 
-def test_get_calendar_validated_raises_on_invalid():
+def test_make_request_raises_on_invalid():
+    """Raise ``ValidationError`` when data are invalid."""
     mocked = AsyncMock(return_value=[{"season": 2024}])
-    mocked._api_path = CFBDGamesValidationAPI._get_calendar._api_path
-    with patch.object(CFBDGamesValidationAPI, "_get_calendar", mocked):
+    with patch.object(CFBDGamesValidationAPI, "_make_request", mocked):
         api = DummyGamesValidationAPI()
         with pytest.raises(ValidationError):
-            run(api.get_calendar_validated({"year": 2024}))
+            run(api.make_request("/calendar", {"year": 2024}))
+        mocked.assert_awaited_once_with("/calendar", {"year": 2024})

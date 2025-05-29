@@ -3,10 +3,11 @@ College Football Data API - Game Response Models
 Pydantic models for validating API responses from CFBD game endpoints
 """
 
-from pydantic import BaseModel, Field, validator, root_validator
-from typing import List, Optional, Dict, Any, Union
 from datetime import datetime
 from enum import Enum
+from typing import Any, Dict, List, Optional, Union
+
+from pydantic import BaseModel, Field, root_validator, validator
 
 
 # Enums
@@ -266,6 +267,7 @@ class Game(BaseModel):
         :type v: Optional[int]
         :return: Validated points value
         :rtype: Optional[int]
+        :raises ValueError: If ``v`` is negative
         """
         if v is not None and v < 0:
             raise ValueError("Points cannot be negative")
@@ -911,6 +913,15 @@ class Scoreboard(BaseModel):
 
     @validator("home_points", "away_points")
     def points_must_be_non_negative(cls, v: Optional[int]) -> Optional[int]:
+        """Ensure point totals are not negative.
+
+        :param v: Points value
+        :type v: Optional[int]
+        :return: Validated points value
+        :rtype: Optional[int]
+        :raises ValueError: If ``v`` is negative
+        """
+
         if v is not None and v < 0:
             raise ValueError("Points cannot be negative")
         return v

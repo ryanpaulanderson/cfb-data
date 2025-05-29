@@ -1,32 +1,50 @@
-"""
-College Football Data API Client - Base and Games Module
-Async HTTP client for interacting with the CFBD API v2
-"""
+"""Base asynchronous HTTP client for the College Football Data API."""
 
-import asyncio
-import aiohttp
-from typing import Dict, List, Optional, Union, Any, Callable, TypeVar, cast
-from functools import wraps
+from __future__ import annotations
+
 from abc import ABC
-import json
+from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union
 
+import aiohttp
+from pandera import DataFrameModel
+from pydantic import BaseModel
 
-# Type variable for decorator
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-def route(path: str) -> Callable[[F], F]:
-    """
-    Decorator to register a method as a handler for an API path.
+def route(
+    path: str,
+    *,
+    response_model: Optional[Type[BaseModel]] = None,
+    dataframe_schema: Optional[Type[DataFrameModel]] = None,
+) -> Callable[[F], F]:
+    """Register ``func`` as the handler for ``path``.
 
-    :param path: API endpoint path
+    The optional ``response_model`` and ``dataframe_schema`` metadata are used
+    by higher-level API classes to perform Pydantic and Pandera validation.
+
+    :param path: API endpoint path.
     :type path: str
-    :return: Decorator function
+    :param response_model: Pydantic model for validating the response.
+    :type response_model: Optional[Type[BaseModel]]
+    :param dataframe_schema: Pandera schema for validating DataFrames.
+    :type dataframe_schema: Optional[Type[DataFrameModel]]
+    :return: Decorator that attaches metadata to the function.
     :rtype: Callable[[F], F]
     """
 
     def decorator(func: F) -> F:
-        func._api_path = path  # type: ignore
+        """Attach routing metadata to ``func``.
+
+        :param func: Function to decorate.
+        :type func: F
+        :return: Decorated function with route metadata.
+        :rtype: F
+        """
+
+        setattr(func, "_api_path", path)
+        setattr(func, "response_model", response_model)
+        setattr(func, "dataframe_schema", dataframe_schema)
         return func
 
     return decorator
@@ -80,8 +98,6 @@ class CFBDAPIBase(ABC):
         :type params: Optional[Dict[str, Any]]
         :return: JSON response as dict or list
         :rtype: Union[Dict[str, Any], List[Dict[str, Any]]]
-        :raises aiohttp.ClientError: On network errors
-        :raises ValueError: On invalid JSON response
         """
         url: str = f"{self.base_url}{endpoint}"
 
@@ -104,7 +120,6 @@ class CFBDAPIBase(ABC):
         :type params: Optional[Dict[str, Any]]
         :return: API response
         :rtype: Union[Dict[str, Any], List[Dict[str, Any]]]
-        :raises ValueError: If path is not recognized
         """
         if path in self._route_map:
             return await self._route_map[path](params or {})
