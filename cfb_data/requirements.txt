@@ -6,4 +6,5 @@ isort~=6.0.1
 pandera~=0.24
 pre-commit~=4.2
 pydantic~=2.11
+pydantic-core~=2.33
 pytest~=8.3
