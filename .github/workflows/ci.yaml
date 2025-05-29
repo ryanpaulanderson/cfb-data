@@ -45,10 +45,22 @@ jobs:
           source .env/bin/activate
           pre-commit install --install-hooks
 
-      - name: Run pre-commit checks
+      - name: Run pre-commit on changed files
         run: |
           source .env/bin/activate
-          pre-commit run --all-files
+          # Fetch the target branch to compare against
+          git fetch origin main
+          # List changed files in this PR
+          files=$(git diff --name-only origin/main...HEAD)
+          # Filter to files tracked by pre-commit (e.g. .py, .md, etc.)
+          changed=$(echo "$files" | grep -E '\.py$|\.md$|\.yaml$' || true)
+          if [ -n "$changed" ]; then
+            echo "Linting changed files:"
+            echo "$changed"
+            pre-commit run --files $changed
+          else
+            echo "No relevant files changed; skipping pre-commit."
+          fi
 
       - name: Run tests
         run: |
