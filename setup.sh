@@ -15,3 +15,5 @@ pip install --upgrade pip
 
 # 4. Install all requirements
 pip install -r cfb_data/requirements.txt
+
+pip install --upgrade setuptools

@@ -10,13 +10,15 @@ repos:
     hooks:
       - id: black
 
-  - repo: https://github.com/pycqa/pydocstyle
-    rev: 6.2.2       # latest stable release
+  - repo: https://github.com/sphinx-contrib/sphinx-lint
+    rev: v0.6.7
     hooks:
-      - id: pydocstyle
-        args:
-          # Require docstrings on all public constructs
-          - --select=D100,D101,D102,D103,D104,D105
-          # Enforce Sphinx-style :param: descriptions
-          - --select=D417,D418
-        files: \.py$    # only check Python files
+      - id: sphinx-lint
+
+  - repo: https://github.com/econchick/interrogate
+    rev: 1.6.0
+    additional_dependencies:
+      - setuptools
+    hooks:
+      - id: interrogate
+        args: [--fail-under=95, --verbose]
