@@ -12,6 +12,4 @@ pip install -r cfb_data/requirements.txt --no-cache-dir
 
 pip install --upgrade setuptools
 
-pre-commit install
-
-pre-commit run --all-files # ensure dependencies are downloaded before offline access is cut
+pre-commit install --install-hooks
