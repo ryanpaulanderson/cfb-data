@@ -1,17 +1,18 @@
 """Tests for the pandas validation layer."""
 
 import asyncio
-import sys
+import importlib
 import types
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pandas as pd
 
-sys.path.insert(0, "cfb_data")
+importlib.import_module("sys").path.insert(0, str(Path(__file__).resolve().parents[4]))
 
-if "aiohttp" not in sys.modules:
+if importlib.util.find_spec("aiohttp") is None:
     aiohttp_stub = types.ModuleType("aiohttp")
-    sys.modules["aiohttp"] = aiohttp_stub
+    importlib.import_module("sys").modules["aiohttp"] = aiohttp_stub
 
 import pandera as pa
 import pytest
