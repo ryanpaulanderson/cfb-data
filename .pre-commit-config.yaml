@@ -21,4 +21,4 @@ repos:
       - setuptools
     hooks:
       - id: interrogate
-        args: [--fail-under=95, --verbose]
+        args: [--fail-under=100, --verbose]
