@@ -10,10 +10,11 @@ repos:
     hooks:
       - id: black
 
-  - repo: https://github.com/sphinx-contrib/sphinx-lint
-    rev: v0.6.7
+  - repo: https://github.com/terrencepreilly/darglint
+    rev: v1.8.1
     hooks:
-      - id: sphinx-lint
+      - id: darglint
+        args: [--docstring-style=sphinx]
 
   - repo: https://github.com/econchick/interrogate
     rev: 1.6.0
