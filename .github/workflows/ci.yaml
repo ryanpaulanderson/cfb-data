@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code (full history)
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0       # ensures origin/main is present
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+
+      - name: Cache pip downloads
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('cfb_data/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Cache pre-commit environments
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pre-commit
+          key: ${{ runner.os }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pre-commit-
+
+      - name: Create & activate virtualenv, install deps
+        run: |
+          python -m venv .env
+          source .env/bin/activate
+          pip install --upgrade pip
+          pip install -r cfb_data/requirements.txt pre-commit pytest
+
+      - name: Install pre-commit hooks
+        run: |
+          source .env/bin/activate
+          pre-commit install --install-hooks
+
+      - name: Run pre-commit on changed files only
+        run: |
+          source .env/bin/activate
+
+          # Fetch the target branch so we can diff against it
+          git fetch origin main
+
+          # List changed files in this PR (compare against origin/main)
+          changed=$(git diff --name-only origin/main...HEAD)
+
+          # Filter to files pre-commit cares about
+          files=$(echo "$changed" | grep -E '\.py$|\.md$|\.yaml$' || true)
+
+          if [ -n "$files" ]; then
+            echo "Running pre-commit on changed files:"
+            echo "$files"
+            pre-commit run --files $files
+          else
+            echo "No relevant files changed; skipping pre-commit."
+          fi
+
+      - name: Run tests
+        run: |
+          source .env/bin/activate
+          pytest -q
