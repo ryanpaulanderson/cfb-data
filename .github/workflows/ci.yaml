@@ -9,13 +9,15 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout code (full history)
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0       # ensures origin/main is present
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.13.x"
+          python-version: "3.x"
 
       - name: Cache pip downloads
         uses: actions/cache@v3
@@ -45,19 +47,23 @@ jobs:
           source .env/bin/activate
           pre-commit install --install-hooks
 
-      - name: Run pre-commit on changed files
+      - name: Run pre-commit on changed files only
         run: |
           source .env/bin/activate
-          # Fetch the target branch to compare against
+
+          # Fetch the target branch so we can diff against it
           git fetch origin main
-          # List changed files in this PR
-          files=$(git diff --name-only origin/main...HEAD)
-          # Filter to files tracked by pre-commit (e.g. .py, .md, etc.)
-          changed=$(echo "$files" | grep -E '\.py$|\.md$|\.yaml$' || true)
-          if [ -n "$changed" ]; then
-            echo "Linting changed files:"
-            echo "$changed"
-            pre-commit run --files $changed
+
+          # List changed files in this PR (compare against origin/main)
+          changed=$(git diff --name-only origin/main...HEAD)
+
+          # Filter to files pre-commit cares about
+          files=$(echo "$changed" | grep -E '\.py$|\.md$|\.yaml$' || true)
+
+          if [ -n "$files" ]; then
+            echo "Running pre-commit on changed files:"
+            echo "$files"
+            pre-commit run --files $files
           else
             echo "No relevant files changed; skipping pre-commit."
           fi
