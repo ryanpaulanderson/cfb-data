@@ -1,16 +1,17 @@
 """Tests for the base API layer."""
 
 import asyncio
-import sys
+import importlib
 import types
+from pathlib import Path
 from unittest.mock import AsyncMock
 
-sys.path.insert(0, "cfb_data")
-
 # Provide a minimal aiohttp stub for import resolution
-if "aiohttp" not in sys.modules:
+importlib.import_module("sys").path.insert(0, str(Path(__file__).resolve().parents[4]))
+
+if importlib.util.find_spec("aiohttp") is None:
     aiohttp_stub = types.ModuleType("aiohttp")
-    sys.modules["aiohttp"] = aiohttp_stub
+    importlib.import_module("sys").modules["aiohttp"] = aiohttp_stub
 
 import pytest
 from cfb_data.base.api.base_api import CFBDAPIBase, route
@@ -202,7 +203,7 @@ def test_make_request_executes_http_call():
     dummy_session = DummySession(dummy_resp)
 
     # Patch aiohttp.ClientSession within the module
-    base_mod = sys.modules["cfb_data.base.api.base_api"]
+    base_mod = importlib.import_module("cfb_data.base.api.base_api")
     base_mod.aiohttp.ClientSession = lambda: dummy_session
 
     result = run(api._make_request("/path", {"k": "v"}))

@@ -25,7 +25,7 @@ cfb_data/
 │   │   │   ├── pydantic/      # Pydantic model definitions
 │   │   │   └── pandera/       # Pandera schema definitions
 │   │   └── __init__.py
-│   ├── tests/                 # (Currently empty) — for test coverage
+│   ├── tests/                 # unit tests for the package
 │   └── __init__.py
 ├── setup.sh                   # Shell setup script for environment
 └── README.md

@@ -1,16 +1,17 @@
 """Tests for raw game API layer."""
 
 import asyncio
-import sys
+import importlib
 import types
+from pathlib import Path
 from unittest.mock import AsyncMock
 
-sys.path.insert(0, "cfb_data")
-
 # Provide a minimal aiohttp stub for import resolution
-if "aiohttp" not in sys.modules:
+importlib.import_module("sys").path.insert(0, str(Path(__file__).resolve().parents[4]))
+
+if importlib.util.find_spec("aiohttp") is None:
     aiohttp_stub = types.ModuleType("aiohttp")
-    sys.modules["aiohttp"] = aiohttp_stub
+    importlib.import_module("sys").modules["aiohttp"] = aiohttp_stub
 
 import pytest
 from cfb_data.game.api.game_api import CFBDGamesAPI
