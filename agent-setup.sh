@@ -7,3 +7,5 @@ wget \
   --no-parent \
   -P api_reference \
   https://apinext.collegefootballdata.com/
+
+pip install -r cfb_data/requirements.txt --no-cache-dir
