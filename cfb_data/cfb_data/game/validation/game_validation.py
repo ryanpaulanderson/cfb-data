@@ -1,10 +1,11 @@
 """Validation wrappers for game endpoints."""
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, cast
 
 from cfb_data.base.validation.validation_api import CFBDValidationAPI
 from cfb_data.game.api.game_api import CFBDGamesAPI
 from cfb_data.game.models.pydantic.responses import (
+    AdvancedBoxScore,
     CalendarWeek,
     Game,
     GameMedia,
@@ -12,7 +13,6 @@ from cfb_data.game.models.pydantic.responses import (
     PlayerGameStats,
     TeamGameStats,
     TeamRecords,
-    AdvancedBoxScore,
 )
 
 
@@ -27,8 +27,10 @@ class CFBDGamesValidationAPI(CFBDGamesAPI, CFBDValidationAPI):
         :return: List of validated :class:`Game` models
         :rtype: List[Game]
         """
-        data: List[Dict[str, Any]] = await self._get_games(params)
-        return [Game.model_validate(item) for item in data]
+        result = await self.make_request_validated(
+            self._get_games._api_path, Game, params
+        )
+        return cast(List[Game], result)
 
     async def get_team_records_validated(
         self, params: Dict[str, Any]
@@ -40,8 +42,12 @@ class CFBDGamesValidationAPI(CFBDGamesAPI, CFBDValidationAPI):
         :return: List of validated :class:`TeamRecords` models
         :rtype: List[TeamRecords]
         """
-        data: List[Dict[str, Any]] = await self._get_team_records(params)
-        return [TeamRecords.model_validate(item) for item in data]
+        result = await self.make_request_validated(
+            self._get_team_records._api_path,
+            TeamRecords,
+            params,
+        )
+        return cast(List[TeamRecords], result)
 
     async def get_calendar_validated(
         self, params: Dict[str, Any]
@@ -53,8 +59,12 @@ class CFBDGamesValidationAPI(CFBDGamesAPI, CFBDValidationAPI):
         :return: List of validated :class:`CalendarWeek` models
         :rtype: List[CalendarWeek]
         """
-        data: List[Dict[str, Any]] = await self._get_calendar(params)
-        return [CalendarWeek.model_validate(item) for item in data]
+        result = await self.make_request_validated(
+            self._get_calendar._api_path,
+            CalendarWeek,
+            params,
+        )
+        return cast(List[CalendarWeek], result)
 
     async def get_game_media_validated(self, params: Dict[str, Any]) -> List[GameMedia]:
         """Return validated game media information.
@@ -64,8 +74,12 @@ class CFBDGamesValidationAPI(CFBDGamesAPI, CFBDValidationAPI):
         :return: List of validated :class:`GameMedia` models
         :rtype: List[GameMedia]
         """
-        data: List[Dict[str, Any]] = await self._get_game_media(params)
-        return [GameMedia.model_validate(item) for item in data]
+        result = await self.make_request_validated(
+            self._get_game_media._api_path,
+            GameMedia,
+            params,
+        )
+        return cast(List[GameMedia], result)
 
     async def get_game_weather_validated(
         self, params: Dict[str, Any]
@@ -77,8 +91,12 @@ class CFBDGamesValidationAPI(CFBDGamesAPI, CFBDValidationAPI):
         :return: List of validated :class:`GameWeather` models
         :rtype: List[GameWeather]
         """
-        data: List[Dict[str, Any]] = await self._get_game_weather(params)
-        return [GameWeather.model_validate(item) for item in data]
+        result = await self.make_request_validated(
+            self._get_game_weather._api_path,
+            GameWeather,
+            params,
+        )
+        return cast(List[GameWeather], result)
 
     async def get_player_game_stats_validated(
         self, params: Dict[str, Any]
@@ -90,8 +108,12 @@ class CFBDGamesValidationAPI(CFBDGamesAPI, CFBDValidationAPI):
         :return: List of validated :class:`PlayerGameStats` models
         :rtype: List[PlayerGameStats]
         """
-        data: List[Dict[str, Any]] = await self._get_player_game_stats(params)
-        return [PlayerGameStats.model_validate(item) for item in data]
+        result = await self.make_request_validated(
+            self._get_player_game_stats._api_path,
+            PlayerGameStats,
+            params,
+        )
+        return cast(List[PlayerGameStats], result)
 
     async def get_team_game_stats_validated(
         self, params: Dict[str, Any]
@@ -103,8 +125,12 @@ class CFBDGamesValidationAPI(CFBDGamesAPI, CFBDValidationAPI):
         :return: List of validated :class:`TeamGameStats` models
         :rtype: List[TeamGameStats]
         """
-        data: List[Dict[str, Any]] = await self._get_team_game_stats(params)
-        return [TeamGameStats.model_validate(item) for item in data]
+        result = await self.make_request_validated(
+            self._get_team_game_stats._api_path,
+            TeamGameStats,
+            params,
+        )
+        return cast(List[TeamGameStats], result)
 
     async def get_box_scores_validated(
         self, params: Dict[str, Any]
@@ -116,5 +142,9 @@ class CFBDGamesValidationAPI(CFBDGamesAPI, CFBDValidationAPI):
         :return: Parsed :class:`AdvancedBoxScore` model
         :rtype: AdvancedBoxScore
         """
-        data: Dict[str, Any] = await self._get_box_scores(params)
-        return AdvancedBoxScore.model_validate(data)
+        result = await self.make_request_validated(
+            self._get_box_scores._api_path,
+            AdvancedBoxScore,
+            params,
+        )
+        return cast(AdvancedBoxScore, result)
