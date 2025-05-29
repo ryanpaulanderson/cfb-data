@@ -67,23 +67,7 @@ export CFB_API_KEY="your_api_key"
 Or add it to a `.env` file.
 
 ## Basic Usage
-
-### Example: Fetch Games
-```python
-from cfb_data.game.api.game_api import get_games
-
-games = get_games(year=2024, season_type="regular")
-print(games.head())
-```
-
-### Example: Fetch Teams
-```python
-from cfb_data.base.api.base_api import get_teams
-
-teams = get_teams()
-print(teams)
-```
-(Replace the above with the actual top-level API functions in your project.)
+TODO: fill out section
 
 ## Developing
 - Code is organized by domain (`game`, `base`).
