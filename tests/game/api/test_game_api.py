@@ -22,7 +22,6 @@ class DummyAPI(CFBDGamesAPI):
         super().__init__(api_key="fake")
 
 
-
 def run(coro):
     """Helper to run async coroutines in tests without pytest-asyncio."""
     return asyncio.run(coro)
@@ -59,7 +58,17 @@ def test_typed_get_games_builds_params_and_calls_make_request():
     api = DummyAPI()
     api.make_request = AsyncMock(return_value=[{"id": 2}])
     result = run(
-        api.get_games(year=2024, week=2, season_type="regular", team="A", home="B", away="C", conference="conf", division="fbs", id=10)
+        api.get_games(
+            year=2024,
+            week=2,
+            season_type="regular",
+            team="A",
+            home="B",
+            away="C",
+            conference="conf",
+            division="fbs",
+            id=10,
+        )
     )
     expected_params = {
         "year": 2024,
@@ -80,4 +89,3 @@ def test_route_map_contains_registered_paths():
     api = DummyAPI()
     assert "/games" in api._route_map
     assert "/games/box/advanced" in api._route_map
-
