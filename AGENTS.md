@@ -10,7 +10,7 @@ An offline copy of the api documentation website which utilizes swagger can be f
 - **Black formatting:** All code must be auto-formatted using [`black`](https://github.com/psf/black) before commit. No exceptions.
 - **Type hints:** Every function definition (including all arguments and return types) and all variables must have [PEP 484](https://peps.python.org/pep-0484/) style type hints. This includes class attributes and local variables where their type is not obvious from the assignment.
 - **Docstrings:** Every function, class, and method must have a complete [Sphinx-style docstring](https://sphinxcontrib-napoleon.readthedocs.io/en/latest/example_google.html).
-- **Linting:** Code should pass `flake8` and/or `ruff` checks for basic lint, unused imports, undefined variables, etc.
+- **Linting:** Code should pass `ruff` checks for basic lint, unused imports, undefined variables, etc.
 - **Imports:** Use absolute imports within the package unless a clear case for relative imports is made. Group and order imports using [isort](https://pycqa.github.io/isort/).
 - **No commented-out code** should be left in PRs or commits.
 
