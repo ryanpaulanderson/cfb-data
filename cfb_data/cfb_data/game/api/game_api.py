@@ -1,26 +1,39 @@
-"""
-College Football Data API Client - Base and Games Module
-Async HTTP client for interacting with the CFBD API v2
-"""
+"""Game-specific endpoint handlers for the CFBD API."""
 
-import asyncio
-import aiohttp
-from typing import Dict, List, Optional, Union, Any, Callable, TypeVar, cast
-from functools import wraps
-from abc import ABC
-import json
+from __future__ import annotations
 
-from cfb_data.base.api.base_api import route, CFBDAPIBase
+from typing import Any, Dict, List, Optional
 
-
-# Type variable for decorator
-F = TypeVar("F", bound=Callable[..., Any])
+from cfb_data.base.api.base_api import CFBDAPIBase, route
+from cfb_data.game.models.pandera.responses import (
+    CalendarWeekSchema,
+    GameMediaSchema,
+    GameSchema,
+    GameWeatherSchema,
+    PlayerGameStatsSchema,
+    TeamGameStatsSchema,
+    TeamRecordsSchema,
+)
+from cfb_data.game.models.pydantic.responses import (
+    AdvancedBoxScore,
+    CalendarWeek,
+    Game,
+    GameMedia,
+    GameWeather,
+    PlayerGameStats,
+    TeamGameStats,
+    TeamRecords,
+)
 
 
 class CFBDGamesAPI(CFBDAPIBase):
-    """Games-specific endpoints for College Football Data API."""
+    """Games-specific endpoints for the College Football Data API."""
 
-    @route("/games")
+    @route(
+        "/games",
+        response_model=Game,
+        dataframe_schema=GameSchema,
+    )
     async def _get_games(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Get game information.
@@ -36,7 +49,11 @@ class CFBDGamesAPI(CFBDAPIBase):
 
         return await self._make_request("/games", params)
 
-    @route("/records")
+    @route(
+        "/records",
+        response_model=TeamRecords,
+        dataframe_schema=TeamRecordsSchema,
+    )
     async def _get_team_records(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Get team records by year.
@@ -48,7 +65,11 @@ class CFBDGamesAPI(CFBDAPIBase):
         """
         return await self._make_request("/records", params)
 
-    @route("/calendar")
+    @route(
+        "/calendar",
+        response_model=CalendarWeek,
+        dataframe_schema=CalendarWeekSchema,
+    )
     async def _get_calendar(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Get calendar/weeks for a given year.
@@ -64,7 +85,11 @@ class CFBDGamesAPI(CFBDAPIBase):
 
         return await self._make_request("/calendar", params)
 
-    @route("/games/media")
+    @route(
+        "/games/media",
+        response_model=GameMedia,
+        dataframe_schema=GameMediaSchema,
+    )
     async def _get_game_media(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Get game media information and types.
@@ -80,7 +105,11 @@ class CFBDGamesAPI(CFBDAPIBase):
 
         return await self._make_request("/games/media", params)
 
-    @route("/games/weather")
+    @route(
+        "/games/weather",
+        response_model=GameWeather,
+        dataframe_schema=GameWeatherSchema,
+    )
     async def _get_game_weather(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Get game weather information.
@@ -92,7 +121,11 @@ class CFBDGamesAPI(CFBDAPIBase):
         """
         return await self._make_request("/games/weather", params)
 
-    @route("/games/players")
+    @route(
+        "/games/players",
+        response_model=PlayerGameStats,
+        dataframe_schema=PlayerGameStatsSchema,
+    )
     async def _get_player_game_stats(
         self, params: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
@@ -110,7 +143,11 @@ class CFBDGamesAPI(CFBDAPIBase):
 
         return await self._make_request("/games/players", params)
 
-    @route("/games/teams")
+    @route(
+        "/games/teams",
+        response_model=TeamGameStats,
+        dataframe_schema=TeamGameStatsSchema,
+    )
     async def _get_team_game_stats(
         self, params: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
@@ -128,7 +165,11 @@ class CFBDGamesAPI(CFBDAPIBase):
 
         return await self._make_request("/games/teams", params)
 
-    @route("/games/box/advanced")
+    @route(
+        "/games/box/advanced",
+        response_model=AdvancedBoxScore,
+        dataframe_schema=None,
+    )
     async def _get_box_scores(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Get box score data for a specific game.
@@ -145,61 +186,3 @@ class CFBDGamesAPI(CFBDAPIBase):
             )
 
         return await self._make_request("/games/box/advanced", params)
-
-    # Convenience methods that maintain the original interface
-    async def get_games(
-        self,
-        year: int,
-        week: Optional[int] = None,
-        season_type: Optional[str] = None,
-        team: Optional[str] = None,
-        home: Optional[str] = None,
-        away: Optional[str] = None,
-        conference: Optional[str] = None,
-        division: Optional[str] = None,
-        id: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Get game information using typed parameters.
-
-        :param year: Year filter (required)
-        :type year: int
-        :param week: Week filter
-        :type week: Optional[int]
-        :param season_type: Season type filter (regular, postseason, both)
-        :type season_type: Optional[str]
-        :param team: Team filter
-        :type team: Optional[str]
-        :param home: Home team filter
-        :type home: Optional[str]
-        :param away: Away team filter
-        :type away: Optional[str]
-        :param conference: Conference filter
-        :type conference: Optional[str]
-        :param division: Division filter (fbs, fcs, ii, iii)
-        :type division: Optional[str]
-        :param id: Game ID filter
-        :type id: Optional[int]
-        :return: List of game dictionaries
-        :rtype: List[Dict[str, Any]]
-        """
-        params: Dict[str, Any] = {"year": year}
-
-        if week is not None:
-            params["week"] = week
-        if season_type:
-            params["seasonType"] = season_type
-        if team:
-            params["team"] = team
-        if home:
-            params["home"] = home
-        if away:
-            params["away"] = away
-        if conference:
-            params["conference"] = conference
-        if division:
-            params["division"] = division
-        if id is not None:
-            params["id"] = id
-
-        return await self.make_request("/games", params)

@@ -1,35 +1,39 @@
-"""Validation helpers for CFBD API responses."""
+"""Validation layer for CFBD API clients using Pydantic models."""
 
-from typing import Any, Dict, List, Optional, Type, TypeVar, Union
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional, Union
 
 from cfb_data.base.api.base_api import CFBDAPIBase
 from pydantic import BaseModel
 
-T = TypeVar("T", bound=BaseModel)
-
 
 class CFBDValidationAPI(CFBDAPIBase):
-    """Base API client that validates responses using Pydantic models."""
+    """API client that automatically validates responses with Pydantic."""
 
-    async def make_request_validated(
-        self,
-        path: str,
-        model: Type[T],
-        params: Optional[Dict[str, Any]] = None,
-    ) -> Union[T, List[T]]:
-        """Make a request and validate the JSON response.
+    async def make_request(
+        self, path: str, params: Optional[Dict[str, Any]] = None
+    ) -> Union[List[BaseModel], BaseModel, Dict[str, Any], List[Dict[str, Any]]]:
+        """Return validated data for ``path``.
 
-        :param path: API endpoint path to request
+        The response model is obtained from the route decorator attached to the
+        handler for ``path``. If no model is defined, the raw JSON is returned.
+
+        :param path: API path to request.
         :type path: str
-        :param model: Pydantic model class used for validation
-        :type model: Type[T]
-        :param params: Optional query parameters for the request
+        :param params: Optional query parameters.
         :type params: Optional[Dict[str, Any]]
-        :return: Validated model instance or list of instances
-        :rtype: Union[T, List[T]]
-        :raises TypeError: If the returned data is not a ``list`` or ``dict``
+        :return: Validated models or raw JSON.
+        :rtype: Union[List[BaseModel], BaseModel, Dict[str, Any], List[Dict[str, Any]]]
+        :raises TypeError: If the response type is not list or dict when a model is provided.
         """
-        data: Union[List[Any], Dict[str, Any]] = await self.make_request(path, params)
+
+        data = await super().make_request(path, params)
+        handler = self._route_map.get(path)
+        model = getattr(handler, "response_model", None) if handler else None
+        if model is None:
+            return data
+
         if isinstance(data, list):
             return [model.model_validate(item) for item in data]
         if isinstance(data, dict):
