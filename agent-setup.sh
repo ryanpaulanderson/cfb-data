@@ -9,3 +9,7 @@ wget \
   https://apinext.collegefootballdata.com/
 
 pip install -r cfb_data/requirements.txt --no-cache-dir
+
+pre-commit install
+
+pre-commit run --all-files # ensure dependencies are downloaded before offline access is cut
