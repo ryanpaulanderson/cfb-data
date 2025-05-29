@@ -26,6 +26,7 @@ class CFBDGamesValidationAPI(CFBDGamesAPI, CFBDValidationAPI):
         :type params: Dict[str, Any]
         :return: List of validated :class:`Game` models
         :rtype: List[Game]
+
         """
         data: List[Dict[str, Any]] = await self._get_games(params)
         return [Game.model_validate(item) for item in data]

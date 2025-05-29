@@ -9,3 +9,14 @@ repos:
     rev: 25.1.0        # Use a fixed tag or commit SHA
     hooks:
       - id: black
+
+  - repo: https://github.com/pycqa/pydocstyle
+    rev: 6.2.2       # latest stable release
+    hooks:
+      - id: pydocstyle
+        args:
+          # Require docstrings on all public constructs
+          - --select=D100,D101,D102,D103,D104,D105
+          # Enforce Sphinx-style :param: descriptions
+          - --select=D417,D418
+        files: \.py$    # only check Python files
