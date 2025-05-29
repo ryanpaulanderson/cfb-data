@@ -2,17 +2,18 @@
 College Football Data API - Pandera Schema Models for Games Section
 """
 
-import pandera as pa
-from pandera.typing import Series
-from pandera import Field, SchemaModel
-from typing import List, Optional, Dict, Any
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import pandera as pa
+from pandera import DataFrameModel, Field
+from pandera.typing import Series
 
 
 # -------------------------------------------------------------------
 # /games endpoint
 # -------------------------------------------------------------------
-class GameSchema(SchemaModel):
+class GameSchema(DataFrameModel):
     """
     Schema for /games endpoint.
     """
@@ -52,6 +53,8 @@ class GameSchema(SchemaModel):
     notes: Series[Optional[str]] = Field(nullable=True)
 
     class Config:
+        """Pandera configuration."""
+
         coerce = True
         strict = True
 
@@ -59,7 +62,7 @@ class GameSchema(SchemaModel):
 # -------------------------------------------------------------------
 # /calendar endpoint
 # -------------------------------------------------------------------
-class CalendarWeekSchema(SchemaModel):
+class CalendarWeekSchema(DataFrameModel):
     """
     Schema for /calendar endpoint.
     """
@@ -71,6 +74,8 @@ class CalendarWeekSchema(SchemaModel):
     last_game_start: Series[datetime] = Field()
 
     class Config:
+        """Pandera configuration."""
+
         coerce = True
         strict = True
 
@@ -78,7 +83,7 @@ class CalendarWeekSchema(SchemaModel):
 # -------------------------------------------------------------------
 # /games/media endpoint
 # -------------------------------------------------------------------
-class GameMediaSchema(SchemaModel):
+class GameMediaSchema(DataFrameModel):
     """
     Schema for /games/media endpoint.
     """
@@ -101,6 +106,8 @@ class GameMediaSchema(SchemaModel):
     outlet: Series[Optional[str]] = Field(nullable=True)
 
     class Config:
+        """Pandera configuration."""
+
         coerce = True
         strict = True
 
@@ -108,7 +115,7 @@ class GameMediaSchema(SchemaModel):
 # -------------------------------------------------------------------
 # /games/weather endpoint
 # -------------------------------------------------------------------
-class GameWeatherSchema(SchemaModel):
+class GameWeatherSchema(DataFrameModel):
     """
     Schema for /games/weather endpoint.
     """
@@ -133,6 +140,8 @@ class GameWeatherSchema(SchemaModel):
     weather_condition: Series[Optional[str]] = Field(nullable=True)
 
     class Config:
+        """Pandera configuration."""
+
         coerce = True
         strict = True
 
@@ -140,7 +149,7 @@ class GameWeatherSchema(SchemaModel):
 # -------------------------------------------------------------------
 # /records endpoint
 # -------------------------------------------------------------------
-class TeamRecordsSchema(SchemaModel):
+class TeamRecordsSchema(DataFrameModel):
     """
     Schema for /records endpoint.
     """
@@ -157,6 +166,8 @@ class TeamRecordsSchema(SchemaModel):
     away_games: Series[Optional[Dict[str, int]]] = Field(nullable=True)
 
     class Config:
+        """Pandera configuration."""
+
         coerce = True
         strict = True
 
@@ -164,7 +175,7 @@ class TeamRecordsSchema(SchemaModel):
 # -------------------------------------------------------------------
 # /games/players endpoint
 # -------------------------------------------------------------------
-class PlayerGameStatsSchema(SchemaModel):
+class PlayerGameStatsSchema(DataFrameModel):
     """
     Schema for /games/players endpoint.
     """
@@ -179,6 +190,8 @@ class PlayerGameStatsSchema(SchemaModel):
     defensive: Series[Optional[List[Dict[str, Any]]]] = Field(nullable=True)
 
     class Config:
+        """Pandera configuration."""
+
         coerce = True
         strict = True
 
@@ -186,7 +199,7 @@ class PlayerGameStatsSchema(SchemaModel):
 # -------------------------------------------------------------------
 # /games/teams endpoint
 # -------------------------------------------------------------------
-class TeamGameStatsSchema(SchemaModel):
+class TeamGameStatsSchema(DataFrameModel):
     """
     Schema for /games/teams endpoint.
     """
@@ -215,6 +228,8 @@ class TeamGameStatsSchema(SchemaModel):
     possession_time: Series[Optional[str]] = Field(nullable=True)
 
     class Config:
+        """Pandera configuration."""
+
         coerce = True
         strict = True
 
@@ -222,7 +237,7 @@ class TeamGameStatsSchema(SchemaModel):
 # -------------------------------------------------------------------
 # /scoreboard endpoint
 # -------------------------------------------------------------------
-class GameLineSchema(SchemaModel):
+class GameLineSchema(DataFrameModel):
     """
     Sub-schema for the 'line' field in /scoreboard.
     """
@@ -232,11 +247,13 @@ class GameLineSchema(SchemaModel):
     over_under: Series[float] = Field()
 
     class Config:
+        """Pandera configuration."""
+
         coerce = True
         strict = True
 
 
-class ScoreboardSchema(SchemaModel):
+class ScoreboardSchema(DataFrameModel):
     """
     Schema for /scoreboard endpoint.
     """
@@ -255,5 +272,7 @@ class ScoreboardSchema(SchemaModel):
     line: Series[Optional[Dict[str, float]]] = Field(nullable=True)
 
     class Config:
+        """Pandera configuration."""
+
         coerce = True
         strict = True
