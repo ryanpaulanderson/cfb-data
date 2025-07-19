@@ -2,9 +2,6 @@
 
 These are the expectations and standards for all coding contributions to this repository, whether via human or AI developer (e.g., ChatGPT Codex). **All code, documentation, and tests must strictly follow these requirements.**
 
-## Documentation for API
-An offline copy of the api documentation website which utilizes swagger can be found within the api_reference directory that is provided for you at setup time. Reference this to understand the api, its inputs, outputs, etc.
-
 ## Formatting and Style
 
 - **Black formatting:** All code must be auto-formatted using [`black`](https://github.com/psf/black) before commit. No exceptions.
