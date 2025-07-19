@@ -165,8 +165,8 @@ class TestValidateAtLeastOneOf:
 class TestValidateTeamGameStatsLogic:
     """Test validate_team_game_stats_logic function."""
 
-    def test_game_id_provided_no_other_validation(self) -> None:
-        """Test that providing game_id bypasses all other validation."""
+    def test_id_provided_no_other_validation(self) -> None:
+        """Test that providing id bypasses all other validation."""
         # Should not raise any exception regardless of other parameters
         validate_team_game_stats_logic(None, None, None, None, 12345)
 
@@ -190,10 +190,10 @@ class TestValidateTeamGameStatsLogic:
         # Should not raise any exception
         validate_team_game_stats_logic(2023, 1, "Alabama", "SEC", None)
 
-    def test_no_game_id_no_year(self) -> None:
-        """Test validation fails when game_id not provided and year missing."""
+    def test_no_id_no_year(self) -> None:
+        """Test validation fails when id not provided and year missing."""
         with pytest.raises(
-            ValueError, match="year is required when game_id is not specified"
+            ValueError, match="year is required when id is not specified"
         ):
             validate_team_game_stats_logic(None, 1, None, None, None)
 
@@ -201,7 +201,7 @@ class TestValidateTeamGameStatsLogic:
         """Test validation fails when year provided but no week/team/conference."""
         with pytest.raises(
             ValueError,
-            match="At least one of week, team, or conference is required when game_id is not specified",
+            match="At least one of week, team, or conference is required when id is not specified",
         ):
             validate_team_game_stats_logic(2023, None, None, None, None)
 
@@ -209,7 +209,7 @@ class TestValidateTeamGameStatsLogic:
         """Test validation fails when year provided but all filters are explicitly None."""
         with pytest.raises(
             ValueError,
-            match="At least one of week, team, or conference is required when game_id is not specified",
+            match="At least one of week, team, or conference is required when id is not specified",
         ):
             validate_team_game_stats_logic(2023, None, None, None, None)
 
@@ -251,13 +251,13 @@ class TestValidationIntegration:
         """Test that error messages are consistent and informative."""
         # Test year_or_id error message format
         with pytest.raises(ValueError) as exc_info:
-            validate_year_or_id_required(None, None, "game_id")
-        assert "year is required when game_id is not specified" in str(exc_info.value)
+            validate_year_or_id_required(None, None, "id")
+        assert "year is required when id is not specified" in str(exc_info.value)
 
         # Test team_stats year error message format
         with pytest.raises(ValueError) as exc_info:
             validate_team_game_stats_logic(None, 1, None, None, None)
-        assert "year is required when game_id is not specified" in str(exc_info.value)
+        assert "year is required when id is not specified" in str(exc_info.value)
 
         # Test team_stats filter error message format
         with pytest.raises(ValueError) as exc_info:

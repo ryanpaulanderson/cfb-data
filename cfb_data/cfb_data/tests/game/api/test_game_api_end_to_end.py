@@ -183,11 +183,11 @@ class TestGameAPIEndToEndValidation:
         ) as mock_request:
             mock_request.return_value = mock_team_stats_response
 
-            # Test valid request with game_id (bypasses other validation)
-            result = await game_api._get_team_game_stats({"game_id": 401310890})
+            # Test valid request with id (bypasses other validation)
+            result = await game_api._get_team_game_stats({"id": 401310890})
 
             # Verify request was made with correct parameters
-            mock_request.assert_called_once_with("/games/teams", {"gameId": 401310890})
+            mock_request.assert_called_once_with("/games/teams", {"id": 401310890})
 
             # Verify result structure
             assert isinstance(result, list)
@@ -215,7 +215,7 @@ class TestGameAPIEndToEndValidation:
             # Verify error message contains expected validation info
             error_str = str(exc_info.value)
             assert (
-                "At least one of week, team, or conference is required when game_id is not specified"
+                "At least one of week, team, or conference is required when id is not specified"
                 in error_str
             )
 
@@ -237,11 +237,11 @@ class TestGameAPIEndToEndValidation:
 
             # Test with snake_case parameters that should be converted to camelCase
             result = await game_api._get_team_game_stats(
-                {"game_id": 401310890, "season_type": "regular"}
+                {"id": 401310890, "season_type": "regular"}
             )
 
             # Verify request was made with camelCase field names
-            expected_params = {"gameId": 401310890, "seasonType": "regular"}
+            expected_params = {"id": 401310890, "seasonType": "regular"}
             mock_request.assert_called_once_with("/games/teams", expected_params)
 
             # Verify result structure
@@ -366,7 +366,7 @@ class TestGameAPIEndToEndValidation:
 
             mock_request.assert_not_called()
             error_str = str(exc_info.value)
-            assert "game_id" in error_str and "year" in error_str
+            assert "id" in error_str and "year" in error_str
 
     @pytest.mark.asyncio
     async def test_http_error_vs_validation_error_end_to_end(

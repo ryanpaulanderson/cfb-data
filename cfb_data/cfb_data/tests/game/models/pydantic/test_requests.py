@@ -4,7 +4,12 @@ import pytest
 from pydantic import ValidationError
 
 from cfb_data.base.validation.request_validators import Classification, SeasonType
-from cfb_data.game.models.pydantic.requests import GamesRequest, TeamGameStatsRequest
+from cfb_data.game.models.pydantic.requests import (
+    GamesRequest,
+    TeamGameStatsRequest,
+    PlayerGameStatsRequest,
+    GameWeatherRequest,
+)
 
 
 class TestGamesRequest:
@@ -139,10 +144,10 @@ class TestGamesRequest:
 class TestTeamGameStatsRequest:
     """Test TeamGameStatsRequest model validation."""
 
-    def test_valid_request_with_game_id(self) -> None:
-        """Test valid request with game_id bypasses other validation."""
-        request = TeamGameStatsRequest(game_id=12345)
-        assert request.game_id == 12345
+    def test_valid_request_with_id(self) -> None:
+        """Test valid request with id bypasses other validation."""
+        request = TeamGameStatsRequest(id=12345)
+        assert request.id == 12345
         assert request.year is None
 
     def test_valid_request_with_year_and_week(self) -> None:
@@ -187,7 +192,7 @@ class TestTeamGameStatsRequest:
 
         errors = exc_info.value.errors()
         assert len(errors) == 1
-        assert "year is required when game_id is not specified" in errors[0]["msg"]
+        assert "year is required when id is not specified" in errors[0]["msg"]
 
     def test_invalid_request_year_without_filters(self) -> None:
         """Test that validation fails when year provided but no filters."""
@@ -200,11 +205,11 @@ class TestTeamGameStatsRequest:
             "At least one of week, team, or conference is required" in errors[0]["msg"]
         )
 
-    def test_game_id_overrides_other_validation(self) -> None:
-        """Test that providing game_id bypasses year and filter validation."""
+    def test_id_overrides_other_validation(self) -> None:
+        """Test that providing id bypasses year and filter validation."""
         # This should be valid even though year is missing and no filters
-        request = TeamGameStatsRequest(game_id=12345)
-        assert request.game_id == 12345
+        request = TeamGameStatsRequest(id=12345)
+        assert request.id == 12345
 
     def test_season_type_enum_validation(self) -> None:
         """Test season_type field accepts valid enum values."""
@@ -225,11 +230,12 @@ class TestTeamGameStatsRequest:
         # Test with camelCase input (simulating API request)
         data = {
             "year": 2023,
-            "gameId": 12345,  # camelCase alias
+            "week": 1,  # Need at least one filter when year is provided
+            "id": 12345,  # Use 'id' for TeamGameStatsRequest API compliance
             "seasonType": "postseason",  # camelCase alias
         }
         request = TeamGameStatsRequest.model_validate(data)
-        assert request.game_id == 12345
+        assert request.id == 12345
         assert request.season_type == SeasonType.postseason
 
     def test_model_dump_with_aliases(self) -> None:
@@ -238,12 +244,12 @@ class TestTeamGameStatsRequest:
             year=2023,
             week=1,
             season_type=SeasonType.regular,
-            game_id=12345,
+            id=12345,
         )
         dumped = request.model_dump(by_alias=True)
-        assert "gameId" in dumped
+        assert "id" in dumped
         assert "seasonType" in dumped
-        assert dumped["gameId"] == 12345
+        assert dumped["id"] == 12345
         assert dumped["seasonType"] == "regular"
 
 
@@ -294,10 +300,238 @@ class TestRequestModelsIntegration:
             TeamGameStatsRequest(week=1)
 
         error_msg = str(exc_info.value)
-        assert "year is required when game_id is not specified" in error_msg
+        assert "year is required when id is not specified" in error_msg
 
         with pytest.raises(ValidationError) as exc_info:
             TeamGameStatsRequest(year=2023)
 
         error_msg = str(exc_info.value)
         assert "At least one of week, team, or conference is required" in error_msg
+
+
+class TestPlayerGameStatsRequest:
+    """Test PlayerGameStatsRequest model validation."""
+
+    def test_valid_request_with_id(self) -> None:
+        """Test valid request with id bypasses other validation."""
+        request = PlayerGameStatsRequest(id=12345)
+        assert request.id == 12345
+        assert request.year is None
+
+    def test_valid_request_with_year_and_week(self) -> None:
+        """Test valid request with year and week parameters."""
+        request = PlayerGameStatsRequest(year=2023, week=1)
+        assert request.year == 2023
+        assert request.week == 1
+
+    def test_valid_request_with_year_and_team(self) -> None:
+        """Test valid request with year and team parameters."""
+        request = PlayerGameStatsRequest(year=2023, team="Alabama")
+        assert request.year == 2023
+        assert request.team == "Alabama"
+
+    def test_valid_request_with_year_and_conference(self) -> None:
+        """Test valid request with year and conference parameters."""
+        request = PlayerGameStatsRequest(year=2023, conference="SEC")
+        assert request.year == 2023
+        assert request.conference == "SEC"
+
+    def test_valid_request_with_all_filters(self) -> None:
+        """Test valid request with year and all filter parameters."""
+        request = PlayerGameStatsRequest(
+            year=2023,
+            week=1,
+            team="Alabama",
+            conference="SEC",
+            season_type=SeasonType.regular,
+            category="passing",
+            classification=Classification.fbs,
+        )
+        assert request.year == 2023
+        assert request.week == 1
+        assert request.team == "Alabama"
+        assert request.conference == "SEC"
+        assert request.season_type == SeasonType.regular
+        assert request.category == "passing"
+        assert request.classification == Classification.fbs
+
+    def test_invalid_request_no_game_id_no_year(self) -> None:
+        """Test that validation fails when no game_id and no year."""
+        with pytest.raises(ValidationError) as exc_info:
+            PlayerGameStatsRequest(week=1, team="Alabama")
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert "year is required when id is not specified" in errors[0]["msg"]
+
+    def test_invalid_request_year_without_filters(self) -> None:
+        """Test that validation fails when year provided but no filters."""
+        with pytest.raises(ValidationError) as exc_info:
+            PlayerGameStatsRequest(year=2023)
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert (
+            "At least one of week, team, or conference is required" in errors[0]["msg"]
+        )
+
+    def test_id_overrides_other_validation(self) -> None:
+        """Test that providing id bypasses year and filter validation."""
+        # This should be valid even though year is missing and no filters
+        request = PlayerGameStatsRequest(id=12345)
+        assert request.id == 12345
+
+    def test_season_type_enum_validation(self) -> None:
+        """Test season_type field accepts valid enum values."""
+        request = PlayerGameStatsRequest(
+            year=2023, week=1, season_type=SeasonType.postseason
+        )
+        assert request.season_type == SeasonType.postseason
+
+    def test_field_aliases(self) -> None:
+        """Test that camelCase field aliases work correctly."""
+        # Test with camelCase input (simulating API request)
+        data = {
+            "year": 2023,
+            "week": 1,  # Need at least one filter when year is provided
+            "id": 12345,  # Use 'id' for TeamGameStatsRequest API compliance
+            "seasonType": "postseason",  # camelCase alias
+        }
+        request = PlayerGameStatsRequest.model_validate(data)
+        assert request.id == 12345
+        assert request.season_type == SeasonType.postseason
+
+    def test_model_dump_with_aliases(self) -> None:
+        """Test that model dumps with field aliases."""
+        request = PlayerGameStatsRequest(
+            year=2023,
+            week=1,
+            season_type=SeasonType.regular,
+            id=12345,
+        )
+        dumped = request.model_dump(by_alias=True)
+        assert "id" in dumped
+        assert "seasonType" in dumped
+        assert dumped["id"] == 12345
+        assert dumped["seasonType"] == "regular"
+
+    def test_edge_cases(self) -> None:
+        """Test edge cases for PlayerGameStatsRequest."""
+        # Test with zero week (should count as valid filter)
+        request = PlayerGameStatsRequest(year=2023, week=0)
+        assert request.week == 0
+
+        # Test with empty string team (should count as valid filter)
+        request = PlayerGameStatsRequest(year=2023, team="")
+        assert request.team == ""
+
+        # Test with zero id
+        request = PlayerGameStatsRequest(id=0)
+        assert request.id == 0
+
+
+class TestGameWeatherRequest:
+    """Test GameWeatherRequest model validation."""
+
+    def test_valid_request_with_game_id(self) -> None:
+        """Test valid request with game_id bypasses other validation."""
+        request = GameWeatherRequest(game_id=12345)
+        assert request.game_id == 12345
+        assert request.year is None
+
+    def test_valid_request_with_year(self) -> None:
+        """Test valid request with year parameter."""
+        request = GameWeatherRequest(year=2023)
+        assert request.year == 2023
+        assert request.game_id is None
+
+    def test_valid_request_with_all_parameters(self) -> None:
+        """Test valid request with all optional parameters."""
+        request = GameWeatherRequest(
+            year=2023,
+            week=1,
+            season_type=SeasonType.regular,
+            team="Alabama",
+            conference="SEC",
+            classification=Classification.fbs,
+        )
+        assert request.year == 2023
+        assert request.week == 1
+        assert request.season_type == SeasonType.regular
+        assert request.team == "Alabama"
+        assert request.conference == "SEC"
+        assert request.classification == Classification.fbs
+
+    def test_valid_request_with_both_game_id_and_year(self) -> None:
+        """Test valid request with both game_id and year parameters."""
+        request = GameWeatherRequest(game_id=12345, year=2023)
+        assert request.game_id == 12345
+        assert request.year == 2023
+
+    def test_invalid_request_no_game_id_no_year(self) -> None:
+        """Test that validation fails when neither game_id nor year is provided."""
+        with pytest.raises(ValidationError) as exc_info:
+            GameWeatherRequest(week=1, team="Alabama")
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert "year is required when game_id is not specified" in errors[0]["msg"]
+
+    def test_game_id_overrides_year_requirement(self) -> None:
+        """Test that providing game_id bypasses year requirement."""
+        # This should be valid even though year is missing
+        request = GameWeatherRequest(game_id=12345, week=1, team="Alabama")
+        assert request.game_id == 12345
+        assert request.week == 1
+        assert request.team == "Alabama"
+
+    def test_season_type_enum_validation(self) -> None:
+        """Test season_type field accepts valid enum values."""
+        request = GameWeatherRequest(year=2023, season_type=SeasonType.postseason)
+        assert request.season_type == SeasonType.postseason
+
+    def test_classification_enum_validation(self) -> None:
+        """Test classification field accepts valid enum values."""
+        request = GameWeatherRequest(year=2023, classification=Classification.fcs)
+        assert request.classification == Classification.fcs
+
+    def test_field_aliases(self) -> None:
+        """Test that camelCase field aliases work correctly."""
+        # Test with camelCase input (simulating API request)
+        data = {
+            "year": 2023,
+            "week": 1,  # Need at least one filter when year is provided
+            "gameId": 12345,  # Use 'gameId' for GameWeatherRequest API compliance
+            "seasonType": "postseason",  # camelCase alias
+        }
+        request = GameWeatherRequest.model_validate(data)
+        assert request.game_id == 12345
+        assert request.season_type == SeasonType.postseason
+
+    def test_model_dump_with_aliases(self) -> None:
+        """Test that model dumps with field aliases."""
+        request = GameWeatherRequest(
+            year=2023,
+            week=1,
+            season_type=SeasonType.regular,
+            game_id=12345,
+        )
+        dumped = request.model_dump(by_alias=True)
+        assert "gameId" in dumped
+        assert "seasonType" in dumped
+        assert dumped["gameId"] == 12345
+        assert dumped["seasonType"] == "regular"
+
+    def test_edge_cases(self) -> None:
+        """Test edge cases for GameWeatherRequest."""
+        # Test with zero week
+        request = GameWeatherRequest(year=2023, week=0)
+        assert request.week == 0
+
+        # Test with empty string team
+        request = GameWeatherRequest(year=2023, team="")
+        assert request.team == ""
+
+        # Test year-only request (should be valid since no specific filters required)
+        request = GameWeatherRequest(year=2023)
+        assert request.year == 2023

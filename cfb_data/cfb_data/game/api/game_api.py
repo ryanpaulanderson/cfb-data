@@ -198,7 +198,7 @@ class CFBDGamesAPI(CFBDAPIBase):
         return await self._make_request("/games/teams", validated_params)
 
     @route(
-        "/games/box/advanced",
+        "/game/box/advanced",
         response_model=AdvancedBoxScore,
         dataframe_schema=None,
     )
@@ -206,7 +206,7 @@ class CFBDGamesAPI(CFBDAPIBase):
         """
         Get box score data for a specific game.
 
-        :param params: Query parameters including gameId (required)
+        :param params: Query parameters including id (required)
         :type params: Dict[str, Any]
         :return: Box score data dictionary
         :rtype: Dict[str, Any]
@@ -219,4 +219,4 @@ class CFBDGamesAPI(CFBDAPIBase):
         validated_params: Dict[str, Any] = request.model_dump(
             exclude_none=True, by_alias=True
         )
-        return await self._make_request("/games/box/advanced", validated_params)
+        return await self._make_request("/game/box/advanced", validated_params)

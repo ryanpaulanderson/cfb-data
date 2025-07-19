@@ -126,10 +126,10 @@ def validate_team_game_stats_logic(
     week: Optional[int],
     team: Optional[str],
     conference: Optional[str],
-    game_id: Optional[int],
+    id: Optional[int],
 ) -> None:
     """
-    Validate the complex conditional logic for /games/teams endpoint.
+    Validate the complex conditional logic for /games/teams and /games/players endpoints.
 
     API Rules from https://apinext.collegefootballdata.com/:
     - year is required (along with one of week, team, or conference), unless id is specified
@@ -143,23 +143,23 @@ def validate_team_game_stats_logic(
     :type team: Optional[str]
     :param conference: Conference parameter
     :type conference: Optional[str]
-    :param game_id: Game ID parameter
-    :type game_id: Optional[int]
+    :param id: Game ID parameter
+    :type id: Optional[int]
     :raises ValueError: If validation rules are violated
     """
-    # If game_id is specified, no other validation needed
-    if game_id is not None:
+    # If id is specified, no other validation needed
+    if id is not None:
         return
 
-    # year is required when game_id is not specified
+    # year is required when id is not specified
     if year is None:
-        raise ValueError("year is required when game_id is not specified")
+        raise ValueError("year is required when id is not specified")
 
     # At least one of week, team, or conference must be specified
     if week is None and team is None and conference is None:
         raise ValueError(
             "At least one of week, team, or conference is required "
-            "when game_id is not specified"
+            "when id is not specified"
         )
 
 

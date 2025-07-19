@@ -320,17 +320,17 @@ class TestGetTeamGameStatsIntegration:
     """Integration tests for _get_team_game_stats method with complex conditional validation."""
 
     def test_valid_request_with_game_id_only(self) -> None:
-        """Test that valid request with only game_id works (bypasses other validation)."""
+        """Test that valid request with only id works (bypasses other validation)."""
         api = GameAPIForTesting()
-        api._make_request = AsyncMock(return_value=[{"gameId": 12345}])
+        api._make_request = AsyncMock(return_value=[{"id": 12345}])
 
-        params = {"game_id": 12345}
+        params = {"id": 12345}
         result = run(api._get_team_game_stats(params))
 
-        # Verify _make_request was called with validated parameters and field alias
-        expected_params = {"gameId": 12345}  # Note camelCase alias
+        # Verify _make_request was called with validated parameters
+        expected_params = {"id": 12345}
         api._make_request.assert_awaited_once_with("/games/teams", expected_params)
-        assert result == [{"gameId": 12345}]
+        assert result == [{"id": 12345}]
 
     def test_valid_request_with_year_and_week(self) -> None:
         """Test that valid request with year and week works."""
@@ -402,7 +402,7 @@ class TestGetTeamGameStatsIntegration:
 
         errors = exc_info.value.errors()
         assert len(errors) == 1
-        assert "year is required when game_id is not specified" in errors[0]["msg"]
+        assert "year is required when id is not specified" in errors[0]["msg"]
 
     def test_invalid_request_year_without_filters(self) -> None:
         """Test that year without any filters raises ValidationError."""
@@ -425,10 +425,10 @@ class TestGetTeamGameStatsIntegration:
         api._make_request = AsyncMock(return_value=[{"gameId": 12345}])
 
         # This should be valid even though year is missing and no filters
-        params = {"game_id": 12345}
+        params = {"id": 12345}
         result = run(api._get_team_game_stats(params))
 
-        expected_params = {"gameId": 12345}
+        expected_params = {"id": 12345}
         api._make_request.assert_awaited_once_with("/games/teams", expected_params)
 
     def test_game_id_with_other_parameters(self) -> None:
@@ -437,13 +437,13 @@ class TestGetTeamGameStatsIntegration:
         api._make_request = AsyncMock(return_value=[{"gameId": 12345}])
 
         params = {
-            "game_id": 12345,
+            "id": 12345,
             "year": 2023,  # Should be included even though not required
             "team": "Alabama",
         }
         result = run(api._get_team_game_stats(params))
 
-        expected_params = {"gameId": 12345, "year": 2023, "team": "Alabama"}
+        expected_params = {"id": 12345, "year": 2023, "team": "Alabama"}
         api._make_request.assert_awaited_once_with("/games/teams", expected_params)
 
     def test_validation_happens_before_api_call(self) -> None:
@@ -465,11 +465,11 @@ class TestGetTeamGameStatsIntegration:
         api = GameAPIForTesting()
         api._make_request = AsyncMock(return_value=[{"gameId": 12345}])
 
-        params = {"game_id": 12345}
+        params = {"id": 12345}
         result = run(api._get_team_game_stats(params))
 
         # Verify field alias conversion
-        expected_params = {"gameId": 12345}  # camelCase output
+        expected_params = {"id": 12345}  # camelCase output
         api._make_request.assert_awaited_once_with("/games/teams", expected_params)
 
     def test_field_alias_conversion_season_type(self) -> None:
@@ -500,13 +500,13 @@ class TestGetTeamGameStatsIntegration:
         # Input using camelCase (simulating API request format)
         params = {
             "year": 2023,
-            "gameId": 12345,  # camelCase input
+            "id": 12345,  # Use 'id' for /games/teams endpoint
             "seasonType": "regular",  # camelCase input
         }
         result = run(api._get_team_game_stats(params))
 
         # Should still output camelCase for API
-        expected_params = {"year": 2023, "gameId": 12345, "seasonType": "regular"}
+        expected_params = {"year": 2023, "id": 12345, "seasonType": "regular"}
         api._make_request.assert_awaited_once_with("/games/teams", expected_params)
 
     def test_edge_case_zero_week(self) -> None:
@@ -604,7 +604,7 @@ class TestTeamGameStatsValidationErrorMessages:
             run(api._get_team_game_stats(params))
 
         error_message = str(exc_info.value)
-        assert "year is required when game_id is not specified" in error_message
+        assert "year is required when id is not specified" in error_message
 
     def test_missing_filters_error_message_quality(self) -> None:
         """Test that error message for missing filters is clear."""
@@ -633,7 +633,7 @@ class TestTeamGameStatsValidationErrorMessages:
         for params, description in invalid_scenarios:
             with pytest.raises(
                 ValidationError,
-                match="year is required when game_id is not specified|At least one of week, team, or conference is required",
+                match="year is required when id is not specified|At least one of week, team, or conference is required",
             ):
                 run(api._get_team_game_stats(params))
 
@@ -657,9 +657,9 @@ class TestTeamGameStatsComplexScenarios:
             {"year": 2023, "team": "Alabama", "conference": "SEC"},
             {"year": 2023, "week": 1, "team": "Alabama", "conference": "SEC"},
             # Game ID scenarios (bypasses other requirements)
-            {"game_id": 12345},
-            {"game_id": 12345, "year": 2023},
-            {"game_id": 12345, "week": 1},
+            {"id": 12345},
+            {"id": 12345, "year": 2023},
+            {"id": 12345, "week": 1},
         ]
 
         for params in valid_combinations:
