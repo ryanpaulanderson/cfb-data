@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field, root_validator, validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 
 # Enums
@@ -21,11 +21,20 @@ class SeasonType(str, Enum):
     :type postseason: str
     :param both: Both regular and postseason
     :type both: str
+    :param allstar: All-star games
+    :type allstar: str
+    :param spring_regular: Spring regular season
+    :type spring_regular: str
+    :param spring_postseason: Spring postseason
+    :type spring_postseason: str
     """
 
     regular = "regular"
     postseason = "postseason"
     both = "both"
+    allstar = "allstar"
+    spring_regular = "spring_regular"
+    spring_postseason = "spring_postseason"
 
 
 class Division(str, Enum):
@@ -186,8 +195,8 @@ class Game(BaseModel):
     :type home_team: str
     :param home_conference: Home team conference
     :type home_conference: Optional[str]
-    :param home_division: Home team division
-    :type home_division: Optional[str]
+    :param home_classification: Home team classification
+    :type home_classification: Optional[str]
     :param home_points: Home team points
     :type home_points: Optional[int]
     :param home_line_scores: Home team line scores by quarter
@@ -204,8 +213,8 @@ class Game(BaseModel):
     :type away_team: str
     :param away_conference: Away team conference
     :type away_conference: Optional[str]
-    :param away_division: Away team division
-    :type away_division: Optional[str]
+    :param away_classification: Away team classification
+    :type away_classification: Optional[str]
     :param away_points: Away team points
     :type away_points: Optional[int]
     :param away_line_scores: Away team line scores by quarter
@@ -224,41 +233,52 @@ class Game(BaseModel):
     :type notes: Optional[str]
     """
 
+    model_config = ConfigDict(populate_by_name=True)
+
     id: int
     season: int
     week: int
-    season_type: str
-    start_date: datetime
-    start_time_tbd: bool = False
+    season_type: str = Field(alias="seasonType")
+    start_date: datetime = Field(alias="startDate")
+    start_time_tbd: bool = Field(default=False, alias="startTimeTBD")
     completed: bool = False
-    neutral_site: bool = False
-    conference_game: Optional[bool] = None
+    neutral_site: bool = Field(default=False, alias="neutralSite")
+    conference_game: Optional[bool] = Field(default=None, alias="conferenceGame")
     attendance: Optional[int] = None
-    venue_id: Optional[int] = None
+    venue_id: Optional[int] = Field(default=None, alias="venueId")
     venue: Optional[str] = None
-    home_id: Optional[int] = None
-    home_team: str
-    home_conference: Optional[str] = None
-    home_division: Optional[str] = None
-    home_points: Optional[int] = None
-    home_line_scores: Optional[List[Optional[int]]] = None
-    home_post_win_prob: Optional[float] = Field(None, ge=0, le=1)
-    home_pregame_elo: Optional[int] = None
-    home_postgame_elo: Optional[int] = None
-    away_id: Optional[int] = None
-    away_team: str
-    away_conference: Optional[str] = None
-    away_division: Optional[str] = None
-    away_points: Optional[int] = None
-    away_line_scores: Optional[List[Optional[int]]] = None
-    away_post_win_prob: Optional[float] = Field(None, ge=0, le=1)
-    away_pregame_elo: Optional[int] = None
-    away_postgame_elo: Optional[int] = None
-    excitement_index: Optional[float] = None
+    home_id: Optional[int] = Field(default=None, alias="homeId")
+    home_team: str = Field(alias="homeTeam")
+    home_conference: Optional[str] = Field(default=None, alias="homeConference")
+    home_classification: Optional[str] = Field(default=None, alias="homeClassification")
+    home_points: Optional[int] = Field(default=None, alias="homePoints")
+    home_line_scores: Optional[List[Optional[int]]] = Field(
+        default=None, alias="homeLineScores"
+    )
+    home_post_win_prob: Optional[float] = Field(
+        default=None, ge=0, le=1, alias="homePostgameWinProbability"
+    )
+    home_pregame_elo: Optional[int] = Field(default=None, alias="homePregameElo")
+    home_postgame_elo: Optional[int] = Field(default=None, alias="homePostgameElo")
+    away_id: Optional[int] = Field(default=None, alias="awayId")
+    away_team: str = Field(alias="awayTeam")
+    away_conference: Optional[str] = Field(default=None, alias="awayConference")
+    away_classification: Optional[str] = Field(default=None, alias="awayClassification")
+    away_points: Optional[int] = Field(default=None, alias="awayPoints")
+    away_line_scores: Optional[List[Optional[int]]] = Field(
+        default=None, alias="awayLineScores"
+    )
+    away_post_win_prob: Optional[float] = Field(
+        default=None, ge=0, le=1, alias="awayPostgameWinProbability"
+    )
+    away_pregame_elo: Optional[int] = Field(default=None, alias="awayPregameElo")
+    away_postgame_elo: Optional[int] = Field(default=None, alias="awayPostgameElo")
+    excitement_index: Optional[float] = Field(default=None, alias="excitementIndex")
     highlights: Optional[str] = None
     notes: Optional[str] = None
 
-    @validator("home_points", "away_points")
+    @field_validator("home_points", "away_points")
+    @classmethod
     def points_must_be_non_negative(cls, v: Optional[int]) -> Optional[int]:
         """
         Validate that points are non-negative.
@@ -284,17 +304,25 @@ class CalendarWeek(BaseModel):
     :type week: int
     :param season_type: Season type
     :type season_type: str
+    :param start_date: Week start date
+    :type start_date: datetime
+    :param end_date: Week end date
+    :type end_date: datetime
     :param first_game_start: First game start time
     :type first_game_start: datetime
     :param last_game_start: Last game start time
     :type last_game_start: datetime
     """
 
+    model_config = ConfigDict(populate_by_name=True)
+
     season: int
     week: int
-    season_type: str
-    first_game_start: datetime
-    last_game_start: datetime
+    season_type: str = Field(alias="seasonType")
+    start_date: datetime = Field(alias="startDate")
+    end_date: datetime = Field(alias="endDate")
+    first_game_start: datetime = Field(alias="firstGameStart")
+    last_game_start: datetime = Field(alias="lastGameStart")
 
 
 class GameMedia(BaseModel):
@@ -321,6 +349,8 @@ class GameMedia(BaseModel):
     :type away_team: str
     :param away_conference: Away team conference
     :type away_conference: Optional[str]
+    :param media_type: Type of media
+    :type media_type: Optional[str]
     :param tv: TV network
     :type tv: Optional[str]
     :param radio: Radio network
@@ -335,16 +365,19 @@ class GameMedia(BaseModel):
     :type outlet: Optional[str]
     """
 
+    model_config = ConfigDict(populate_by_name=True)
+
     id: int
     season: int
     week: int
-    season_type: str
-    start_time: datetime
-    is_start_time_tbd: bool = False
-    home_team: str
-    home_conference: Optional[str] = None
-    away_team: str
-    away_conference: Optional[str] = None
+    season_type: str = Field(alias="seasonType")
+    start_time: datetime = Field(alias="startTime")
+    is_start_time_tbd: bool = Field(default=False, alias="isStartTimeTBD")
+    home_team: str = Field(alias="homeTeam")
+    home_conference: Optional[str] = Field(default=None, alias="homeConference")
+    away_team: str = Field(alias="awayTeam")
+    away_conference: Optional[str] = Field(default=None, alias="awayConference")
+    media_type: Optional[str] = Field(default=None, alias="mediaType")
     tv: Optional[str] = None
     radio: Optional[str] = None
     web: Optional[str] = None
@@ -395,24 +428,30 @@ class GameWeather(BaseModel):
     :type weather_condition: Optional[str]
     """
 
+    model_config = ConfigDict(populate_by_name=True)
+
     id: int
     season: int
     week: int
-    season_type: str
-    start_time: datetime
-    game_indoors: Optional[bool] = None
-    venue_id: Optional[int] = None
+    season_type: str = Field(alias="seasonType")
+    start_time: datetime = Field(alias="startTime")
+    game_indoors: Optional[bool] = Field(default=None, alias="gameIndoors")
+    venue_id: Optional[int] = Field(default=None, alias="venueId")
     venue: Optional[str] = None
     temperature: Optional[float] = None
-    dew_point: Optional[float] = None
-    humidity: Optional[float] = Field(None, ge=0, le=100)
-    precipitation: Optional[float] = Field(None, ge=0)
-    snowfall: Optional[float] = Field(None, ge=0)
-    wind_direction: Optional[float] = Field(None, ge=0, le=360)
-    wind_speed: Optional[float] = Field(None, ge=0)
+    dew_point: Optional[float] = Field(default=None, alias="dewPoint")
+    humidity: Optional[float] = Field(default=None, ge=0, le=100)
+    precipitation: Optional[float] = Field(default=None, ge=0)
+    snowfall: Optional[float] = Field(default=None, ge=0)
+    wind_direction: Optional[float] = Field(
+        default=None, ge=0, le=360, alias="windDirection"
+    )
+    wind_speed: Optional[float] = Field(default=None, ge=0, alias="windSpeed")
     pressure: Optional[float] = None
-    weather_condition_code: Optional[str] = None
-    weather_condition: Optional[str] = None
+    weather_condition_code: Optional[str] = Field(
+        default=None, alias="weatherConditionCode"
+    )
+    weather_condition: Optional[str] = Field(default=None, alias="weatherCondition")
 
 
 # Team Records Models
@@ -446,6 +485,8 @@ class TeamRecords(BaseModel):
     :type team_id: Optional[int]
     :param team: Team name
     :type team: str
+    :param classification: Team classification (fbs, fcs, etc.)
+    :type classification: Optional[str]
     :param conference: Conference name
     :type conference: Optional[str]
     :param division: Division classification
@@ -460,18 +501,34 @@ class TeamRecords(BaseModel):
     :type home_games: Optional[TeamRecord]
     :param away_games: Away games record
     :type away_games: Optional[TeamRecord]
+    :param neutral_site_games: Neutral site games record
+    :type neutral_site_games: Optional[TeamRecord]
+    :param regular_season: Regular season record
+    :type regular_season: Optional[TeamRecord]
+    :param postseason: Postseason record
+    :type postseason: Optional[TeamRecord]
     """
 
+    model_config = ConfigDict(populate_by_name=True)
+
     year: int
-    team_id: Optional[int] = None
+    team_id: Optional[int] = Field(default=None, alias="teamId")
     team: str
+    classification: Optional[str] = None
     conference: Optional[str] = None
     division: Optional[str] = None
-    expected_wins: Optional[float] = None
+    expected_wins: Optional[float] = Field(default=None, alias="expectedWins")
     total: TeamRecord
-    conference_games: Optional[TeamRecord] = None
-    home_games: Optional[TeamRecord] = None
-    away_games: Optional[TeamRecord] = None
+    conference_games: Optional[TeamRecord] = Field(
+        default=None, alias="conferenceGames"
+    )
+    home_games: Optional[TeamRecord] = Field(default=None, alias="homeGames")
+    away_games: Optional[TeamRecord] = Field(default=None, alias="awayGames")
+    neutral_site_games: Optional[TeamRecord] = Field(
+        default=None, alias="neutralSiteGames"
+    )
+    regular_season: Optional[TeamRecord] = Field(default=None, alias="regularSeason")
+    postseason: Optional[TeamRecord] = None
 
 
 # Player Game Stats Models
@@ -911,7 +968,8 @@ class Scoreboard(BaseModel):
     conference_game: Optional[bool] = None
     line: Optional[GameLine] = None
 
-    @validator("home_points", "away_points")
+    @field_validator("home_points", "away_points")
+    @classmethod
     def points_must_be_non_negative(cls, v: Optional[int]) -> Optional[int]:
         """Ensure point totals are not negative.
 

@@ -21,7 +21,16 @@ class GameSchema(DataFrameModel):
     id: Series[int] = Field(ge=0)
     season: Series[int] = Field(ge=0)
     week: Series[int] = Field(ge=0)
-    season_type: Series[str] = Field(isin=["regular", "postseason", "both"])
+    season_type: Series[str] = Field(
+        isin=[
+            "regular",
+            "postseason",
+            "both",
+            "allstar",
+            "spring_regular",
+            "spring_postseason",
+        ]
+    )
     start_date: Series[datetime] = Field()
     start_time_tbd: Series[bool] = Field()
     completed: Series[bool] = Field()
@@ -33,7 +42,7 @@ class GameSchema(DataFrameModel):
     home_id: Series[Optional[int]] = Field(nullable=True, ge=0)
     home_team: Series[str] = Field()
     home_conference: Series[Optional[str]] = Field(nullable=True)
-    home_division: Series[Optional[str]] = Field(nullable=True)
+    home_classification: Series[Optional[str]] = Field(nullable=True)
     home_points: Series[Optional[int]] = Field(nullable=True, ge=0)
     home_line_scores: Series[Optional[List[Optional[int]]]] = Field(nullable=True)
     home_post_win_prob: Series[Optional[float]] = Field(nullable=True, ge=0, le=1)
@@ -42,7 +51,7 @@ class GameSchema(DataFrameModel):
     away_id: Series[Optional[int]] = Field(nullable=True, ge=0)
     away_team: Series[str] = Field()
     away_conference: Series[Optional[str]] = Field(nullable=True)
-    away_division: Series[Optional[str]] = Field(nullable=True)
+    away_classification: Series[Optional[str]] = Field(nullable=True)
     away_points: Series[Optional[int]] = Field(nullable=True, ge=0)
     away_line_scores: Series[Optional[List[Optional[int]]]] = Field(nullable=True)
     away_post_win_prob: Series[Optional[float]] = Field(nullable=True, ge=0, le=1)
@@ -69,7 +78,18 @@ class CalendarWeekSchema(DataFrameModel):
 
     season: Series[int] = Field(ge=0)
     week: Series[int] = Field(ge=0)
-    season_type: Series[str] = Field(isin=["regular", "postseason", "both"])
+    season_type: Series[str] = Field(
+        isin=[
+            "regular",
+            "postseason",
+            "both",
+            "allstar",
+            "spring_regular",
+            "spring_postseason",
+        ]
+    )
+    start_date: Series[datetime] = Field()
+    end_date: Series[datetime] = Field()
     first_game_start: Series[datetime] = Field()
     last_game_start: Series[datetime] = Field()
 
@@ -91,13 +111,23 @@ class GameMediaSchema(DataFrameModel):
     id: Series[int] = Field(ge=0)
     season: Series[int] = Field(ge=0)
     week: Series[int] = Field(ge=0)
-    season_type: Series[str] = Field(isin=["regular", "postseason", "both"])
+    season_type: Series[str] = Field(
+        isin=[
+            "regular",
+            "postseason",
+            "both",
+            "allstar",
+            "spring_regular",
+            "spring_postseason",
+        ]
+    )
     start_time: Series[datetime] = Field()
     is_start_time_tbd: Series[bool] = Field()
     home_team: Series[str] = Field()
     home_conference: Series[Optional[str]] = Field(nullable=True)
     away_team: Series[str] = Field()
     away_conference: Series[Optional[str]] = Field(nullable=True)
+    media_type: Series[Optional[str]] = Field(nullable=True)
     tv: Series[Optional[str]] = Field(nullable=True)
     radio: Series[Optional[str]] = Field(nullable=True)
     web: Series[Optional[str]] = Field(nullable=True)
@@ -157,6 +187,7 @@ class TeamRecordsSchema(DataFrameModel):
     year: Series[int] = Field(ge=0)
     team_id: Series[Optional[int]] = Field(nullable=True, ge=0)
     team: Series[str] = Field()
+    classification: Series[Optional[str]] = Field(nullable=True)
     conference: Series[Optional[str]] = Field(nullable=True)
     division: Series[Optional[str]] = Field(nullable=True)
     expected_wins: Series[Optional[float]] = Field(nullable=True)
@@ -164,6 +195,9 @@ class TeamRecordsSchema(DataFrameModel):
     conference_games: Series[Optional[Dict[str, int]]] = Field(nullable=True)
     home_games: Series[Optional[Dict[str, int]]] = Field(nullable=True)
     away_games: Series[Optional[Dict[str, int]]] = Field(nullable=True)
+    neutral_site_games: Series[Optional[Dict[str, int]]] = Field(nullable=True)
+    regular_season: Series[Optional[Dict[str, int]]] = Field(nullable=True)
+    postseason: Series[Optional[Dict[str, int]]] = Field(nullable=True)
 
     class Config:
         """Pandera configuration."""
