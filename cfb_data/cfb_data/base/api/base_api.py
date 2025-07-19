@@ -6,6 +6,8 @@ from abc import ABC
 from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union
 
 import aiohttp
+from aiohttp import TCPConnector
+import ssl
 from pandera import DataFrameModel
 from pydantic import BaseModel
 
@@ -101,12 +103,14 @@ class CFBDAPIBase(ABC):
         """
         url: str = f"{self.base_url}{endpoint}"
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                url, headers=self.headers, params=params
-            ) as response:
-                response.raise_for_status()
-                return await response.json()
+        sslctx = ssl.create_default_context()
+        sslctx.check_hostname = False
+        sslctx.verify_mode = ssl.CERT_NONE
+
+        async with aiohttp.ClientSession(connector=TCPConnector(ssl=sslctx)) as session:
+            async with session.get(url, headers=self.headers, params=params) as resp:
+                resp.raise_for_status()
+                return await resp.json()
 
     async def make_request(
         self, path: str, params: Optional[Dict[str, Any]] = None

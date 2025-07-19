@@ -67,8 +67,10 @@ def test_make_request_returns_dataframe():
         "season": 2024,
         "week": 1,
         "season_type": "regular",
-        "first_game_start": "2024-08-01T00:00:00Z",
-        "last_game_start": "2024-08-02T00:00:00Z",
+        "startDate": "2024-08-01T00:00:00Z",
+        "endDate": "2024-08-07T23:59:59Z",
+        "firstGameStart": "2024-08-01T00:00:00Z",
+        "lastGameStart": "2024-08-02T00:00:00Z",
     }
     api._make_request = AsyncMock(return_value=[sample])
     df = run(api.make_request("/calendar"))
@@ -85,8 +87,10 @@ def test_make_request_schema_error():
         "season": 2024,
         "week": -1,
         "season_type": "regular",
-        "first_game_start": "2024-08-01T00:00:00Z",
-        "last_game_start": "2024-08-02T00:00:00Z",
+        "startDate": "2024-08-01T00:00:00Z",
+        "endDate": "2024-08-07T23:59:59Z",
+        "firstGameStart": "2024-08-01T00:00:00Z",
+        "lastGameStart": "2024-08-02T00:00:00Z",
     }
     api._make_request = AsyncMock(return_value=[bad_sample])
     with pytest.raises(pa.errors.SchemaError):

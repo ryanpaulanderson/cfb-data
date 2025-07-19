@@ -204,7 +204,7 @@ def test_make_request_executes_http_call():
 
     # Patch aiohttp.ClientSession within the module
     base_mod = importlib.import_module("cfb_data.base.api.base_api")
-    base_mod.aiohttp.ClientSession = lambda: dummy_session
+    base_mod.aiohttp.ClientSession = lambda **kwargs: dummy_session
 
     result = run(api._make_request("/path", {"k": "v"}))
     assert result == {"data": 123}
