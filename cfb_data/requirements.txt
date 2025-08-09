@@ -1,7 +1,7 @@
 asyncio~=3.4
 aiohttp~=3.12
 black~=25.1
-flake8~=7.2
+flake8~=7.3
 interrogate~=1.7
 isort~=6.0.1
 pandas~=2.2
