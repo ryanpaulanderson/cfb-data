@@ -1,6 +1,6 @@
 asyncio~=3.4
 aiohttp~=3.12
-black~=25.1
+black~=25.9
 flake8~=7.2
 interrogate~=1.7
 isort~=6.1.0
