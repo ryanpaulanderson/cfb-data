@@ -1,88 +1,42 @@
-"""
-Request models for College Football Data API drives endpoints.
-
-This module provides Pydantic models for validating request parameters
-to the drives API endpoints, ensuring proper parameter validation and
-type safety before making API calls.
-"""
+"""Validate request parameters for the implemented Drives endpoint."""
 
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from cfb_data.base.validation import (
-    Classification,
-    SeasonType,
-)
+from cfb_data.enums import Classification, SeasonType
 
 
 class DrivesRequest(BaseModel):
-    """
-    Request parameters for /drives endpoint.
+    """Validate filters accepted by ``GET /drives``.
 
-    Validates parameters for retrieving historical drive data from college
-    football games. Year parameter is always required per API specification.
-
-    :param year: Required year filter (1869-current year)
-    :type year: int
-    :param season_type: Optional season type filter
-    :type season_type: Optional[SeasonType]
-    :param week: Optional week filter (positive integer)
-    :type week: Optional[int]
-    :param team: Optional team filter (either offense or defense)
-    :type team: Optional[str]
-    :param offense: Optional offensive team filter
-    :type offense: Optional[str]
-    :param defense: Optional defensive team filter
-    :type defense: Optional[str]
-    :param conference: Optional conference filter
-    :type conference: Optional[str]
-    :param offense_conference: Optional offensive team conference filter
-    :type offense_conference: Optional[str]
-    :param defense_conference: Optional defensive team conference filter
-    :type defense_conference: Optional[str]
-    :param classification: Optional division classification filter
-    :type classification: Optional[Classification]
+    :param year: Required season year.
+    :param season_type: Optional season phase.
+    :param week: Optional non-negative season week.
+    :param team: Team appearing on offense or defense.
+    :param offense: Offensive-team selector.
+    :param defense: Defensive-team selector.
+    :param conference: Conference appearing on offense or defense.
+    :param offense_conference: Offensive-team conference selector.
+    :param defense_conference: Defensive-team conference selector.
+    :param classification: Division classification selector.
     """
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    # Required parameter
-    year: int = Field(ge=1869, description="Required year filter")
-
-    # Optional season and week filters
-    season_type: SeasonType | None = Field(
-        default=None, alias="seasonType", description="Optional season type filter"
-    )
-    week: int | None = Field(default=None, ge=0, description="Optional week filter")
-
-    # Team filters
-    team: str | None = Field(
-        default=None, description="Optional team filter (either offense or defense)"
-    )
-    offense: str | None = Field(
-        default=None, description="Optional offensive team filter"
-    )
-    defense: str | None = Field(
-        default=None, description="Optional defensive team filter"
-    )
-
-    # Conference filters
-    conference: str | None = Field(
-        default=None, description="Optional conference filter"
-    )
+    year: int = Field(ge=1869)
+    season_type: SeasonType | None = Field(default=None, alias="seasonType")
+    week: int | None = Field(default=None, ge=0)
+    team: str | None = None
+    offense: str | None = None
+    defense: str | None = None
+    conference: str | None = None
     offense_conference: str | None = Field(
         default=None,
         alias="offenseConference",
-        description="Optional offensive team conference filter",
     )
     defense_conference: str | None = Field(
         default=None,
         alias="defenseConference",
-        description="Optional defensive team conference filter",
     )
-
-    # Classification filter
-    classification: Classification | None = Field(
-        default=None, description="Optional division classification filter"
-    )
+    classification: Classification | None = None

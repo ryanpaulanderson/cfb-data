@@ -1,71 +1,80 @@
 # Project status
 
-> Status as of August 12, 2026: foundation rebuild; not ready for general use.
+> Status as of August 12, 2026: version 0.2.0 implements the supported Games
+> and Drives client surface. Broader endpoint, dataset, and workflow coverage
+> remains future work.
 
-## Intended direction
+## Current product surface
 
-The repository began as a hand-written Python toolkit for the
-CollegeFootballData REST API. Its distinguishing ideas were asynchronous HTTP
-access, Pydantic request and response validation, and Pandera-validated pandas
-DataFrames.
+`CFBDClient` is the sole primary client. It owns one context-managed,
+connection-pooled `aiohttp.ClientSession` and exposes typed `games` and
+`drives` namespaces. Every endpoint follows the same boundary sequence:
 
-Those ideas are still present in the codebase, but they do not yet form a
-stable product interface. The current work is rebuilding packaging,
-dependencies, documentation, and automation before making further API-design
-decisions.
+```text
+HTTP → decoded JSON → Pydantic response validation → logical schema → DataFrame
+```
 
-## What exists
+pandas is the default backend. Polars is available through the `polars` extra.
+Both return eager frames with the same endpoint methods, request validation,
+column names/order, API row order, nulls, and logical values. Advanced box
+score is intentionally returned as an `AdvancedBoxScore` model because its
+nested sections do not form one natural table.
 
-- A shared asynchronous HTTP and route-discovery layer.
-- Raw, Pydantic-validated, and pandas-oriented domain client layers.
-- Request and response models for every current endpoint in the Games and
-  Drives API categories.
-- Route handlers for `/games`, `/records`, `/calendar`, `/games/media`,
-  `/scoreboard`, `/games/weather`, `/games/players`, `/games/teams`,
-  `/game/box/advanced`, and `/drives`.
-- A substantial mocked test suite covering validation and internal request
-  behavior.
-- Request and response contracts reconciled with the official CFBD API v5.24.0
-  source and current API reference.
-- Parallel `cfb_data.games` and `cfb_data.drives` package structures with raw,
-  Pydantic-validation, and pandas client layers.
-- A canonical production API host, normal TLS verification, and finite HTTP
-  request timeouts.
+The implemented routes are `/games`, `/records`, `/calendar`, `/scoreboard`,
+`/games/media`, `/games/weather`, `/games/players`, `/games/teams`,
+`/game/box/advanced`, and `/drives`.
 
-At the beginning of the foundation rebuild, the existing suite contained 200
-passing tests. That is useful evidence for internal behavior, but not evidence
-of a complete installed-user workflow.
+## Reliability contract
 
-## What does not exist yet
+- Explicit or environment (`CFBD_API_KEY`) bearer authentication.
+- Mandatory one-shot async context lifecycle and deterministic session close.
+- Finite per-attempt timeouts, normal TLS verification, and disabled redirects.
+- Bounded retries for safe GET transport failures and selected transient HTTP
+  statuses, including capped `Retry-After` handling.
+- Pydantic request and response validation before table conversion.
+- Safe public exception metadata without credentials, query strings, or
+  response payloads.
+- Strict logical schemas and row/column assertions in both adapters.
+- Black-box tests through the installed client and a local HTTP boundary.
+- CI installation checks for base pandas and the Polars extra on Python 3.11
+  and 3.13.
 
-- A cohesive, supported top-level client API.
-- A documented end-user workflow.
-- Broad CollegeFootballData endpoint coverage.
-- Reusable HTTP session ownership, rate-limit observability, and richer
-  transport error context.
-- Credentialed live-API acceptance tests; the repository contract remains
-  deterministic and uses mocked external boundaries by default.
+## Removed 0.1.x surface
 
-The public client design is tracked in
-[GitHub issue #53](https://github.com/ryanpaulanderson/cfb-data/issues/53).
-HTTP transport and error hardening are tracked in
-[GitHub issue #54](https://github.com/ryanpaulanderson/cfb-data/issues/54).
+The raw/Pydantic/pandas inheritance hierarchy, domain-specific client classes,
+generic route decorator, public path router, Pandera schemas, and Pandera
+dependency have been removed. Raw JSON and general response-model return modes
+are not part of the supported client.
+
+## Deliberately not included in 0.2.0
+
+- Endpoint families beyond Games and Drives.
+- Credentialed live-API tests; deterministic tests use a local HTTP server.
+- Polars `LazyFrame` results.
+- Public dataset or workflow namespaces.
+
+Future datasets will compose validated endpoint results and validated
+subdatasets through joins into an authoritative tabular row model. Future
+workflows will orchestrate endpoints and datasets with broader control flow and
+may return multiple artifacts. The accepted decision is recorded in
+[`architecture/0001-validated-models-before-dataframes.md`](architecture/0001-validated-models-before-dataframes.md).
 
 ## Development contract
 
-The package metadata and dependency groups live in `pyproject.toml`.
+Package metadata and dependency groups live in `pyproject.toml`.
 
 ```sh
 make install
+make format
 make check
 ```
 
-These are the same installation and verification commands used by GitHub
-Actions. See `CONTRIBUTING.md` for the complete contributor workflow.
+`make install` installs the complete contributor environment, including both
+DataFrame backends. GitHub Actions runs the shared quality contract on Python
+3.11 and 3.13 and separately smoke-tests base and Polars installations.
 
-## Historical design material
+## Historical material
 
-Earlier analysis, implementation plans, and completion summaries have been
-retained under [`docs/history/`](history/README.md). They are useful for
-understanding why parts of the current architecture exist, but they are not a
-current roadmap or an authoritative statement of implementation status.
+Earlier analyses and implementation plans remain under
+[`history/`](history/README.md). They explain superseded designs and are not a
+current roadmap or API reference.

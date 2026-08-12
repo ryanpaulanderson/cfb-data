@@ -1,7 +1,80 @@
-"""College Football Data API Python Package.
+"""Access validated CollegeFootballData endpoints as pandas or Polars frames."""
 
-This package provides a Python interface for accessing college football data
-from the College Football Data API. It includes modules for games, drives,
-teams, and other college football statistics with built-in validation and
-data transformation capabilities.
-"""
+from .client import CFBDClient, DataFrameBackend
+from .drives.models.pydantic.requests import DrivesRequest
+from .enums import (
+    Classification,
+    MediaType,
+    PlayoffCompetition,
+    PlayoffRound,
+    SeasonType,
+)
+from .errors import (
+    CFBDAuthenticationError,
+    CFBDAuthorizationError,
+    CFBDClientStateError,
+    CFBDConfigurationError,
+    CFBDDataFrameConversionError,
+    CFBDError,
+    CFBDHTTPError,
+    CFBDOptionalDependencyError,
+    CFBDRateLimitError,
+    CFBDRequestValidationError,
+    CFBDResponseDecodeError,
+    CFBDResponseValidationError,
+    CFBDServerError,
+    CFBDTimeoutError,
+    CFBDTLSError,
+    CFBDTransportError,
+)
+from .games.models.pydantic.requests import (
+    AdvancedBoxScoreRequest,
+    CalendarRequest,
+    GameMediaRequest,
+    GamesRequest,
+    GameWeatherRequest,
+    PlayerGameStatsRequest,
+    RecordsRequest,
+    ScoreboardRequest,
+    TeamGameStatsRequest,
+)
+from .games.models.pydantic.responses import AdvancedBoxScore
+from .retry import RetryPolicy
+
+__all__ = [
+    "AdvancedBoxScoreRequest",
+    "AdvancedBoxScore",
+    "CalendarRequest",
+    "CFBDAuthenticationError",
+    "CFBDAuthorizationError",
+    "CFBDClient",
+    "CFBDClientStateError",
+    "CFBDConfigurationError",
+    "CFBDDataFrameConversionError",
+    "CFBDError",
+    "CFBDHTTPError",
+    "CFBDOptionalDependencyError",
+    "CFBDRateLimitError",
+    "CFBDRequestValidationError",
+    "CFBDResponseDecodeError",
+    "CFBDResponseValidationError",
+    "CFBDServerError",
+    "CFBDTimeoutError",
+    "CFBDTLSError",
+    "CFBDTransportError",
+    "Classification",
+    "DataFrameBackend",
+    "DrivesRequest",
+    "GameMediaRequest",
+    "GamesRequest",
+    "GameWeatherRequest",
+    "MediaType",
+    "PlayerGameStatsRequest",
+    "PlayoffCompetition",
+    "PlayoffRound",
+    "RecordsRequest",
+    "RetryPolicy",
+    "ScoreboardRequest",
+    "SeasonType",
+    "TeamGameStatsRequest",
+]

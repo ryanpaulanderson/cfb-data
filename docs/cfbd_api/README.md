@@ -1,27 +1,25 @@
 # Implemented CFBD endpoint contracts
 
-These notes describe only the REST endpoints implemented in this repository.
-They were reconciled on August 12, 2026 with the current
-[CFBD API reference](https://api.collegefootballdata.com/api) and the official
-[`CFBD/cfb-api-v2` v5.24.0 source](https://github.com/CFBD/cfb-api-v2/tree/v5.24.0).
-The new API reference and the versioned official source are authoritative.
-Generated or downloaded API snapshots are intentionally not checked in because
-they become stale and create a competing source of truth.
+These notes cover only endpoint contracts implemented by `CFBDClient`. They
+were reconciled on August 12, 2026 with the current
+[CFBD API reference](https://api.collegefootballdata.com/api) and versioned
+official [`CFBD/cfb-api-v2`](https://github.com/CFBD/cfb-api-v2) source.
 
-| Family | Routes implemented | Contract notes |
+| Family | Routes | Public namespace |
 | --- | ---: | --- |
-| [Games](games_api.md) | 9 | Complete current Games category, including scoreboard and advanced box score |
-| [Drives](drives_api.md) | 1 | Complete current Drives category |
+| [Games](games_api.md) | 9 | `client.games` |
+| [Drives](drives_api.md) | 1 | `client.drives` |
 
-The client sends requests to `https://api.collegefootballdata.com` with bearer
-authentication. Python request fields use snake case and are serialized to the
-API's camel-case names, such as `season_type` to `seasonType` and `game_id` to
-`gameId`. Unknown request fields are rejected so a misspelling cannot silently
-broaden a query.
+`CFBDClient` sends authenticated GET requests to the canonical API origin by
+default. Request fields use snake case in Python and serialize to upstream
+aliases such as `seasonType`, `gameId`, or `id`. `game_id` is the consistent
+public ID name. Unknown fields and invalid combinations fail before HTTP.
 
-The two domain implementations use parallel `cfb_data.games` and
-`cfb_data.drives` package structures. The response models deliberately follow
-the current nested API structures.
-In particular, `/games/teams` and `/games/players` return one object per game
-with nested `teams` collections, while `/game/box/advanced` returns nested
-`gameInfo`, `teams`, and `players` sections.
+All decoded responses pass through the endpoint's Pydantic model before frame
+conversion. Nested `/games/teams`, `/games/players`, scoreboard, records, and
+drives structures remain nested. pandas stores nested values in `object`
+columns; Polars uses native `Struct` and `List` columns. Advanced box score is
+returned as one nested Pydantic model.
+
+See the top-level [`README.md`](../../README.md) for lifecycle, authentication,
+retry, error, dtype, and installation contracts.

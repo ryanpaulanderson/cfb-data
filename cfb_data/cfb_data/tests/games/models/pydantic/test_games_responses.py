@@ -1,16 +1,20 @@
 """Contract tests for responses documented by the current CFBD API."""
 
+import pytest
+from cfb_data.enums import PlayoffCompetition, PlayoffRound
 from cfb_data.games.models.pydantic.responses import (
     AdvancedBoxScore,
     CalendarWeek,
     Game,
     GameMedia,
+    GamePlayoff,
     GameWeather,
     PlayerGameStats,
     ScoreboardGame,
     TeamGameStats,
     TeamRecords,
 )
+from pydantic import ValidationError
 
 
 def quarter_stats(total: float = 1.0) -> dict[str, float | None]:
@@ -76,7 +80,31 @@ def test_games_response_matches_current_contract() -> None:
 
     assert game.home_postgame_win_probability == 0.999
     assert game.playoff is not None
+    assert game.playoff.competition is PlayoffCompetition.cfp
+    assert game.playoff.round is PlayoffRound.first_round
     assert game.playoff.bracket_slot == "R1-1"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("competition", "other"), ("round", "regional")],
+)
+def test_playoff_response_rejects_unknown_enum_values(field: str, value: str) -> None:
+    """Reject playoff values outside the shared upstream enum contract."""
+    payload = {
+        "competition": "cfp",
+        "format": "12-team",
+        "round": "first_round",
+        "roundName": "First Round",
+        "bracketSlot": "R1-1",
+        "homeSeed": 5,
+        "awaySeed": 12,
+        "bowlName": None,
+    }
+    payload[field] = value
+
+    with pytest.raises(ValidationError):
+        GamePlayoff.model_validate(payload)
 
 
 def test_calendar_media_weather_and_records_match_current_contracts() -> None:
@@ -279,8 +307,8 @@ def test_advanced_box_score_matches_current_nested_contract() -> None:
                     {
                         "team": "Alabama",
                         "opportunities": 8,
-                        "points": 48,
-                        "pointsPerOpportunity": 6.0,
+                        "points": -7,
+                        "pointsPerOpportunity": -0.875,
                     }
                 ],
                 "fieldPosition": [
@@ -315,4 +343,5 @@ def test_advanced_box_score_matches_current_nested_contract() -> None:
 
     assert advanced.game_info.home_winner
     assert advanced.teams.havoc[0].defensive_back == 0.05
+    assert advanced.teams.scoring_opportunities[0].points == -7
     assert advanced.players.ppa[0].average.passing == 0.6

@@ -1,0 +1,39 @@
+"""Build endpoint request models from the two supported call styles."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import TypeVar
+
+from pydantic import BaseModel, ValidationError
+
+from cfb_data.errors import CFBDRequestValidationError, _sanitized_cause
+
+_RequestT = TypeVar("_RequestT", bound=BaseModel)
+
+
+def _resolve_request(
+    *,
+    endpoint: str,
+    request_type: type[_RequestT],
+    request: BaseModel | None,
+    filters: Mapping[str, object],
+) -> _RequestT:
+    """Return a supplied request or validate explicit keyword filters."""
+    if request is not None:
+        if filters:
+            raise TypeError(
+                "Pass either one positional request model or keyword filters, not both"
+            )
+        if not isinstance(request, request_type):
+            raise TypeError(
+                f"{endpoint} requires {request_type.__name__}, "
+                f"not {type(request).__name__}"
+            )
+        return request
+
+    try:
+        return request_type.model_validate(filters)
+    except ValidationError as exc:
+        safe_cause = _sanitized_cause(exc)
+    raise CFBDRequestValidationError(endpoint=endpoint) from safe_cause

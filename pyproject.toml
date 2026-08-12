@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cfb-data"
-version = "0.1.0"
-description = "An experimental async toolkit for validated CollegeFootballData API access"
+version = "0.2.0"
+description = "Async validated CollegeFootballData access for pandas and Polars"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -21,11 +21,13 @@ classifiers = [
 dependencies = [
     "aiohttp>=3.13,<4",
     "pandas>=3.0,<4",
-    "pandera>=0.29,<1",
     "pydantic>=2.12,<3",
 ]
 
 [project.optional-dependencies]
+polars = [
+    "polars>=1.43.2,<2",
+]
 dev = [
     "mypy>=2.3,<3",
     "pre-commit>=4.5,<5",
@@ -72,15 +74,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"cfb_data/cfb_data/base/api/base_api.py" = [
-    "B010", # Route decorators attach metadata to arbitrary callables.
-]
 "cfb_data/cfb_data/tests/**/*.py" = [
-    "B",    # Preserve legacy boundary-test scaffolding in this focused change.
-    "D",    # Production docstrings remain the published contract.
-    "E402", # Some tests install import stubs before importing the package.
-    "F841", # Legacy integration tests retain results for narrative clarity.
-    "SIM",  # Preserve explicit failure-flow setup in legacy tests.
+    "D",      # Production docstrings remain the published contract.
+    "SIM117", # Nested context ownership is explicit in lifecycle tests.
 ]
 
 [tool.ruff.lint.pydocstyle]
