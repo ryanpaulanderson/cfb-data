@@ -37,42 +37,15 @@ def run(coro):
     return asyncio.run(coro)
 
 
-def test_make_request_returns_models():
+def test_make_request_returns_models(drive_response: dict[str, object]) -> None:
     """Return Pydantic models when data are valid."""
-    sample = {
-        "offense": "A",
-        "offenseConference": None,
-        "defense": "B",
-        "defenseConference": None,
-        "gameId": 1,
-        "id": "d1",
-        "driveNumber": 1,
-        "scoring": False,
-        "startPeriod": 1,
-        "startYardline": 25,
-        "startYardsToGoal": 75,
-        "startTime": {"seconds": 0, "minutes": 15},
-        "endPeriod": 1,
-        "endYardline": 30,
-        "endYardsToGoal": 70,
-        "endTime": {"seconds": 0, "minutes": 12},
-        "elapsed": {"seconds": 0, "minutes": 3},
-        "plays": 3,
-        "yards": 5,
-        "driveResult": "Punt",
-        "isHomeOffense": True,
-        "startOffenseScore": 0,
-        "startDefenseScore": 0,
-        "endOffenseScore": 0,
-        "endDefenseScore": 0,
-    }
-    mocked = AsyncMock(return_value=[sample])
+    mocked = AsyncMock(return_value=[drive_response])
     with patch.object(CFBDDrivesValidationAPI, "_make_request", mocked):
         api = DummyDrivesValidationAPI()
         result = run(api.make_request("/drives", {"year": 2024}))
         mocked.assert_awaited_once_with("/drives", {"year": 2024})
         assert isinstance(result, list)
-        assert result[0].game_id == 1
+        assert result[0].game_id == 401628347
 
 
 def test_make_request_raises_on_invalid():

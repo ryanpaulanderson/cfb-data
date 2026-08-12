@@ -18,8 +18,8 @@ import pandera as pa
 import pytest
 from cfb_data.base.api.base_api import route
 from cfb_data.base.pandas import CFBDPandasAPI
-from cfb_data.game.models.pandera.responses import CalendarWeekSchema
-from cfb_data.game.models.pydantic.responses import CalendarWeek
+from cfb_data.games.models.pandera.responses import CalendarWeekSchema
+from cfb_data.games.models.pydantic.responses import CalendarWeek
 
 
 class DummyPandasAPI(CFBDPandasAPI):
@@ -73,6 +73,17 @@ def test_make_request_returns_dataframe():
     api._make_request.assert_awaited_once_with("/calendar", {})
     assert isinstance(df, pd.DataFrame)
     assert df.loc[0, "week"] == 1
+
+
+def test_empty_response_returns_schema_shaped_dataframe() -> None:
+    """Preserve declared columns when an endpoint returns no records."""
+    api = DummyPandasAPI()
+    api._make_request = AsyncMock(return_value=[])
+
+    dataframe = run(api.make_request("/calendar"))
+
+    assert dataframe.empty
+    assert set(dataframe.columns) == set(CalendarWeek.model_fields)
 
 
 def test_make_request_schema_error():

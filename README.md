@@ -17,17 +17,18 @@ clients, centered on three capabilities:
 - Pydantic validation for request and response data;
 - Pandera-validated pandas DataFrames for analysis.
 
-The repository currently contains usable domain clients for eight games
-endpoints and the drives endpoint. Their request and response contracts track
-the official CFBD API v5.24.0 documentation. Deciding how they should be
-presented as one stable top-level client remains deliberately deferred.
+The repository currently contains usable domain clients for all nine endpoints
+in the official Games category and the single endpoint in the Drives category.
+Their request and response contracts track the official CFBD API v5.24.0
+documentation. Deciding how they should be presented as one stable top-level
+client remains deliberately deferred.
 
 ## Current domain clients
 
 Set an API key issued by CollegeFootballData and choose the response layer:
 
 ```python
-from cfb_data.game import CFBDGamesValidationAPI
+from cfb_data.games import CFBDGamesValidationAPI
 
 api = CFBDGamesValidationAPI(api_key="...")
 games = await api.make_request(
@@ -42,6 +43,9 @@ games = await api.make_request(
   response models.
 - `CFBDGamesPandasAPI` and `CFBDDrivesPandasAPI` return Pandera-validated
   DataFrames.
+
+The domain packages intentionally mirror one another as `cfb_data.games` and
+`cfb_data.drives`, each with raw, Pydantic-validation, and pandas client layers.
 
 See [`docs/cfbd_api/`](docs/cfbd_api/) for the implemented routes, selectors,
 response shapes, and access restrictions. The client uses the canonical
@@ -90,7 +94,7 @@ duplicate dependency declarations in sync.
 cfb_data/
 ├── cfb_data/                 Python package
 │   ├── base/                 HTTP, validation, and DataFrame foundations
-│   ├── game/                 Games-related handlers and models
+│   ├── games/                Games-related handlers and models
 │   ├── drives/               Drives handler and models
 │   └── tests/                Current internal test suite
 ├── docs/

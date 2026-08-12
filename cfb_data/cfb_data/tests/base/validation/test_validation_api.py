@@ -16,7 +16,7 @@ if importlib.util.find_spec("aiohttp") is None:
 import pytest
 from cfb_data.base.api.base_api import route
 from cfb_data.base.validation import CFBDValidationAPI
-from cfb_data.game.models.pydantic.responses import CalendarWeek
+from cfb_data.games.models.pydantic.responses import CalendarWeek
 from pydantic import ValidationError
 
 

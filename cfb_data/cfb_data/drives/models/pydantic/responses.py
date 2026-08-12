@@ -18,12 +18,12 @@ class Drive(BaseModel):
     """Drive data model for `/drives` endpoint."""
 
     offense: str = Field(alias="offense")
-    offense_conference: str | None = Field(default=None, alias="offenseConference")
+    offense_conference: str | None = Field(alias="offenseConference")
     defense: str = Field(alias="defense")
-    defense_conference: str | None = Field(default=None, alias="defenseConference")
+    defense_conference: str | None = Field(alias="defenseConference")
     game_id: int = Field(alias="gameId")
     id: str = Field(alias="id")
-    drive_number: int | None = Field(default=None, alias="driveNumber")
+    drive_number: int | None = Field(alias="driveNumber")
     scoring: bool = Field(alias="scoring")
     start_period: int = Field(alias="startPeriod")
     start_yardline: int = Field(alias="startYardline")

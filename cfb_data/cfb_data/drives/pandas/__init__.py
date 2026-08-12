@@ -1,4 +1,4 @@
-"""Pandas wrappers for drives endpoints."""
+"""Export :class:`CFBDDrivesPandasAPI`."""
 
 from .drives_pandas import CFBDDrivesPandasAPI
 

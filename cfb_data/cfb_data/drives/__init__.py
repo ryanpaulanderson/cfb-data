@@ -1,4 +1,4 @@
-"""High-level package exports for the drives module."""
+"""Export the drives domain clients."""
 
 from .api import CFBDDrivesAPI
 from .pandas import CFBDDrivesPandasAPI
