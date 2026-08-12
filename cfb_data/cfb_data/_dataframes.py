@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from cfb_data.errors import (
     CFBDDataFrameConversionError,
     CFBDOptionalDependencyError,
+    _sanitized_cause,
 )
 
 if TYPE_CHECKING:
@@ -127,10 +128,11 @@ class _PandasAdapter:
         except CFBDDataFrameConversionError:
             raise
         except Exception as exc:
-            raise CFBDDataFrameConversionError(
-                endpoint=endpoint,
-                backend="pandas",
-            ) from exc
+            safe_cause = _sanitized_cause(exc)
+        raise CFBDDataFrameConversionError(
+            endpoint=endpoint,
+            backend="pandas",
+        ) from safe_cause
 
 
 class _PolarsAdapter:
@@ -178,10 +180,11 @@ class _PolarsAdapter:
         except CFBDOptionalDependencyError:
             raise
         except Exception as exc:
-            raise CFBDDataFrameConversionError(
-                endpoint=endpoint,
-                backend="polars",
-            ) from exc
+            safe_cause = _sanitized_cause(exc)
+        raise CFBDDataFrameConversionError(
+            endpoint=endpoint,
+            backend="polars",
+        ) from safe_cause
 
 
 def _logical_schema(row_model: type[BaseModel]) -> _LogicalSchema:

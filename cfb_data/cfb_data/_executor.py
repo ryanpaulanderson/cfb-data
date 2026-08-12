@@ -11,6 +11,7 @@ from cfb_data.base.types import json_object, json_object_list, query_parameters
 from cfb_data.errors import (
     CFBDRequestValidationError,
     CFBDResponseValidationError,
+    _sanitized_cause,
 )
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
@@ -49,7 +50,8 @@ class _EndpointExecutor:
             payload = json_object_list(raw)
             return response_adapter.validate_python(payload)
         except (TypeError, ValidationError) as exc:
-            raise CFBDResponseValidationError(endpoint=endpoint) from exc
+            safe_cause = _sanitized_cause(exc)
+        raise CFBDResponseValidationError(endpoint=endpoint) from safe_cause
 
     async def fetch_one(
         self,
@@ -74,7 +76,8 @@ class _EndpointExecutor:
             payload = json_object(raw)
             return response_adapter.validate_python(payload)
         except (TypeError, ValidationError) as exc:
-            raise CFBDResponseValidationError(endpoint=endpoint) from exc
+            safe_cause = _sanitized_cause(exc)
+        raise CFBDResponseValidationError(endpoint=endpoint) from safe_cause
 
 
 def _serialize_request(
@@ -86,4 +89,5 @@ def _serialize_request(
             request.model_dump(mode="json", by_alias=True, exclude_none=True)
         )
     except TypeError as exc:
-        raise CFBDRequestValidationError(endpoint=endpoint) from exc
+        safe_cause = _sanitized_cause(exc)
+    raise CFBDRequestValidationError(endpoint=endpoint) from safe_cause

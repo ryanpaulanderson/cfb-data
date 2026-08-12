@@ -29,3 +29,7 @@ def test_unsupported_annotation_fails_without_object_fallback(
 
     assert exc_info.value.backend == backend
     assert exc_info.value.endpoint == "/unsupported"
+    assert exc_info.value.__context__ is None
+    assert exc_info.value.__cause__ is not None
+    assert str(exc_info.value.__cause__) == "_UnsupportedTableAnnotationError"
+    assert "value" not in repr(vars(exc_info.value.__cause__))

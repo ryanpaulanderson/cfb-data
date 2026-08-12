@@ -30,6 +30,8 @@ from cfb_data.errors import (
     CFBDTimeoutError,
     CFBDTLSError,
     CFBDTransportError,
+    _sanitized_cause,
+    _SanitizedCause,
 )
 from cfb_data.retry import RetryPolicy
 
@@ -52,6 +54,16 @@ class _RetryDecision:
     error: CFBDHTTPError
     delay_seconds: float
     category: str
+
+
+@dataclass(frozen=True, slots=True)
+class _TransportFailure:
+    """Carry a safely detached transport failure outside its exception handler."""
+
+    error: CFBDTransportError
+    cause: _SanitizedCause
+    category: str
+    retryable: bool
 
 
 class _HTTPTransport:
@@ -146,6 +158,7 @@ class _HTTPTransport:
         url = f"{self._base_url}{endpoint}"
 
         for attempt in range(1, self._retry_policy.max_attempts + 1):
+            failure: _TransportFailure | None = None
             try:
                 result = await self._request_once(
                     session=session,
@@ -157,57 +170,73 @@ class _HTTPTransport:
             except asyncio.CancelledError:
                 raise
             except aiohttp.InvalidURL as exc:
-                raise CFBDTransportError(
-                    endpoint=endpoint,
-                    attempts=attempt,
-                    category="invalid_url",
-                ) from exc
-            except aiohttp.ClientSSLError as exc:
-                raise CFBDTLSError(endpoint=endpoint, attempts=attempt) from exc
-            except TimeoutError as exc:
-                if attempt == self._retry_policy.max_attempts:
-                    raise CFBDTimeoutError(
+                failure = _TransportFailure(
+                    error=CFBDTransportError(
                         endpoint=endpoint,
                         attempts=attempt,
-                    ) from exc
-                await self._retry_after_failure(
-                    endpoint=endpoint,
-                    attempt=attempt,
-                    category="timeout",
+                        category="invalid_url",
+                    ),
+                    cause=_sanitized_cause(exc),
+                    category="invalid_url",
+                    retryable=False,
                 )
-                continue
+            except aiohttp.ClientSSLError as exc:
+                failure = _TransportFailure(
+                    error=CFBDTLSError(endpoint=endpoint, attempts=attempt),
+                    cause=_sanitized_cause(exc),
+                    category="tls",
+                    retryable=False,
+                )
+            except TimeoutError as exc:
+                failure = _TransportFailure(
+                    error=CFBDTimeoutError(endpoint=endpoint, attempts=attempt),
+                    cause=_sanitized_cause(exc),
+                    category="timeout",
+                    retryable=True,
+                )
             except aiohttp.ClientPayloadError as exc:
-                if attempt == self._retry_policy.max_attempts:
-                    raise CFBDTransportError(
+                failure = _TransportFailure(
+                    error=CFBDTransportError(
                         endpoint=endpoint,
                         attempts=attempt,
                         category="truncated_payload",
-                    ) from exc
-                await self._retry_after_failure(
-                    endpoint=endpoint,
-                    attempt=attempt,
+                    ),
+                    cause=_sanitized_cause(exc),
                     category="truncated_payload",
+                    retryable=True,
                 )
-                continue
             except aiohttp.ClientConnectionError as exc:
-                if attempt == self._retry_policy.max_attempts:
-                    raise CFBDTransportError(
+                failure = _TransportFailure(
+                    error=CFBDTransportError(
                         endpoint=endpoint,
                         attempts=attempt,
                         category="connection",
-                    ) from exc
-                await self._retry_after_failure(
-                    endpoint=endpoint,
-                    attempt=attempt,
+                    ),
+                    cause=_sanitized_cause(exc),
                     category="connection",
+                    retryable=True,
                 )
-                continue
             except aiohttp.ClientError as exc:
-                raise CFBDTransportError(
-                    endpoint=endpoint,
-                    attempts=attempt,
+                failure = _TransportFailure(
+                    error=CFBDTransportError(
+                        endpoint=endpoint,
+                        attempts=attempt,
+                        category="client",
+                    ),
+                    cause=_sanitized_cause(exc),
                     category="client",
-                ) from exc
+                    retryable=False,
+                )
+
+            if failure is not None:
+                if failure.retryable and attempt < self._retry_policy.max_attempts:
+                    await self._retry_after_failure(
+                        endpoint=endpoint,
+                        attempt=attempt,
+                        category=failure.category,
+                    )
+                    continue
+                raise failure.error from failure.cause
 
             if not isinstance(result, _RetryDecision):
                 return result
@@ -275,11 +304,13 @@ class _HTTPTransport:
                 json.JSONDecodeError,
                 UnicodeDecodeError,
             ) as exc:
-                raise CFBDResponseDecodeError(
-                    endpoint=endpoint,
-                    attempts=attempt,
-                ) from exc
-            return decoded
+                safe_cause = _sanitized_cause(exc)
+            else:
+                return decoded
+            raise CFBDResponseDecodeError(
+                endpoint=endpoint,
+                attempts=attempt,
+            ) from safe_cause
 
     async def _retry_after_failure(
         self,

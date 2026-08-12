@@ -7,7 +7,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from cfb_data.errors import CFBDRequestValidationError
+from cfb_data.errors import CFBDRequestValidationError, _sanitized_cause
 
 _RequestT = TypeVar("_RequestT", bound=BaseModel)
 
@@ -35,4 +35,5 @@ def _resolve_request(
     try:
         return request_type.model_validate(filters)
     except ValidationError as exc:
-        raise CFBDRequestValidationError(endpoint=endpoint) from exc
+        safe_cause = _sanitized_cause(exc)
+    raise CFBDRequestValidationError(endpoint=endpoint) from safe_cause

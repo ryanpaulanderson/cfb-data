@@ -21,7 +21,9 @@ from cfb_data import (
     CFBDHTTPError,
     CFBDOptionalDependencyError,
     CFBDRateLimitError,
+    CFBDRequestValidationError,
     CFBDResponseDecodeError,
+    CFBDResponseValidationError,
     CFBDServerError,
     CFBDTimeoutError,
     CFBDTLSError,
@@ -30,6 +32,25 @@ from cfb_data import (
 )
 
 ServerFactory = Callable[[Callable[..., object]], AbstractAsyncContextManager[str]]
+
+
+def _assert_sanitized_exception_chain(
+    error: BaseException,
+    *,
+    category: str,
+    sensitive_values: tuple[str, ...],
+) -> None:
+    """Assert that a public error retains only a safe diagnostic cause."""
+    cause = error.__cause__
+    assert cause is not None
+    assert str(cause) == category
+    assert error.__context__ is None
+    assert cause.__cause__ is None
+    assert cause.__context__ is None
+
+    rendered = f"{error!r}\n{vars(error)!r}\n{cause!r}\n{vars(cause)!r}"
+    for sensitive_value in sensitive_values:
+        assert sensitive_value not in rendered
 
 
 def test_explicit_credentials_precede_environment(
@@ -466,10 +487,70 @@ async def test_invalid_json_is_not_retried(api_server: ServerFactory) -> None:
 
     async with api_server(handler) as base_url:
         async with CFBDClient("key", base_url=base_url) as client:
-            with pytest.raises(CFBDResponseDecodeError):
+            with pytest.raises(CFBDResponseDecodeError) as exc_info:
                 await client.games.calendar(year=2024)
 
     assert attempts == 1
+    _assert_sanitized_exception_chain(
+        exc_info.value,
+        category="JSONDecodeError",
+        sensitive_values=("not json",),
+    )
+
+
+@pytest.mark.asyncio
+async def test_decode_error_cause_does_not_retain_request_data(
+    api_server: ServerFactory,
+) -> None:
+    """Keep credentials, query values, and response bodies out of error chains."""
+
+    async def handler(request: web.Request) -> web.Response:
+        return web.Response(text="private-response-body", content_type="text/plain")
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient("private-api-key", base_url=base_url) as client:
+            with pytest.raises(CFBDResponseDecodeError) as exc_info:
+                await client.games.list(year=2024, team="private-team-filter")
+
+    _assert_sanitized_exception_chain(
+        exc_info.value,
+        category="ContentTypeError",
+        sensitive_values=(
+            "private-api-key",
+            "private-team-filter",
+            "private-response-body",
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_validation_error_causes_do_not_retain_external_values(
+    api_server: ServerFactory,
+) -> None:
+    """Keep rejected request and response values out of public error chains."""
+    client = CFBDClient("key")
+    with pytest.raises(CFBDRequestValidationError) as request_error:
+        await client.games.calendar(year="private-request-value")
+
+    _assert_sanitized_exception_chain(
+        request_error.value,
+        category="ValidationError",
+        sensitive_values=("private-request-value",),
+    )
+
+    async def handler(request: web.Request) -> web.Response:
+        return web.json_response([{"season": "private-response-value"}])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient("key", base_url=base_url) as client:
+            with pytest.raises(CFBDResponseValidationError) as response_error:
+                await client.games.calendar(year=2024)
+
+    _assert_sanitized_exception_chain(
+        response_error.value,
+        category="ValidationError",
+        sensitive_values=("private-response-value",),
+    )
 
 
 @pytest.mark.asyncio
