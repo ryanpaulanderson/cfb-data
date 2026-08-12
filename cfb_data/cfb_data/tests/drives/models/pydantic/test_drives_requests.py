@@ -91,23 +91,17 @@ class TestDrivesRequest:
         assert any(error["loc"] == ("year",) for error in errors)
         assert any("1869" in error["msg"] for error in errors)
 
-    def test_invalid_year_future(self) -> None:
-        """Test that validation fails for year too far in future."""
-        future_year = 2030
-        with pytest.raises(ValidationError) as exc_info:
-            DrivesRequest(year=future_year)
+    def test_year_has_no_stale_upper_bound(self) -> None:
+        """Accept future schedule years supported by the upstream API."""
+        request = DrivesRequest(year=2030)
 
-        errors = exc_info.value.errors()
-        assert any(error["loc"] == ("year",) for error in errors)
+        assert request.year == 2030
 
-    def test_invalid_week_zero(self) -> None:
-        """Test that validation fails for week 0."""
-        with pytest.raises(ValidationError) as exc_info:
-            DrivesRequest(year=2023, week=0)
+    def test_week_zero(self) -> None:
+        """Accept week zero as an integer filter."""
+        request = DrivesRequest(year=2023, week=0)
 
-        errors = exc_info.value.errors()
-        assert any(error["loc"] == ("week",) for error in errors)
-        assert any("greater than 0" in error["msg"] for error in errors)
+        assert request.week == 0
 
     def test_invalid_week_negative(self) -> None:
         """Test that validation fails for negative week."""
@@ -116,7 +110,7 @@ class TestDrivesRequest:
 
         errors = exc_info.value.errors()
         assert any(error["loc"] == ("week",) for error in errors)
-        assert any("greater than 0" in error["msg"] for error in errors)
+        assert any("greater than or equal to 0" in error["msg"] for error in errors)
 
     def test_season_type_enum_validation(self) -> None:
         """Test season_type field accepts valid enum values."""

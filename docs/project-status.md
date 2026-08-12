@@ -17,7 +17,7 @@ decisions.
 ## What exists
 
 - A shared asynchronous HTTP and route-discovery layer.
-- Raw, Pydantic-validated, and pandas-oriented internal client layers.
+- Raw, Pydantic-validated, and pandas-oriented domain client layers.
 - Request and response models for several games endpoints and the drives
   endpoint.
 - Route handlers for `/games`, `/records`, `/calendar`, `/games/media`,
@@ -25,6 +25,10 @@ decisions.
   `/game/box/advanced`, and `/drives`.
 - A substantial mocked test suite covering validation and internal request
   behavior.
+- Request and response contracts reconciled with the official CFBD API v5.24.0
+  source and current API reference.
+- A canonical production API host, normal TLS verification, and finite HTTP
+  request timeouts.
 
 At the beginning of the foundation rebuild, the existing suite contained 200
 passing tests. That is useful evidence for internal behavior, but not evidence
@@ -35,8 +39,10 @@ of a complete installed-user workflow.
 - A cohesive, supported top-level client API.
 - A documented end-user workflow.
 - Broad CollegeFootballData endpoint coverage.
-- Production-ready HTTP session, timeout, TLS, and error-handling behavior.
-- Confidence that all response schemas match the latest live API responses.
+- Reusable HTTP session ownership, rate-limit observability, and richer
+  transport error context.
+- Credentialed live-API acceptance tests; the repository contract remains
+  deterministic and uses mocked external boundaries by default.
 
 The public client design is tracked in
 [GitHub issue #53](https://github.com/ryanpaulanderson/cfb-data/issues/53).

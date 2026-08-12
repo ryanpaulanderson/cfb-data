@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import ssl
 from collections.abc import Awaitable, Callable
-from typing import TypeVar
+from typing import Final, TypeVar
 
 import aiohttp
-from aiohttp import TCPConnector
 from pandera.pandas import DataFrameModel
 from pydantic import BaseModel
 
@@ -15,6 +13,8 @@ from cfb_data.base.types import JSONResponse, QueryParameters, json_response
 
 F = TypeVar("F", bound=Callable[..., object])
 RouteHandler = Callable[[QueryParameters], Awaitable[object]]
+DEFAULT_BASE_URL: Final = "https://api.collegefootballdata.com"
+DEFAULT_TIMEOUT_SECONDS: Final = 30.0
 
 
 def route(
@@ -58,18 +58,30 @@ class CFBDAPIBase:
     """Base class for College Football Data API clients."""
 
     def __init__(
-        self, api_key: str, base_url: str = "https://apinext.collegefootballdata.com"
+        self,
+        api_key: str,
+        base_url: str = DEFAULT_BASE_URL,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     ) -> None:
-        """
-        Initialize the CFBD API base client.
+        """Initialize the CFBD API base client.
 
-        :param api_key: Bearer token for API authentication
-        :type api_key: str
-        :param base_url: Base URL for the API
-        :type base_url: str
+        :param api_key: Bearer token for API authentication.
+        :param base_url: Root URL for API requests.
+        :param timeout_seconds: Total timeout for each HTTP request.
+        :raises ValueError: If the API key or transport settings are invalid.
         """
+        if not api_key.strip():
+            raise ValueError("api_key must not be empty")
+        if not base_url.strip():
+            raise ValueError("base_url must not be empty")
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+
         self.api_key: str = api_key
-        self.base_url: str = base_url
+        self.base_url: str = base_url.rstrip("/")
+        self._timeout: aiohttp.ClientTimeout = aiohttp.ClientTimeout(
+            total=timeout_seconds
+        )
         self.headers: dict[str, str] = {
             "Authorization": f"Bearer {api_key}",
             "Accept": "application/json",
@@ -94,27 +106,20 @@ class CFBDAPIBase:
     async def _make_request(
         self, endpoint: str, params: QueryParameters | None = None
     ) -> JSONResponse:
-        """
-        Make an async HTTP GET request to the API.
+        """Make an asynchronous HTTP GET request to the API.
 
-        :param endpoint: API endpoint path
-        :type endpoint: str
-        :param params: Optional query parameters
-        :type params: Optional[Dict[str, Any]]
-        :return: JSON response as dict or list
-        :rtype: Union[Dict[str, Any], List[Dict[str, Any]]]
-        """
-        url: str = f"{self.base_url}{endpoint}"
+        TLS certificate and hostname verification use ``aiohttp`` defaults.
 
-        # TODO(#54): Remove this insecure SSL override while hardening the HTTP
-        # transport. Certificate and hostname verification must be enabled by
-        # default before the client is considered production-ready.
-        sslctx = ssl.create_default_context()
-        sslctx.check_hostname = False
-        sslctx.verify_mode = ssl.CERT_NONE
+        :param endpoint: API endpoint path.
+        :param params: Optional query parameters.
+        :return: Validated JSON object data.
+        :raises aiohttp.ClientError: If the request or HTTP response fails.
+        :raises TypeError: If the response is not a supported JSON shape.
+        """
+        url: str = f"{self.base_url}/{endpoint.lstrip('/')}"
 
         async with (
-            aiohttp.ClientSession(connector=TCPConnector(ssl=sslctx)) as session,
+            aiohttp.ClientSession(timeout=self._timeout) as session,
             session.get(url, headers=self.headers, params=params) as resp,
         ):
             resp.raise_for_status()

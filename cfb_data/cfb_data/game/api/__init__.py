@@ -1,6 +1,5 @@
-"""Game API module for College Football Data API package.
+"""Expose the raw games API client."""
 
-This module contains API classes and methods for accessing college football
-game data from the College Football Data API, including games, team records,
-and game-related statistics.
-"""
+from .game_api import CFBDGamesAPI
+
+__all__ = ["CFBDGamesAPI"]

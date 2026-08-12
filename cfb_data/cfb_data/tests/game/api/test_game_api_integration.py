@@ -94,6 +94,33 @@ class TestGetGamesIntegration:
         }
         api._make_request.assert_awaited_once_with("/games", expected_params)
 
+    def test_current_playoff_filters_reach_http_boundary(self) -> None:
+        """Serialize current CFP filters exactly as documented."""
+        api = GameAPIForTesting()
+        api._make_request = AsyncMock(return_value=[])
+
+        result = run(
+            api._get_games(
+                {
+                    "year": 2024,
+                    "season_type": "postseason",
+                    "competition": "cfp",
+                    "round": "semifinal",
+                }
+            )
+        )
+
+        api._make_request.assert_awaited_once_with(
+            "/games",
+            {
+                "year": 2024,
+                "seasonType": "postseason",
+                "competition": "cfp",
+                "round": "semifinal",
+            },
+        )
+        assert result == []
+
     def test_invalid_request_no_year_no_id(self) -> None:
         """Test that missing year and id raises ValidationError."""
         api = GameAPIForTesting()

@@ -8,7 +8,7 @@ type safety before making API calls.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from cfb_data.base.validation import (
     Classification,
@@ -45,18 +45,16 @@ class DrivesRequest(BaseModel):
     :type classification: Optional[Classification]
     """
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     # Required parameter
-    year: int = Field(ge=1869, le=2025, description="Required year filter")
+    year: int = Field(ge=1869, description="Required year filter")
 
     # Optional season and week filters
     season_type: SeasonType | None = Field(
         default=None, alias="seasonType", description="Optional season type filter"
     )
-    week: int | None = Field(
-        default=None, gt=0, le=20, description="Optional week filter"
-    )
+    week: int | None = Field(default=None, ge=0, description="Optional week filter")
 
     # Team filters
     team: str | None = Field(
@@ -88,30 +86,3 @@ class DrivesRequest(BaseModel):
     classification: Classification | None = Field(
         default=None, description="Optional division classification filter"
     )
-
-    @model_validator(mode="after")
-    def validate_drives_parameters(self) -> DrivesRequest:
-        """
-        Validate drives request parameters.
-
-        Additional validation can be added here for parameter combinations.
-        Year validation is handled by Pydantic Field constraints.
-
-        :return: Validated drives request instance
-        :rtype: DrivesRequest
-        """
-        # Week validation is handled by Pydantic Field constraints (gt=0, le=20)
-        # Additional complex validation logic can be added here if needed
-
-        return self
-
-    def to_api_params(self) -> dict[str, str]:
-        """
-        Convert request model to API parameters dictionary.
-
-        Excludes None values and uses field aliases for API parameter names.
-
-        :return: Dictionary of API parameters
-        :rtype: dict[str, str]
-        """
-        return self.model_dump(exclude_none=True, by_alias=True)
