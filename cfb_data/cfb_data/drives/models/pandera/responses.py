@@ -1,7 +1,5 @@
 """Pandera schema models for drives endpoint."""
 
-from typing import Dict, Optional
-
 from pandera.pandas import DataFrameModel, Field
 from pandera.typing import Series
 
@@ -20,11 +18,11 @@ class DriveSchema(DataFrameModel):
     start_period: Series[int] = Field(ge=0)
     start_yardline: Series[int] = Field(ge=0)
     start_yards_to_goal: Series[int] = Field(ge=0)
-    start_time: Series[Dict[str, int]] = Field()
+    start_time: Series[dict[str, int]] = Field()
     end_period: Series[int] = Field(ge=0)
     end_yardline: Series[int] = Field(ge=0)
     end_yards_to_goal: Series[int] = Field(ge=0)
-    end_time: Series[Dict[str, int]] = Field()
+    end_time: Series[dict[str, int]] = Field()
     plays: Series[int] = Field(ge=0)
     yards: Series[int] = Field()
     drive_result: Series[str] = Field()

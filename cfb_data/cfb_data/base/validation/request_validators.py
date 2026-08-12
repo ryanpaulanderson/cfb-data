@@ -5,13 +5,13 @@ This module provides reusable validators and enums for consistent
 request validation across all endpoints.
 """
 
-from enum import Enum
-from typing import Any, Dict, List, Optional
+from collections.abc import Mapping, Sequence
+from enum import StrEnum
 
 from pydantic import model_validator
 
 
-class SeasonType(str, Enum):
+class SeasonType(StrEnum):
     """
     Season type enumeration for API requests.
 
@@ -48,7 +48,7 @@ class SeasonType(str, Enum):
         return self.value
 
 
-class Classification(str, Enum):
+class Classification(StrEnum):
     """
     Division classification enumeration for API requests.
 
@@ -80,7 +80,7 @@ class Classification(str, Enum):
 
 
 def validate_year_or_id_required(
-    year: Optional[int], id_field: Optional[int], id_field_name: str = "id"
+    year: int | None, id_field: int | None, id_field_name: str = "id"
 ) -> None:
     """
     Validate that either year or id field is provided.
@@ -101,8 +101,8 @@ def validate_year_or_id_required(
 
 
 def validate_at_least_one_of(
-    values: Dict[str, Any],
-    field_names: List[str],
+    values: Mapping[str, object],
+    field_names: Sequence[str],
     context_message: str = "At least one of the following fields is required",
 ) -> None:
     """
@@ -122,11 +122,11 @@ def validate_at_least_one_of(
 
 
 def validate_team_game_stats_logic(
-    year: Optional[int],
-    week: Optional[int],
-    team: Optional[str],
-    conference: Optional[str],
-    id: Optional[int],
+    year: int | None,
+    week: int | None,
+    team: str | None,
+    conference: str | None,
+    id: int | None,
 ) -> None:
     """
     Validate the complex conditional logic for /games/teams and /games/players endpoints.

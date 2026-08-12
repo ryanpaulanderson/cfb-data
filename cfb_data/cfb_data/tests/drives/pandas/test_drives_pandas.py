@@ -27,7 +27,6 @@ class DummyDrivesPandasAPI(CFBDDrivesPandasAPI):
 
     def __init__(self) -> None:
         """Initialize the dummy API with a fake key."""
-
         super().__init__(api_key="fake")
 
     @route("/drives", response_model=Drive, dataframe_schema=DriveSchema)
@@ -39,7 +38,6 @@ class DummyDrivesPandasAPI(CFBDDrivesPandasAPI):
         :return: Raw JSON list.
         :rtype: list[dict]
         """
-
         return await self._make_request("/drives", params)
 
 
@@ -51,7 +49,6 @@ def run(coro):
     :return: Result of the coroutine.
     :rtype: Any
     """
-
     return asyncio.run(coro)
 
 

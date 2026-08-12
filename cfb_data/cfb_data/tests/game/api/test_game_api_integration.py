@@ -14,10 +14,8 @@ if importlib.util.find_spec("aiohttp") is None:
     importlib.import_module("sys").modules["aiohttp"] = aiohttp_stub
 
 import pytest
-from pydantic import ValidationError
-
-from cfb_data.base.validation.request_validators import Classification, SeasonType
 from cfb_data.game.api.game_api import CFBDGamesAPI
+from pydantic import ValidationError
 
 
 class GameAPIForTesting(CFBDGamesAPI):

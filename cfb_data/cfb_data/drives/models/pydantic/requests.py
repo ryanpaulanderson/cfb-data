@@ -8,8 +8,6 @@ type safety before making API calls.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from cfb_data.base.validation import (
@@ -53,46 +51,46 @@ class DrivesRequest(BaseModel):
     year: int = Field(ge=1869, le=2025, description="Required year filter")
 
     # Optional season and week filters
-    season_type: Optional[SeasonType] = Field(
+    season_type: SeasonType | None = Field(
         default=None, alias="seasonType", description="Optional season type filter"
     )
-    week: Optional[int] = Field(
+    week: int | None = Field(
         default=None, gt=0, le=20, description="Optional week filter"
     )
 
     # Team filters
-    team: Optional[str] = Field(
+    team: str | None = Field(
         default=None, description="Optional team filter (either offense or defense)"
     )
-    offense: Optional[str] = Field(
+    offense: str | None = Field(
         default=None, description="Optional offensive team filter"
     )
-    defense: Optional[str] = Field(
+    defense: str | None = Field(
         default=None, description="Optional defensive team filter"
     )
 
     # Conference filters
-    conference: Optional[str] = Field(
+    conference: str | None = Field(
         default=None, description="Optional conference filter"
     )
-    offense_conference: Optional[str] = Field(
+    offense_conference: str | None = Field(
         default=None,
         alias="offenseConference",
         description="Optional offensive team conference filter",
     )
-    defense_conference: Optional[str] = Field(
+    defense_conference: str | None = Field(
         default=None,
         alias="defenseConference",
         description="Optional defensive team conference filter",
     )
 
     # Classification filter
-    classification: Optional[Classification] = Field(
+    classification: Classification | None = Field(
         default=None, description="Optional division classification filter"
     )
 
     @model_validator(mode="after")
-    def validate_drives_parameters(self) -> "DrivesRequest":  # noqa: DAR402
+    def validate_drives_parameters(self) -> DrivesRequest:
         """
         Validate drives request parameters.
 
@@ -100,7 +98,7 @@ class DrivesRequest(BaseModel):
         Year validation is handled by Pydantic Field constraints.
 
         :return: Validated drives request instance
-        :rtype: DrivesRequest # noqa: DAR402
+        :rtype: DrivesRequest
         """
         # Week validation is handled by Pydantic Field constraints (gt=0, le=20)
         # Additional complex validation logic can be added here if needed

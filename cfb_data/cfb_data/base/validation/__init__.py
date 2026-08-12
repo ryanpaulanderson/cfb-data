@@ -18,7 +18,7 @@ Example:
         from cfb_data.base.validation import (
             SeasonType,
             validate_year_or_id_required,
-            CFBDValidationAPI
+            CFBDValidationAPI,
         )
 
         # Use validation function

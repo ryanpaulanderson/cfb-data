@@ -3,22 +3,25 @@
 from __future__ import annotations
 
 import ssl
-from abc import ABC
-from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
 
 import aiohttp
 from aiohttp import TCPConnector
 from pandera.pandas import DataFrameModel
 from pydantic import BaseModel
 
-F = TypeVar("F", bound=Callable[..., Any])
+from cfb_data.base.types import JSONResponse, QueryParameters, json_response
+
+F = TypeVar("F", bound=Callable[..., object])
+RouteHandler = Callable[[QueryParameters], Awaitable[object]]
 
 
 def route(
     path: str,
     *,
-    response_model: Optional[Type[BaseModel]] = None,
-    dataframe_schema: Optional[Type[DataFrameModel]] = None,
+    response_model: type[BaseModel] | None = None,
+    dataframe_schema: type[DataFrameModel] | None = None,
 ) -> Callable[[F], F]:
     """Register ``func`` as the handler for ``path``.
 
@@ -43,7 +46,6 @@ def route(
         :return: Decorated function with route metadata.
         :rtype: F
         """
-
         setattr(func, "_api_path", path)
         setattr(func, "response_model", response_model)
         setattr(func, "dataframe_schema", dataframe_schema)
@@ -52,7 +54,7 @@ def route(
     return decorator
 
 
-class CFBDAPIBase(ABC):
+class CFBDAPIBase:
     """Base class for College Football Data API clients."""
 
     def __init__(
@@ -68,29 +70,30 @@ class CFBDAPIBase(ABC):
         """
         self.api_key: str = api_key
         self.base_url: str = base_url
-        self.headers: Dict[str, str] = {
+        self.headers: dict[str, str] = {
             "Authorization": f"Bearer {api_key}",
             "Accept": "application/json",
         }
-        self._route_map: Dict[str, Callable] = self._discover_routes()
+        self._route_map: dict[str, RouteHandler] = self._discover_routes()
 
-    def _discover_routes(self) -> Dict[str, Callable]:
+    def _discover_routes(self) -> dict[str, RouteHandler]:
         """
         Discover all methods decorated with @route in the class.
 
         :return: Dictionary mapping API paths to methods
         :rtype: Dict[str, Callable]
         """
-        routes: Dict[str, Callable] = {}
+        routes: dict[str, RouteHandler] = {}
         for name in dir(self):
             attr = getattr(self, name)
-            if callable(attr) and hasattr(attr, "_api_path"):
-                routes[attr._api_path] = attr
+            path = getattr(attr, "_api_path", None)
+            if callable(attr) and isinstance(path, str):
+                routes[path] = attr
         return routes
 
     async def _make_request(
-        self, endpoint: str, params: Optional[Dict[str, Any]] = None
-    ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+        self, endpoint: str, params: QueryParameters | None = None
+    ) -> JSONResponse:
         """
         Make an async HTTP GET request to the API.
 
@@ -110,14 +113,16 @@ class CFBDAPIBase(ABC):
         sslctx.check_hostname = False
         sslctx.verify_mode = ssl.CERT_NONE
 
-        async with aiohttp.ClientSession(connector=TCPConnector(ssl=sslctx)) as session:
-            async with session.get(url, headers=self.headers, params=params) as resp:
-                resp.raise_for_status()
-                return await resp.json()
+        async with (
+            aiohttp.ClientSession(connector=TCPConnector(ssl=sslctx)) as session,
+            session.get(url, headers=self.headers, params=params) as resp,
+        ):
+            resp.raise_for_status()
+            return json_response(await resp.json())
 
     async def make_request(
-        self, path: str, params: Optional[Dict[str, Any]] = None
-    ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+        self, path: str, params: QueryParameters | None = None
+    ) -> object:
         """
         Make a request to the API using path routing.
 
@@ -130,6 +135,4 @@ class CFBDAPIBase(ABC):
         """
         if path in self._route_map:
             return await self._route_map[path](params or {})
-        else:
-            # If no specific handler, make direct request
-            return await self._make_request(path, params)
+        return await self._make_request(path, params)

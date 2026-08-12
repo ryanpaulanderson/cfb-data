@@ -1,9 +1,7 @@
-"""
-College Football Data API - Game Request Models
-Pydantic models for validating API request parameters for CFBD game endpoints
-"""
+"""College Football Data API game request models.
 
-from typing import Optional
+Pydantic models for validating API request parameters for CFBD game endpoints.
+"""
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -41,15 +39,15 @@ class GamesRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    year: Optional[int] = Field(default=None, ge=1869, le=2030)
-    week: Optional[int] = Field(default=None, ge=0, le=20)
-    season_type: Optional[SeasonType] = Field(default=None, alias="seasonType")
-    team: Optional[str] = None
-    home: Optional[str] = None
-    away: Optional[str] = None
-    conference: Optional[str] = None
-    classification: Optional[Classification] = None
-    id: Optional[int] = Field(default=None, ge=0)
+    year: int | None = Field(default=None, ge=1869, le=2030)
+    week: int | None = Field(default=None, ge=0, le=20)
+    season_type: SeasonType | None = Field(default=None, alias="seasonType")
+    team: str | None = None
+    home: str | None = None
+    away: str | None = None
+    conference: str | None = None
+    classification: Classification | None = None
+    id: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def validate_year_or_id(self) -> "GamesRequest":
@@ -60,7 +58,7 @@ class GamesRequest(BaseModel):
 
         :return: Validated model instance
         :rtype: GamesRequest
-        :raises ValueError: If neither year nor id is provided  # noqa: DAR402
+        :raises ValueError: If neither year nor id is provided.
         """
         validate_year_or_id_required(self.year, self.id, "id")
         return self
@@ -93,9 +91,9 @@ class RecordsRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    year: Optional[int] = Field(default=None, ge=1869, le=2030)
-    team: Optional[str] = None
-    conference: Optional[str] = None
+    year: int | None = Field(default=None, ge=1869, le=2030)
+    team: str | None = None
+    conference: str | None = None
 
 
 class GameMediaRequest(BaseModel):
@@ -121,12 +119,12 @@ class GameMediaRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     year: int = Field(ge=1869, le=2030)
-    week: Optional[int] = Field(default=None, ge=0, le=20)
-    season_type: Optional[SeasonType] = Field(default=None, alias="seasonType")
-    team: Optional[str] = None
-    conference: Optional[str] = None
-    media_type: Optional[str] = Field(default=None, alias="mediaType")
-    classification: Optional[Classification] = None
+    week: int | None = Field(default=None, ge=0, le=20)
+    season_type: SeasonType | None = Field(default=None, alias="seasonType")
+    team: str | None = None
+    conference: str | None = None
+    media_type: str | None = Field(default=None, alias="mediaType")
+    classification: Classification | None = None
 
 
 class GameWeatherRequest(BaseModel):
@@ -151,13 +149,13 @@ class GameWeatherRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    game_id: Optional[int] = Field(default=None, ge=0, alias="gameId")
-    year: Optional[int] = Field(default=None, ge=1869, le=2030)
-    week: Optional[int] = Field(default=None, ge=0, le=20)
-    season_type: Optional[SeasonType] = Field(default=None, alias="seasonType")
-    team: Optional[str] = None
-    conference: Optional[str] = None
-    classification: Optional[Classification] = None
+    game_id: int | None = Field(default=None, ge=0, alias="gameId")
+    year: int | None = Field(default=None, ge=1869, le=2030)
+    week: int | None = Field(default=None, ge=0, le=20)
+    season_type: SeasonType | None = Field(default=None, alias="seasonType")
+    team: str | None = None
+    conference: str | None = None
+    classification: Classification | None = None
 
     @model_validator(mode="after")
     def validate_weather_requirements(self) -> "GameWeatherRequest":
@@ -170,7 +168,7 @@ class GameWeatherRequest(BaseModel):
 
         :return: Validated model instance
         :rtype: GameWeatherRequest
-        :raises ValueError: If validation rules are violated  # noqa: DAR402
+        :raises ValueError: If validation rules are violated.
         """
         if self.game_id is None and self.year is None:
             raise ValueError("year is required when game_id is not specified")
@@ -201,14 +199,14 @@ class PlayerGameStatsRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    year: Optional[int] = Field(default=None, ge=1869, le=2030)
-    week: Optional[int] = Field(default=None, ge=0, le=20)
-    season_type: Optional[SeasonType] = Field(default=None, alias="seasonType")
-    team: Optional[str] = None
-    conference: Optional[str] = None
-    category: Optional[str] = None
-    id: Optional[int] = Field(default=None, ge=0)
-    classification: Optional[Classification] = None
+    year: int | None = Field(default=None, ge=1869, le=2030)
+    week: int | None = Field(default=None, ge=0, le=20)
+    season_type: SeasonType | None = Field(default=None, alias="seasonType")
+    team: str | None = None
+    conference: str | None = None
+    category: str | None = None
+    id: int | None = Field(default=None, ge=0)
+    classification: Classification | None = None
 
     @model_validator(mode="after")
     def validate_player_stats_requirements(self) -> "PlayerGameStatsRequest":
@@ -222,7 +220,7 @@ class PlayerGameStatsRequest(BaseModel):
 
         :return: Validated model instance
         :rtype: PlayerGameStatsRequest
-        :raises ValueError: If validation rules are violated  # noqa: DAR402
+        :raises ValueError: If validation rules are violated.
         """
         validate_team_game_stats_logic(
             self.year, self.week, self.team, self.conference, self.id
@@ -252,13 +250,13 @@ class TeamGameStatsRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    year: Optional[int] = Field(default=None, ge=1869, le=2030)
-    week: Optional[int] = Field(default=None, ge=0, le=20)
-    season_type: Optional[SeasonType] = Field(default=None, alias="seasonType")
-    team: Optional[str] = None
-    conference: Optional[str] = None
-    id: Optional[int] = Field(default=None, ge=0)
-    classification: Optional[Classification] = None
+    year: int | None = Field(default=None, ge=1869, le=2030)
+    week: int | None = Field(default=None, ge=0, le=20)
+    season_type: SeasonType | None = Field(default=None, alias="seasonType")
+    team: str | None = None
+    conference: str | None = None
+    id: int | None = Field(default=None, ge=0)
+    classification: Classification | None = None
 
     @model_validator(mode="after")
     def validate_team_stats_requirements(self) -> "TeamGameStatsRequest":
@@ -271,7 +269,7 @@ class TeamGameStatsRequest(BaseModel):
 
         :return: Validated model instance
         :rtype: TeamGameStatsRequest
-        :raises ValueError: If validation rules are violated  # noqa: DAR402
+        :raises ValueError: If validation rules are violated.
         """
         validate_team_game_stats_logic(
             self.year, self.week, self.team, self.conference, self.id

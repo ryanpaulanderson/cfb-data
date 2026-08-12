@@ -2,13 +2,14 @@ VENV ?= .venv
 PYTHON ?= python3
 VENV_PYTHON := $(VENV)/bin/python
 PRE_COMMIT := $(VENV)/bin/pre-commit
+RUFF := $(VENV)/bin/ruff
 
 .PHONY: help install hooks format check test
 
 help:
 	@echo "make install  Create .venv and install runtime + development dependencies"
 	@echo "make hooks    Install the pre-commit Git hook"
-	@echo "make format   Format Python source with Black and isort"
+	@echo "make format   Format and auto-fix Python source with Ruff"
 	@echo "make check    Run the complete local/CI quality contract"
 	@echo "make test     Run the test suite"
 
@@ -21,8 +22,8 @@ hooks:
 	$(PRE_COMMIT) install
 
 format:
-	$(VENV_PYTHON) -m black cfb_data
-	$(VENV_PYTHON) -m isort cfb_data
+	$(RUFF) check --fix cfb_data
+	$(RUFF) format cfb_data
 
 check:
 	$(PRE_COMMIT) run --all-files

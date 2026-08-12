@@ -27,12 +27,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "black>=26.1,<27",
-    "interrogate>=1.7,<2",
-    "isort>=6.1,<9",
+    "mypy>=2.3,<3",
     "pre-commit>=4.5,<5",
     "pytest>=9,<10",
     "pytest-asyncio>=1.3,<2",
+    "ruff>=0.15.22,<0.16",
 ]
 
 [project.urls]
@@ -47,18 +46,66 @@ where = ["cfb_data"]
 include = ["cfb_data*"]
 namespaces = false
 
-[tool.black]
-line-length = 88
-target-version = ["py311", "py312", "py313"]
+[tool.setuptools.package-data]
+cfb_data = ["py.typed"]
 
-[tool.isort]
-profile = "black"
-known_first_party = ["cfb_data"]
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "B",
+    "D",
+    "E4",
+    "E7",
+    "E9",
+    "F",
+    "I",
+    "SIM",
+    "UP",
+    "W",
+]
+ignore = [
+    "D105", # Magic methods inherit their contracts from Python.
+    "D107", # Class docstrings document initialization semantics.
+]
+
+[tool.ruff.lint.per-file-ignores]
+"cfb_data/cfb_data/base/api/base_api.py" = [
+    "B010", # Route decorators attach metadata to arbitrary callables.
+]
+"cfb_data/cfb_data/tests/**/*.py" = [
+    "B",    # Preserve legacy boundary-test scaffolding in this focused change.
+    "D",    # Production docstrings remain the published contract.
+    "E402", # Some tests install import stubs before importing the package.
+    "F841", # Legacy integration tests retain results for narrative clarity.
+    "SIM",  # Preserve explicit failure-flow setup in legacy tests.
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["cfb_data/cfb_data"]
+exclude = ["^cfb_data/cfb_data/tests/"]
+pretty = true
+show_error_codes = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["pandas", "pandas.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["cfb_data/cfb_data/tests"]
-
-[tool.interrogate]
-fail-under = 100
-verbose = 1
