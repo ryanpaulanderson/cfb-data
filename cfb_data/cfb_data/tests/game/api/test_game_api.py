@@ -14,7 +14,6 @@ if importlib.util.find_spec("aiohttp") is None:
     importlib.import_module("sys").modules["aiohttp"] = aiohttp_stub
 
 import pytest
-
 from cfb_data.game.api.game_api import CFBDGamesAPI
 
 
@@ -23,7 +22,6 @@ class DummyAPI(CFBDGamesAPI):
 
     def __init__(self):
         """Initialize the dummy API with a fake key."""
-
         super().__init__(api_key="fake")
 
 
@@ -35,7 +33,6 @@ def run(coro):
     :return: Result of the coroutine.
     :rtype: Any
     """
-
     return asyncio.run(coro)
 
 

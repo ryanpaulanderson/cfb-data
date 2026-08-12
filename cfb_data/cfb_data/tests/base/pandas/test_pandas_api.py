@@ -16,7 +16,6 @@ if importlib.util.find_spec("aiohttp") is None:
 
 import pandera as pa
 import pytest
-
 from cfb_data.base.api.base_api import route
 from cfb_data.base.pandas import CFBDPandasAPI
 from cfb_data.game.models.pandera.responses import CalendarWeekSchema
@@ -28,7 +27,6 @@ class DummyPandasAPI(CFBDPandasAPI):
 
     def __init__(self) -> None:
         """Initialize the dummy API with a fake key."""
-
         super().__init__(api_key="fake")
 
     @route(
@@ -44,7 +42,6 @@ class DummyPandasAPI(CFBDPandasAPI):
         :return: Raw JSON list.
         :rtype: list[dict]
         """
-
         return await self._make_request("/calendar", params)
 
 
@@ -56,13 +53,11 @@ def run(coro):
     :return: Result of the coroutine.
     :rtype: Any
     """
-
     return asyncio.run(coro)
 
 
 def test_make_request_returns_dataframe():
     """Ensure DataFrame is returned for valid input."""
-
     api = DummyPandasAPI()
     sample = {
         "season": 2024,
@@ -82,7 +77,6 @@ def test_make_request_returns_dataframe():
 
 def test_make_request_schema_error():
     """Ensure a schema error is raised for invalid data."""
-
     api = DummyPandasAPI()
     bad_sample = {
         "season": 2024,

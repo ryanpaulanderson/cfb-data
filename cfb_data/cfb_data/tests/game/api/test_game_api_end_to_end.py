@@ -1,13 +1,11 @@
 """End-to-end validation flow tests for Game API with mocked responses."""
 
-import json
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from pydantic import ValidationError
-
 from cfb_data.game.api.game_api import CFBDGamesAPI
+from pydantic import ValidationError
 
 
 class TestGameAPIEndToEndValidation:
@@ -23,7 +21,7 @@ class TestGameAPIEndToEndValidation:
         return CFBDGamesAPI(api_key="test_api_key")
 
     @pytest.fixture
-    def mock_games_response(self) -> Dict[str, Any]:
+    def mock_games_response(self) -> dict[str, Any]:
         """Mock response data for games endpoint.
 
         :return: Mock games response data
@@ -43,7 +41,7 @@ class TestGameAPIEndToEndValidation:
         ]
 
     @pytest.fixture
-    def mock_team_stats_response(self) -> Dict[str, Any]:
+    def mock_team_stats_response(self) -> dict[str, Any]:
         """Mock response data for team game stats endpoint.
 
         :return: Mock team stats response data
@@ -62,7 +60,7 @@ class TestGameAPIEndToEndValidation:
 
     @pytest.mark.asyncio
     async def test_get_games_end_to_end_with_year(
-        self, game_api: CFBDGamesAPI, mock_games_response: Dict[str, Any]
+        self, game_api: CFBDGamesAPI, mock_games_response: dict[str, Any]
     ) -> None:
         """Test end-to-end get_games with year parameter through complete pipeline.
 
@@ -89,7 +87,7 @@ class TestGameAPIEndToEndValidation:
 
     @pytest.mark.asyncio
     async def test_get_games_end_to_end_with_id(
-        self, game_api: CFBDGamesAPI, mock_games_response: Dict[str, Any]
+        self, game_api: CFBDGamesAPI, mock_games_response: dict[str, Any]
     ) -> None:
         """Test end-to-end get_games with id parameter through complete pipeline.
 
@@ -138,7 +136,7 @@ class TestGameAPIEndToEndValidation:
 
     @pytest.mark.asyncio
     async def test_get_team_game_stats_end_to_end_with_year_and_team(
-        self, game_api: CFBDGamesAPI, mock_team_stats_response: Dict[str, Any]
+        self, game_api: CFBDGamesAPI, mock_team_stats_response: dict[str, Any]
     ) -> None:
         """Test end-to-end get_team_game_stats with year and team parameters.
 
@@ -169,7 +167,7 @@ class TestGameAPIEndToEndValidation:
 
     @pytest.mark.asyncio
     async def test_get_team_game_stats_end_to_end_with_game_id(
-        self, game_api: CFBDGamesAPI, mock_team_stats_response: Dict[str, Any]
+        self, game_api: CFBDGamesAPI, mock_team_stats_response: dict[str, Any]
     ) -> None:
         """Test end-to-end get_team_game_stats with game_id parameter.
 
@@ -221,7 +219,7 @@ class TestGameAPIEndToEndValidation:
 
     @pytest.mark.asyncio
     async def test_field_alias_handling_end_to_end(
-        self, game_api: CFBDGamesAPI, mock_team_stats_response: Dict[str, Any]
+        self, game_api: CFBDGamesAPI, mock_team_stats_response: dict[str, Any]
     ) -> None:
         """Test that field aliases are correctly handled in end-to-end flow.
 
@@ -249,7 +247,7 @@ class TestGameAPIEndToEndValidation:
 
     @pytest.mark.asyncio
     async def test_enum_validation_end_to_end(
-        self, game_api: CFBDGamesAPI, mock_team_stats_response: Dict[str, Any]
+        self, game_api: CFBDGamesAPI, mock_team_stats_response: dict[str, Any]
     ) -> None:
         """Test that enum validation works correctly in end-to-end flow.
 
@@ -312,7 +310,7 @@ class TestGameAPIEndToEndValidation:
 
     @pytest.mark.asyncio
     async def test_parameter_combination_validation_end_to_end(
-        self, game_api: CFBDGamesAPI, mock_games_response: Dict[str, Any]
+        self, game_api: CFBDGamesAPI, mock_games_response: dict[str, Any]
     ) -> None:
         """Test parameter combination validation in end-to-end flow.
 

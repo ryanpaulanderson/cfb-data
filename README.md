@@ -36,7 +36,9 @@ make check
 
 `make install` creates `.venv` and installs the project in editable mode with
 its development dependencies. `make check` runs the same quality contract used
-by GitHub Actions: all pre-commit checks followed by the complete pytest suite.
+by GitHub Actions: Ruff linting and formatting, strict mypy type checking, and
+the complete pytest suite. The CI matrix runs this command on Python 3.11 and
+3.13.
 
 To work directly in the environment:
 

@@ -13,7 +13,6 @@ if importlib.util.find_spec("aiohttp") is None:
     aiohttp_stub = types.ModuleType("aiohttp")
     importlib.import_module("sys").modules["aiohttp"] = aiohttp_stub
 
-import pytest
 
 from cfb_data.base.api.base_api import CFBDAPIBase, route
 
@@ -23,7 +22,6 @@ class DummyAPI(CFBDAPIBase):
 
     def __init__(self) -> None:
         """Initialize the dummy API with a fake key."""
-
         super().__init__(api_key="fake")
 
     @route("/dummy")
@@ -35,7 +33,6 @@ class DummyAPI(CFBDAPIBase):
         :return: Raw JSON response.
         :rtype: dict
         """
-
         return await self._make_request("/dummy", params)
 
 
@@ -47,7 +44,6 @@ def run(coro):
     :return: Result of the coroutine.
     :rtype: Any
     """
-
     return asyncio.run(coro)
 
 
@@ -60,7 +56,6 @@ class DummyResponse:
         :param data: Data to return from ``json``.
         :type data: dict
         """
-
         self.data = data
         self.called = False
 
@@ -70,7 +65,6 @@ class DummyResponse:
         :return: The response itself.
         :rtype: DummyResponse
         """
-
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -83,7 +77,6 @@ class DummyResponse:
         :param tb: Traceback.
         :type tb: TracebackType | None
         """
-
         pass
 
     async def json(self):
@@ -92,12 +85,10 @@ class DummyResponse:
         :return: JSON payload.
         :rtype: dict
         """
-
         return self.data
 
     def raise_for_status(self):
         """Record that status was checked."""
-
         self.called = True
 
 
@@ -110,7 +101,6 @@ class DummySession:
         :param response: Response object to return.
         :type response: DummyResponse
         """
-
         self.response = response
         self.calls = []
 
@@ -120,7 +110,6 @@ class DummySession:
         :return: The session itself.
         :rtype: DummySession
         """
-
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -133,7 +122,6 @@ class DummySession:
         :param tb: Traceback.
         :type tb: TracebackType | None
         """
-
         pass
 
     def get(self, url, headers=None, params=None):
@@ -148,7 +136,6 @@ class DummySession:
         :return: Dummy response context.
         :rtype: DummyResponse
         """
-
         self.calls.append((url, headers, params))
         return self.response
 
@@ -165,10 +152,9 @@ def test_route_decorator_sets_api_path_attribute():
         :return: Empty JSON object.
         :rtype: dict
         """
-
         return {}
 
-    assert getattr(handler, "_api_path") == "/test"
+    assert handler._api_path == "/test"
 
 
 def test_discover_routes_finds_decorated_methods():

@@ -14,11 +14,10 @@ if importlib.util.find_spec("aiohttp") is None:
     importlib.import_module("sys").modules["aiohttp"] = aiohttp_stub
 
 import pytest
-from pydantic import ValidationError
-
 from cfb_data.base.api.base_api import route
 from cfb_data.base.validation import CFBDValidationAPI
 from cfb_data.game.models.pydantic.responses import CalendarWeek
+from pydantic import ValidationError
 
 
 class DummyValidationAPI(CFBDValidationAPI):
@@ -26,7 +25,6 @@ class DummyValidationAPI(CFBDValidationAPI):
 
     def __init__(self) -> None:
         """Initialize the dummy API with a fake key."""
-
         super().__init__(api_key="fake")
 
     @route("/calendar", response_model=CalendarWeek)
@@ -38,7 +36,6 @@ class DummyValidationAPI(CFBDValidationAPI):
         :return: Raw JSON list.
         :rtype: list[dict]
         """
-
         return await self._make_request("/calendar", params)
 
 
@@ -50,7 +47,6 @@ def run(coro):
     :return: Result of the coroutine.
     :rtype: Any
     """
-
     return asyncio.run(coro)
 
 

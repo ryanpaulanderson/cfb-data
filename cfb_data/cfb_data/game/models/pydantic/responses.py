@@ -1,17 +1,18 @@
-"""
-College Football Data API - Game Response Models
-Pydantic models for validating API responses from CFBD game endpoints
+"""College Football Data API game response models.
+
+Pydantic models for validating API responses from CFBD game endpoints.
 """
 
 from datetime import datetime
-from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from cfb_data.base.types import JSONObject
+
 
 # Enums
-class SeasonType(str, Enum):
+class SeasonType(StrEnum):
     """
     Season type enumeration.
 
@@ -37,7 +38,7 @@ class SeasonType(str, Enum):
     spring_postseason = "spring_postseason"
 
 
-class Division(str, Enum):
+class Division(StrEnum):
     """
     Division classification enumeration.
 
@@ -57,7 +58,7 @@ class Division(str, Enum):
     iii = "iii"
 
 
-class MediaType(str, Enum):
+class MediaType(StrEnum):
     """
     Media type enumeration.
 
@@ -101,13 +102,13 @@ class TeamInfo(BaseModel):
     :type logos: Optional[List[str]]
     """
 
-    id: Optional[int] = None
+    id: int | None = None
     school: str
-    conference: Optional[str] = None
-    classification: Optional[str] = None
-    color: Optional[str] = None
-    alt_color: Optional[str] = None
-    logos: Optional[List[str]] = None
+    conference: str | None = None
+    classification: str | None = None
+    color: str | None = None
+    alt_color: str | None = None
+    logos: list[str] | None = None
 
 
 class Venue(BaseModel):
@@ -144,20 +145,20 @@ class Venue(BaseModel):
     :type dome: Optional[bool]
     """
 
-    id: Optional[int] = None
-    name: Optional[str] = None
-    city: Optional[str] = None
-    state: Optional[str] = None
-    zip: Optional[str] = None
-    country_code: Optional[str] = None
-    timezone: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    elevation: Optional[float] = None
-    capacity: Optional[int] = None
-    year_constructed: Optional[int] = None
-    grass: Optional[bool] = None
-    dome: Optional[bool] = None
+    id: int | None = None
+    name: str | None = None
+    city: str | None = None
+    state: str | None = None
+    zip: str | None = None
+    country_code: str | None = None
+    timezone: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    elevation: float | None = None
+    capacity: int | None = None
+    year_constructed: int | None = None
+    grass: bool | None = None
+    dome: bool | None = None
 
 
 # Game Models
@@ -243,43 +244,43 @@ class Game(BaseModel):
     start_time_tbd: bool = Field(default=False, alias="startTimeTBD")
     completed: bool = False
     neutral_site: bool = Field(default=False, alias="neutralSite")
-    conference_game: Optional[bool] = Field(default=None, alias="conferenceGame")
-    attendance: Optional[int] = None
-    venue_id: Optional[int] = Field(default=None, alias="venueId")
-    venue: Optional[str] = None
-    home_id: Optional[int] = Field(default=None, alias="homeId")
+    conference_game: bool | None = Field(default=None, alias="conferenceGame")
+    attendance: int | None = None
+    venue_id: int | None = Field(default=None, alias="venueId")
+    venue: str | None = None
+    home_id: int | None = Field(default=None, alias="homeId")
     home_team: str = Field(alias="homeTeam")
-    home_conference: Optional[str] = Field(default=None, alias="homeConference")
-    home_classification: Optional[str] = Field(default=None, alias="homeClassification")
-    home_points: Optional[int] = Field(default=None, alias="homePoints")
-    home_line_scores: Optional[List[Optional[int]]] = Field(
+    home_conference: str | None = Field(default=None, alias="homeConference")
+    home_classification: str | None = Field(default=None, alias="homeClassification")
+    home_points: int | None = Field(default=None, alias="homePoints")
+    home_line_scores: list[int | None] | None = Field(
         default=None, alias="homeLineScores"
     )
-    home_post_win_prob: Optional[float] = Field(
+    home_post_win_prob: float | None = Field(
         default=None, ge=0, le=1, alias="homePostgameWinProbability"
     )
-    home_pregame_elo: Optional[int] = Field(default=None, alias="homePregameElo")
-    home_postgame_elo: Optional[int] = Field(default=None, alias="homePostgameElo")
-    away_id: Optional[int] = Field(default=None, alias="awayId")
+    home_pregame_elo: int | None = Field(default=None, alias="homePregameElo")
+    home_postgame_elo: int | None = Field(default=None, alias="homePostgameElo")
+    away_id: int | None = Field(default=None, alias="awayId")
     away_team: str = Field(alias="awayTeam")
-    away_conference: Optional[str] = Field(default=None, alias="awayConference")
-    away_classification: Optional[str] = Field(default=None, alias="awayClassification")
-    away_points: Optional[int] = Field(default=None, alias="awayPoints")
-    away_line_scores: Optional[List[Optional[int]]] = Field(
+    away_conference: str | None = Field(default=None, alias="awayConference")
+    away_classification: str | None = Field(default=None, alias="awayClassification")
+    away_points: int | None = Field(default=None, alias="awayPoints")
+    away_line_scores: list[int | None] | None = Field(
         default=None, alias="awayLineScores"
     )
-    away_post_win_prob: Optional[float] = Field(
+    away_post_win_prob: float | None = Field(
         default=None, ge=0, le=1, alias="awayPostgameWinProbability"
     )
-    away_pregame_elo: Optional[int] = Field(default=None, alias="awayPregameElo")
-    away_postgame_elo: Optional[int] = Field(default=None, alias="awayPostgameElo")
-    excitement_index: Optional[float] = Field(default=None, alias="excitementIndex")
-    highlights: Optional[str] = None
-    notes: Optional[str] = None
+    away_pregame_elo: int | None = Field(default=None, alias="awayPregameElo")
+    away_postgame_elo: int | None = Field(default=None, alias="awayPostgameElo")
+    excitement_index: float | None = Field(default=None, alias="excitementIndex")
+    highlights: str | None = None
+    notes: str | None = None
 
     @field_validator("home_points", "away_points")
     @classmethod
-    def points_must_be_non_negative(cls, v: Optional[int]) -> Optional[int]:
+    def points_must_be_non_negative(cls, v: int | None) -> int | None:
         """
         Validate that points are non-negative.
 
@@ -374,16 +375,16 @@ class GameMedia(BaseModel):
     start_time: datetime = Field(alias="startTime")
     is_start_time_tbd: bool = Field(default=False, alias="isStartTimeTBD")
     home_team: str = Field(alias="homeTeam")
-    home_conference: Optional[str] = Field(default=None, alias="homeConference")
+    home_conference: str | None = Field(default=None, alias="homeConference")
     away_team: str = Field(alias="awayTeam")
-    away_conference: Optional[str] = Field(default=None, alias="awayConference")
-    media_type: Optional[str] = Field(default=None, alias="mediaType")
-    tv: Optional[str] = None
-    radio: Optional[str] = None
-    web: Optional[str] = None
-    ppv: Optional[str] = None
-    mobile: Optional[str] = None
-    outlet: Optional[str] = None
+    away_conference: str | None = Field(default=None, alias="awayConference")
+    media_type: str | None = Field(default=None, alias="mediaType")
+    tv: str | None = None
+    radio: str | None = None
+    web: str | None = None
+    ppv: str | None = None
+    mobile: str | None = None
+    outlet: str | None = None
 
 
 class GameWeather(BaseModel):
@@ -435,23 +436,23 @@ class GameWeather(BaseModel):
     week: int
     season_type: str = Field(alias="seasonType")
     start_time: datetime = Field(alias="startTime")
-    game_indoors: Optional[bool] = Field(default=None, alias="gameIndoors")
-    venue_id: Optional[int] = Field(default=None, alias="venueId")
-    venue: Optional[str] = None
-    temperature: Optional[float] = None
-    dew_point: Optional[float] = Field(default=None, alias="dewPoint")
-    humidity: Optional[float] = Field(default=None, ge=0, le=100)
-    precipitation: Optional[float] = Field(default=None, ge=0)
-    snowfall: Optional[float] = Field(default=None, ge=0)
-    wind_direction: Optional[float] = Field(
+    game_indoors: bool | None = Field(default=None, alias="gameIndoors")
+    venue_id: int | None = Field(default=None, alias="venueId")
+    venue: str | None = None
+    temperature: float | None = None
+    dew_point: float | None = Field(default=None, alias="dewPoint")
+    humidity: float | None = Field(default=None, ge=0, le=100)
+    precipitation: float | None = Field(default=None, ge=0)
+    snowfall: float | None = Field(default=None, ge=0)
+    wind_direction: float | None = Field(
         default=None, ge=0, le=360, alias="windDirection"
     )
-    wind_speed: Optional[float] = Field(default=None, ge=0, alias="windSpeed")
-    pressure: Optional[float] = None
-    weather_condition_code: Optional[str] = Field(
+    wind_speed: float | None = Field(default=None, ge=0, alias="windSpeed")
+    pressure: float | None = None
+    weather_condition_code: str | None = Field(
         default=None, alias="weatherConditionCode"
     )
-    weather_condition: Optional[str] = Field(default=None, alias="weatherCondition")
+    weather_condition: str | None = Field(default=None, alias="weatherCondition")
 
 
 # Team Records Models
@@ -512,23 +513,21 @@ class TeamRecords(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     year: int
-    team_id: Optional[int] = Field(default=None, alias="teamId")
+    team_id: int | None = Field(default=None, alias="teamId")
     team: str
-    classification: Optional[str] = None
-    conference: Optional[str] = None
-    division: Optional[str] = None
-    expected_wins: Optional[float] = Field(default=None, alias="expectedWins")
+    classification: str | None = None
+    conference: str | None = None
+    division: str | None = None
+    expected_wins: float | None = Field(default=None, alias="expectedWins")
     total: TeamRecord
-    conference_games: Optional[TeamRecord] = Field(
-        default=None, alias="conferenceGames"
-    )
-    home_games: Optional[TeamRecord] = Field(default=None, alias="homeGames")
-    away_games: Optional[TeamRecord] = Field(default=None, alias="awayGames")
-    neutral_site_games: Optional[TeamRecord] = Field(
+    conference_games: TeamRecord | None = Field(default=None, alias="conferenceGames")
+    home_games: TeamRecord | None = Field(default=None, alias="homeGames")
+    away_games: TeamRecord | None = Field(default=None, alias="awayGames")
+    neutral_site_games: TeamRecord | None = Field(
         default=None, alias="neutralSiteGames"
     )
-    regular_season: Optional[TeamRecord] = Field(default=None, alias="regularSeason")
-    postseason: Optional[TeamRecord] = None
+    regular_season: TeamRecord | None = Field(default=None, alias="regularSeason")
+    postseason: TeamRecord | None = None
 
 
 # Player Game Stats Models
@@ -558,13 +557,13 @@ class PlayerGamePassing(BaseModel):
 
     player_id: int
     player: str
-    completions: Optional[int] = None
-    attempts: Optional[int] = None
-    passing_yards: Optional[float] = None
-    passing_tds: Optional[int] = None
-    interceptions: Optional[int] = None
-    yards_per_attempt: Optional[float] = None
-    completion_percentage: Optional[float] = Field(None, ge=0, le=100)
+    completions: int | None = None
+    attempts: int | None = None
+    passing_yards: float | None = None
+    passing_tds: int | None = None
+    interceptions: int | None = None
+    yards_per_attempt: float | None = None
+    completion_percentage: float | None = Field(None, ge=0, le=100)
 
 
 class PlayerGameRushing(BaseModel):
@@ -589,11 +588,11 @@ class PlayerGameRushing(BaseModel):
 
     player_id: int
     player: str
-    carries: Optional[int] = None
-    rushing_yards: Optional[float] = None
-    rushing_tds: Optional[int] = None
-    yards_per_carry: Optional[float] = None
-    long_rushing: Optional[int] = None
+    carries: int | None = None
+    rushing_yards: float | None = None
+    rushing_tds: int | None = None
+    yards_per_carry: float | None = None
+    long_rushing: int | None = None
 
 
 class PlayerGameReceiving(BaseModel):
@@ -618,11 +617,11 @@ class PlayerGameReceiving(BaseModel):
 
     player_id: int
     player: str
-    receptions: Optional[int] = None
-    receiving_yards: Optional[float] = None
-    receiving_tds: Optional[int] = None
-    yards_per_reception: Optional[float] = None
-    long_reception: Optional[int] = None
+    receptions: int | None = None
+    receiving_yards: float | None = None
+    receiving_tds: int | None = None
+    yards_per_reception: float | None = None
+    long_reception: int | None = None
 
 
 class PlayerGameDefensive(BaseModel):
@@ -653,14 +652,14 @@ class PlayerGameDefensive(BaseModel):
 
     player_id: int
     player: str
-    tackles: Optional[float] = None
-    tackles_for_loss: Optional[float] = None
-    sacks: Optional[float] = None
-    interceptions: Optional[int] = None
-    passes_defended: Optional[int] = None
-    fumbles_forced: Optional[int] = None
-    fumbles_recovered: Optional[int] = None
-    defensive_tds: Optional[int] = None
+    tackles: float | None = None
+    tackles_for_loss: float | None = None
+    sacks: float | None = None
+    interceptions: int | None = None
+    passes_defended: int | None = None
+    fumbles_forced: int | None = None
+    fumbles_recovered: int | None = None
+    defensive_tds: int | None = None
 
 
 class PlayerGameStats(BaseModel):
@@ -687,12 +686,12 @@ class PlayerGameStats(BaseModel):
 
     game_id: int
     team: str
-    conference: Optional[str] = None
+    conference: str | None = None
     category: str
-    passing: Optional[List[PlayerGamePassing]] = None
-    rushing: Optional[List[PlayerGameRushing]] = None
-    receiving: Optional[List[PlayerGameReceiving]] = None
-    defensive: Optional[List[PlayerGameDefensive]] = None
+    passing: list[PlayerGamePassing] | None = None
+    rushing: list[PlayerGameRushing] | None = None
+    receiving: list[PlayerGameReceiving] | None = None
+    defensive: list[PlayerGameDefensive] | None = None
 
 
 # Team Game Stats Models
@@ -748,26 +747,26 @@ class TeamGameStats(BaseModel):
 
     game_id: int
     school: str
-    conference: Optional[str] = None
+    conference: str | None = None
     home_away: str
     opponent: str
     points: int
-    total_yards: Optional[float] = None
-    net_passing_yards: Optional[float] = None
-    completion_attempts: Optional[str] = None
-    passing_tds: Optional[int] = None
-    rushing_yards: Optional[float] = None
-    rushing_attempts: Optional[int] = None
-    rushing_tds: Optional[int] = None
-    first_downs: Optional[int] = None
-    third_down_efficiency: Optional[str] = None
-    fourth_down_efficiency: Optional[str] = None
-    total_penalties: Optional[int] = None
-    penalty_yards: Optional[int] = None
-    turnovers: Optional[int] = None
-    fumbles_lost: Optional[int] = None
-    interceptions_thrown: Optional[int] = None
-    possession_time: Optional[str] = None
+    total_yards: float | None = None
+    net_passing_yards: float | None = None
+    completion_attempts: str | None = None
+    passing_tds: int | None = None
+    rushing_yards: float | None = None
+    rushing_attempts: int | None = None
+    rushing_tds: int | None = None
+    first_downs: int | None = None
+    third_down_efficiency: str | None = None
+    fourth_down_efficiency: str | None = None
+    total_penalties: int | None = None
+    penalty_yards: int | None = None
+    turnovers: int | None = None
+    fumbles_lost: int | None = None
+    interceptions_thrown: int | None = None
+    possession_time: str | None = None
 
 
 # Advanced Box Score Models
@@ -807,18 +806,18 @@ class BoxScoreTeamStats(BaseModel):
 
     team: str
     points: int
-    drives: Optional[int] = None
-    scoring_opportunities: Optional[int] = None
-    points_per_opportunity: Optional[float] = None
-    explosiveness: Optional[float] = None
-    play_count: Optional[int] = None
-    stuff_rate: Optional[float] = None
-    line_yards: Optional[float] = None
-    second_level_yards: Optional[float] = None
-    open_field_yards: Optional[float] = None
-    success_rate: Optional[float] = None
-    field_position: Optional[float] = None
-    havoc: Optional[float] = None
+    drives: int | None = None
+    scoring_opportunities: int | None = None
+    points_per_opportunity: float | None = None
+    explosiveness: float | None = None
+    play_count: int | None = None
+    stuff_rate: float | None = None
+    line_yards: float | None = None
+    second_level_yards: float | None = None
+    open_field_yards: float | None = None
+    success_rate: float | None = None
+    field_position: float | None = None
+    havoc: float | None = None
 
 
 class BoxScorePlayerUsage(BaseModel):
@@ -851,12 +850,12 @@ class BoxScorePlayerUsage(BaseModel):
     team: str
     position: str
     total: float
-    quarter1: Optional[float] = None
-    quarter2: Optional[float] = None
-    quarter3: Optional[float] = None
-    quarter4: Optional[float] = None
-    rushing: Optional[float] = None
-    passing: Optional[float] = None
+    quarter1: float | None = None
+    quarter2: float | None = None
+    quarter3: float | None = None
+    quarter4: float | None = None
+    rushing: float | None = None
+    passing: float | None = None
 
 
 class BoxScorePlayerPPA(BaseModel):
@@ -884,8 +883,8 @@ class BoxScorePlayerPPA(BaseModel):
     position: str
     average_ppa: float
     total_ppa: float
-    rushing: Optional[float] = None
-    passing: Optional[float] = None
+    rushing: float | None = None
+    passing: float | None = None
 
 
 class AdvancedBoxScore(BaseModel):
@@ -905,7 +904,7 @@ class AdvancedBoxScore(BaseModel):
     game_id: int
     home_team: BoxScoreTeamStats
     away_team: BoxScoreTeamStats
-    players: Optional[Dict[str, Any]] = None
+    players: JSONObject | None = None
 
 
 class GameLine(BaseModel):
@@ -962,15 +961,15 @@ class Scoreboard(BaseModel):
     start_date: datetime
     home_team: str
     away_team: str
-    home_points: Optional[int] = None
-    away_points: Optional[int] = None
+    home_points: int | None = None
+    away_points: int | None = None
     neutral_site: bool = False
-    conference_game: Optional[bool] = None
-    line: Optional[GameLine] = None
+    conference_game: bool | None = None
+    line: GameLine | None = None
 
     @field_validator("home_points", "away_points")
     @classmethod
-    def points_must_be_non_negative(cls, v: Optional[int]) -> Optional[int]:
+    def points_must_be_non_negative(cls, v: int | None) -> int | None:
         """Ensure point totals are not negative.
 
         :param v: Points value
@@ -979,7 +978,6 @@ class Scoreboard(BaseModel):
         :rtype: Optional[int]
         :raises ValueError: If ``v`` is negative
         """
-
         if v is not None and v < 0:
             raise ValueError("Points cannot be negative")
         return v

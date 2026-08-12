@@ -14,11 +14,10 @@ if importlib.util.find_spec("aiohttp") is None:
     importlib.import_module("sys").modules["aiohttp"] = aiohttp_stub
 
 import pytest
-from pydantic import ValidationError
-
 from cfb_data.base.validation.request_validators import Classification, SeasonType
 from cfb_data.drives.api.drives_api import CFBDDrivesAPI
 from cfb_data.drives.models.pydantic.requests import DrivesRequest
+from pydantic import ValidationError
 
 
 class DrivesAPIForTesting(CFBDDrivesAPI):

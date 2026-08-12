@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Union
-
-from pydantic import ValidationError
-
 from cfb_data.base.api.base_api import CFBDAPIBase, route
+from cfb_data.base.types import (
+    JSONObject,
+    QueryParameters,
+    json_object,
+    json_object_list,
+    query_parameters,
+)
 from cfb_data.game.models.pandera.responses import (
     CalendarWeekSchema,
     GameMediaSchema,
@@ -46,7 +49,7 @@ class CFBDGamesAPI(CFBDAPIBase):
         response_model=Game,
         dataframe_schema=GameSchema,
     )
-    async def _get_games(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _get_games(self, params: QueryParameters) -> list[JSONObject]:
         """
         Get game information.
 
@@ -54,21 +57,21 @@ class CFBDGamesAPI(CFBDAPIBase):
         :type params: Dict[str, Any]
         :return: List of game dictionaries
         :rtype: List[Dict[str, Any]]
-        :raises ValidationError: If required parameters are missing or invalid  # noqa: DAR402
+        :raises ValidationError: If required parameters are missing or invalid.
         """
         # Validate using request model instead of hard-coded check
         request: GamesRequest = GamesRequest.model_validate(params)
-        validated_params: Dict[str, Any] = request.model_dump(
-            exclude_none=True, by_alias=True
+        validated_params = query_parameters(
+            request.model_dump(exclude_none=True, by_alias=True)
         )
-        return await self._make_request("/games", validated_params)
+        return json_object_list(await self._make_request("/games", validated_params))
 
     @route(
         "/records",
         response_model=TeamRecords,
         dataframe_schema=TeamRecordsSchema,
     )
-    async def _get_team_records(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _get_team_records(self, params: QueryParameters) -> list[JSONObject]:
         """
         Get team records by year.
 
@@ -76,20 +79,20 @@ class CFBDGamesAPI(CFBDAPIBase):
         :type params: Dict[str, Any]
         :return: List of team record dictionaries
         :rtype: List[Dict[str, Any]]
-        :raises ValidationError: If parameters are invalid  # noqa: DAR402
+        :raises ValidationError: If parameters are invalid.
         """
         request: RecordsRequest = RecordsRequest.model_validate(params)
-        validated_params: Dict[str, Any] = request.model_dump(
-            exclude_none=True, by_alias=True
+        validated_params = query_parameters(
+            request.model_dump(exclude_none=True, by_alias=True)
         )
-        return await self._make_request("/records", validated_params)
+        return json_object_list(await self._make_request("/records", validated_params))
 
     @route(
         "/calendar",
         response_model=CalendarWeek,
         dataframe_schema=CalendarWeekSchema,
     )
-    async def _get_calendar(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _get_calendar(self, params: QueryParameters) -> list[JSONObject]:
         """
         Get calendar/weeks for a given year.
 
@@ -97,21 +100,21 @@ class CFBDGamesAPI(CFBDAPIBase):
         :type params: Dict[str, Any]
         :return: List of week dictionaries
         :rtype: List[Dict[str, Any]]
-        :raises ValidationError: If required parameters are missing or invalid  # noqa: DAR402
+        :raises ValidationError: If required parameters are missing or invalid.
         """
         # Validate using request model instead of hard-coded check
         request: CalendarRequest = CalendarRequest.model_validate(params)
-        validated_params: Dict[str, Any] = request.model_dump(
-            exclude_none=True, by_alias=True
+        validated_params = query_parameters(
+            request.model_dump(exclude_none=True, by_alias=True)
         )
-        return await self._make_request("/calendar", validated_params)
+        return json_object_list(await self._make_request("/calendar", validated_params))
 
     @route(
         "/games/media",
         response_model=GameMedia,
         dataframe_schema=GameMediaSchema,
     )
-    async def _get_game_media(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _get_game_media(self, params: QueryParameters) -> list[JSONObject]:
         """
         Get game media information and types.
 
@@ -119,21 +122,23 @@ class CFBDGamesAPI(CFBDAPIBase):
         :type params: Dict[str, Any]
         :return: List of game media dictionaries
         :rtype: List[Dict[str, Any]]
-        :raises ValidationError: If required parameters are missing or invalid  # noqa: DAR402
+        :raises ValidationError: If required parameters are missing or invalid.
         """
         # Validate using request model instead of hard-coded check
         request: GameMediaRequest = GameMediaRequest.model_validate(params)
-        validated_params: Dict[str, Any] = request.model_dump(
-            exclude_none=True, by_alias=True
+        validated_params = query_parameters(
+            request.model_dump(exclude_none=True, by_alias=True)
         )
-        return await self._make_request("/games/media", validated_params)
+        return json_object_list(
+            await self._make_request("/games/media", validated_params)
+        )
 
     @route(
         "/games/weather",
         response_model=GameWeather,
         dataframe_schema=GameWeatherSchema,
     )
-    async def _get_game_weather(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _get_game_weather(self, params: QueryParameters) -> list[JSONObject]:
         """
         Get game weather information.
 
@@ -141,22 +146,22 @@ class CFBDGamesAPI(CFBDAPIBase):
         :type params: Dict[str, Any]
         :return: List of game weather dictionaries
         :rtype: List[Dict[str, Any]]
-        :raises ValidationError: If parameters are invalid  # noqa: DAR402
+        :raises ValidationError: If parameters are invalid.
         """
         request: GameWeatherRequest = GameWeatherRequest.model_validate(params)
-        validated_params: Dict[str, Any] = request.model_dump(
-            exclude_none=True, by_alias=True
+        validated_params = query_parameters(
+            request.model_dump(exclude_none=True, by_alias=True)
         )
-        return await self._make_request("/games/weather", validated_params)
+        return json_object_list(
+            await self._make_request("/games/weather", validated_params)
+        )
 
     @route(
         "/games/players",
         response_model=PlayerGameStats,
         dataframe_schema=PlayerGameStatsSchema,
     )
-    async def _get_player_game_stats(
-        self, params: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+    async def _get_player_game_stats(self, params: QueryParameters) -> list[JSONObject]:
         """
         Get player statistics by game.
 
@@ -164,23 +169,23 @@ class CFBDGamesAPI(CFBDAPIBase):
         :type params: Dict[str, Any]
         :return: List of player game statistics dictionaries
         :rtype: List[Dict[str, Any]]
-        :raises ValidationError: If parameters are invalid  # noqa: DAR402
+        :raises ValidationError: If parameters are invalid.
         """
         # Use model validation instead of commented-out hard-coded check
         request: PlayerGameStatsRequest = PlayerGameStatsRequest.model_validate(params)
-        validated_params: Dict[str, Any] = request.model_dump(
-            exclude_none=True, by_alias=True
+        validated_params = query_parameters(
+            request.model_dump(exclude_none=True, by_alias=True)
         )
-        return await self._make_request("/games/players", validated_params)
+        return json_object_list(
+            await self._make_request("/games/players", validated_params)
+        )
 
     @route(
         "/games/teams",
         response_model=TeamGameStats,
         dataframe_schema=TeamGameStatsSchema,
     )
-    async def _get_team_game_stats(
-        self, params: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+    async def _get_team_game_stats(self, params: QueryParameters) -> list[JSONObject]:
         """
         Get team statistics by game.
 
@@ -188,21 +193,23 @@ class CFBDGamesAPI(CFBDAPIBase):
         :type params: Dict[str, Any]
         :return: List of team game statistics dictionaries
         :rtype: List[Dict[str, Any]]
-        :raises ValidationError: If required parameters are missing or invalid  # noqa: DAR402
+        :raises ValidationError: If required parameters are missing or invalid.
         """
         # Use model validation with complex conditional logic instead of commented-out hard-coded check
         request: TeamGameStatsRequest = TeamGameStatsRequest.model_validate(params)
-        validated_params: Dict[str, Any] = request.model_dump(
-            exclude_none=True, by_alias=True
+        validated_params = query_parameters(
+            request.model_dump(exclude_none=True, by_alias=True)
         )
-        return await self._make_request("/games/teams", validated_params)
+        return json_object_list(
+            await self._make_request("/games/teams", validated_params)
+        )
 
     @route(
         "/game/box/advanced",
         response_model=AdvancedBoxScore,
         dataframe_schema=None,
     )
-    async def _get_box_scores(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    async def _get_box_scores(self, params: QueryParameters) -> JSONObject:
         """
         Get box score data for a specific game.
 
@@ -210,13 +217,15 @@ class CFBDGamesAPI(CFBDAPIBase):
         :type params: Dict[str, Any]
         :return: Box score data dictionary
         :rtype: Dict[str, Any]
-        :raises ValidationError: If required parameters are missing or invalid  # noqa: DAR402
+        :raises ValidationError: If required parameters are missing or invalid.
         """
         # Validate using request model instead of hard-coded check
         request: AdvancedBoxScoreRequest = AdvancedBoxScoreRequest.model_validate(
             params
         )
-        validated_params: Dict[str, Any] = request.model_dump(
-            exclude_none=True, by_alias=True
+        validated_params = query_parameters(
+            request.model_dump(exclude_none=True, by_alias=True)
         )
-        return await self._make_request("/game/box/advanced", validated_params)
+        return json_object(
+            await self._make_request("/game/box/advanced", validated_params)
+        )

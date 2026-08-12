@@ -1,8 +1,6 @@
 """Test request validation logic."""
 
 import pytest
-from pydantic import ValidationError
-
 from cfb_data.base.validation.request_validators import (
     Classification,
     SeasonType,

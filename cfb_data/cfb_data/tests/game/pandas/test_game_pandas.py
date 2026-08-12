@@ -27,7 +27,6 @@ class DummyGamesPandasAPI(CFBDGamesPandasAPI):
 
     def __init__(self) -> None:
         """Initialize the dummy games API with a fake key."""
-
         super().__init__(api_key="fake")
 
     @route(
@@ -41,7 +40,6 @@ class DummyGamesPandasAPI(CFBDGamesPandasAPI):
         :return: Raw JSON list.
         :rtype: list[dict]
         """
-
         return await self._make_request("/calendar", params)
 
 
@@ -53,13 +51,11 @@ def run(coro):
     :return: Result of the coroutine.
     :rtype: Any
     """
-
     return asyncio.run(coro)
 
 
 def test_make_request_returns_dataframe():
     """Return DataFrame for valid calendar data."""
-
     sample = {
         "season": 2024,
         "week": 1,
@@ -80,7 +76,6 @@ def test_make_request_returns_dataframe():
 
 def test_make_request_schema_error():
     """Raise schema error for invalid calendar data."""
-
     bad_sample = {
         "season": 2024,
         "week": -1,

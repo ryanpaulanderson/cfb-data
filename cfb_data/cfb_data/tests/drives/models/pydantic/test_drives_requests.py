@@ -1,10 +1,9 @@
 """Test request models with validation logic for drives endpoints."""
 
 import pytest
-from pydantic import ValidationError
-
 from cfb_data.base.validation.request_validators import Classification, SeasonType
 from cfb_data.drives.models.pydantic.requests import DrivesRequest
+from pydantic import ValidationError
 
 
 class TestDrivesRequest:
