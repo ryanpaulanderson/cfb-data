@@ -1,6 +1,12 @@
 """Access validated CollegeFootballData endpoints as pandas or Polars frames."""
 
 from .client import CFBDClient, DataFrameBackend
+from .conferences.models.pydantic.requests import (
+    ConferenceAffiliationsRequest,
+    ConferenceChangesRequest,
+    ConferencesRequest,
+)
+from .conferences.models.pydantic.responses import ConferenceClassification
 from .drives.models.pydantic.requests import DrivesRequest
 from .enums import (
     Classification,
@@ -46,6 +52,14 @@ from .plays.models.pydantic.requests import (
 )
 from .plays.models.pydantic.responses import DownType, HomeAway, LiveGame, RushPass
 from .retry import RetryPolicy
+from .teams.models.pydantic.requests import (
+    FBSTeamsRequest,
+    RosterRequest,
+    TalentRequest,
+    TeamATSRequest,
+    TeamMatchupRequest,
+    TeamsRequest,
+)
 
 __all__ = [
     "AdvancedBoxScoreRequest",
@@ -69,11 +83,16 @@ __all__ = [
     "CFBDTLSError",
     "CFBDTransportError",
     "Classification",
+    "ConferenceAffiliationsRequest",
+    "ConferenceChangesRequest",
+    "ConferenceClassification",
+    "ConferencesRequest",
     "DataFrameBackend",
     "DrivesRequest",
     "GameMediaRequest",
     "GamesRequest",
     "GameWeatherRequest",
+    "FBSTeamsRequest",
     "HomeAway",
     "LiveGame",
     "LivePlaysRequest",
@@ -85,9 +104,14 @@ __all__ = [
     "PlayStatsRequest",
     "RecordsRequest",
     "RetryPolicy",
+    "RosterRequest",
     "RushPass",
     "ScoreboardRequest",
     "SeasonType",
     "TeamGameStatsRequest",
+    "TalentRequest",
+    "TeamATSRequest",
+    "TeamMatchupRequest",
+    "TeamsRequest",
     "DownType",
 ]

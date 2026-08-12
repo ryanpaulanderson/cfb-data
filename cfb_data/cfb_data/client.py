@@ -24,11 +24,14 @@ from cfb_data._transport import (
     _validate_base_url,
     _validate_timeout,
 )
+from cfb_data.conferences.resource import ConferencesResource
 from cfb_data.drives.resource import DrivesResource
 from cfb_data.errors import CFBDConfigurationError
 from cfb_data.games.resource import GamesResource
 from cfb_data.plays.resource import PlaysResource
 from cfb_data.retry import RetryPolicy
+from cfb_data.teams.resource import TeamsResource
+from cfb_data.venues.resource import VenuesResource
 
 if TYPE_CHECKING:
     import polars as pl
@@ -38,7 +41,7 @@ _FrameT = TypeVar("_FrameT")
 
 
 class CFBDClient(Generic[_FrameT]):
-    """Access validated Games, Drives, and Plays through one pooled session.
+    """Access validated CFBD endpoint namespaces through one pooled session.
 
     The client is one-shot and must be used with ``async with``. Endpoint calls
     return eager pandas DataFrames by default or eager Polars DataFrames when
@@ -118,6 +121,9 @@ class CFBDClient(Generic[_FrameT]):
         self._games = GamesResource(executor, adapter)
         self._drives = DrivesResource(executor, adapter)
         self._plays = PlaysResource(executor, adapter)
+        self._venues = VenuesResource(executor, adapter)
+        self._conferences = ConferencesResource(executor, adapter)
+        self._teams = TeamsResource(executor, adapter)
 
     @property
     def games(self) -> GamesResource[_FrameT]:
@@ -142,6 +148,30 @@ class CFBDClient(Generic[_FrameT]):
         :return: Resource bound to this client's session and DataFrame backend.
         """
         return self._plays
+
+    @property
+    def venues(self) -> VenuesResource[_FrameT]:
+        """Return the typed Venues endpoint namespace.
+
+        :return: Resource bound to this client's session and DataFrame backend.
+        """
+        return self._venues
+
+    @property
+    def conferences(self) -> ConferencesResource[_FrameT]:
+        """Return the typed Conferences endpoint namespace.
+
+        :return: Resource bound to this client's session and DataFrame backend.
+        """
+        return self._conferences
+
+    @property
+    def teams(self) -> TeamsResource[_FrameT]:
+        """Return the typed Teams endpoint namespace.
+
+        :return: Resource bound to this client's session and DataFrame backend.
+        """
+        return self._teams
 
     async def __aenter__(self) -> Self:
         await self._transport.open()
