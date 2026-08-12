@@ -7,7 +7,12 @@ from typing import TypeVar
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from cfb_data._transport import _HTTPTransport
-from cfb_data.base.types import json_object, json_object_list, query_parameters
+from cfb_data.base.types import (
+    json_list,
+    json_object,
+    json_object_list,
+    query_parameters,
+)
 from cfb_data.errors import (
     CFBDRequestValidationError,
     CFBDResponseValidationError,
@@ -15,6 +20,7 @@ from cfb_data.errors import (
 )
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
+_ValueT = TypeVar("_ValueT")
 
 
 class _EndpointExecutor:
@@ -79,15 +85,45 @@ class _EndpointExecutor:
             safe_cause = _sanitized_cause(exc)
         raise CFBDResponseValidationError(endpoint=endpoint) from safe_cause
 
+    async def fetch_values(
+        self,
+        *,
+        endpoint: str,
+        request: BaseModel,
+        response_adapter: TypeAdapter[list[_ValueT]],
+    ) -> list[_ValueT]:
+        """Fetch and validate a JSON-array response in API order.
+
+        :param endpoint: Fixed endpoint path.
+        :param request: Validated endpoint request model.
+        :param response_adapter: Typed array-response validator.
+        :return: Validated values in upstream order.
+        :raises CFBDResponseValidationError: If response shape or values fail.
+        """
+        raw = await self._transport.get_json(
+            endpoint,
+            _serialize_request(endpoint, request),
+        )
+        try:
+            payload = json_list(raw)
+            return response_adapter.validate_python(payload)
+        except (TypeError, ValidationError) as exc:
+            safe_cause = _sanitized_cause(exc)
+        raise CFBDResponseValidationError(endpoint=endpoint) from safe_cause
+
 
 def _serialize_request(
     endpoint: str, request: BaseModel
 ) -> dict[str, str | int | float | bool]:
     """Serialize one validated request using its upstream aliases."""
     try:
-        return query_parameters(
+        parameters = query_parameters(
             request.model_dump(mode="json", by_alias=True, exclude_none=True)
         )
+        return {
+            key: str(value).lower() if isinstance(value, bool) else value
+            for key, value in parameters.items()
+        }
     except TypeError as exc:
         safe_cause = _sanitized_cause(exc)
     raise CFBDRequestValidationError(endpoint=endpoint) from safe_cause

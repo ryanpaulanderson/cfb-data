@@ -80,6 +80,19 @@ def json_object_list(value: object) -> list[JSONObject]:
     raise TypeError("Expected a list of JSON objects")
 
 
+def json_list(value: object) -> list[JSONValue]:
+    """Validate and return a list of recursively JSON-compatible values.
+
+    :param value: Untrusted value expected to contain a JSON array.
+    :return: Recursively validated JSON values in their original order.
+    :raises TypeError: If the value is not a JSON array.
+    """
+    parsed = json_value(value)
+    if isinstance(parsed, list):
+        return parsed
+    raise TypeError("Expected a JSON array")
+
+
 def query_parameters(value: object) -> QueryParameters:
     """Validate and return URL query parameters.
 

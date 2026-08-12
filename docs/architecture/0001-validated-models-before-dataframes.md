@@ -53,8 +53,10 @@ JSON.
 The logical table schema is derived recursively from each row model's declared
 field order and annotations. Supported values are integers, floats, booleans,
 strings and `StrEnum` values, timezone-aware UTC datetimes, nullable `T | None`,
-nested `BaseModel` structs, and recursive lists. An unsupported annotation is
-an explicit conversion failure; it never degrades to an unspecified object or
+nested `BaseModel` structs, recursive lists, and the deliberately heterogeneous
+Stats scalar defined by
+[ADR 0002](0002-heterogeneous-stat-scalars.md). An unsupported annotation is an
+explicit conversion failure; it never degrades to an unspecified object or
 `Any` column.
 
 Models are dumped in Python mode by field name. API row order, snake-case

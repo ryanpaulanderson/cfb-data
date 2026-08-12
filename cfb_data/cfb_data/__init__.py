@@ -52,6 +52,15 @@ from .plays.models.pydantic.requests import (
 )
 from .plays.models.pydantic.responses import DownType, HomeAway, LiveGame, RushPass
 from .retry import RetryPolicy
+from .stats.models.pydantic.requests import (
+    AdvancedGameStatsRequest,
+    AdvancedSeasonStatsRequest,
+    GameHavocRequest,
+    PlayerGameSuccessRequest,
+    PlayerSeasonStatsRequest,
+    PlayerSeasonSuccessRequest,
+    TeamSeasonStatsRequest,
+)
 from .teams.models.pydantic.requests import (
     FBSTeamsRequest,
     RosterRequest,
@@ -64,6 +73,8 @@ from .teams.models.pydantic.requests import (
 __all__ = [
     "AdvancedBoxScoreRequest",
     "AdvancedBoxScore",
+    "AdvancedGameStatsRequest",
+    "AdvancedSeasonStatsRequest",
     "CalendarRequest",
     "CFBDAuthenticationError",
     "CFBDAuthorizationError",
@@ -92,16 +103,20 @@ __all__ = [
     "GameMediaRequest",
     "GamesRequest",
     "GameWeatherRequest",
+    "GameHavocRequest",
     "FBSTeamsRequest",
     "HomeAway",
     "LiveGame",
     "LivePlaysRequest",
     "MediaType",
     "PlayerGameStatsRequest",
+    "PlayerGameSuccessRequest",
     "PlayoffCompetition",
     "PlayoffRound",
     "PlaysRequest",
     "PlayStatsRequest",
+    "PlayerSeasonStatsRequest",
+    "PlayerSeasonSuccessRequest",
     "RecordsRequest",
     "RetryPolicy",
     "RosterRequest",
@@ -109,6 +124,7 @@ __all__ = [
     "ScoreboardRequest",
     "SeasonType",
     "TeamGameStatsRequest",
+    "TeamSeasonStatsRequest",
     "TalentRequest",
     "TeamATSRequest",
     "TeamMatchupRequest",

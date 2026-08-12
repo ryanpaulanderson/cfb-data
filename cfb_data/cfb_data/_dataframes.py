@@ -36,6 +36,7 @@ _LogicalKind = Literal[
     "float",
     "boolean",
     "string",
+    "scalar",
     "datetime",
     "struct",
     "list",
@@ -236,6 +237,8 @@ def _logical_type(
     if origin is Union or union_origin is types.UnionType:
         union_args = get_args(annotation)
         non_none = tuple(item for item in union_args if item is not type(None))
+        if len(union_args) == 3 and set(union_args) == {str, int, float}:
+            return _LogicalType("scalar")
         if len(non_none) != 1 or len(non_none) == len(union_args):
             raise _UnsupportedTableAnnotationError(
                 f"Only T | None unions are supported, received {annotation!r}"
@@ -339,6 +342,10 @@ def _normalize_value(value: object, logical_type: _LogicalType) -> object:
         if not isinstance(value, str):
             raise TypeError("String logical value has the wrong type")
         return value
+    if logical_type.kind == "scalar":
+        if isinstance(value, bool) or not isinstance(value, str | int | float):
+            raise TypeError("Heterogeneous scalar value has the wrong type")
+        return value
     if logical_type.kind == "datetime":
         if not isinstance(value, datetime):
             raise TypeError("Datetime logical value has the wrong type")
@@ -366,7 +373,7 @@ def _pandas_dtype(logical_type: _LogicalType) -> object:
         return "string"
     if logical_type.kind == "datetime":
         return "datetime64[ns, UTC]"
-    if logical_type.kind in {"struct", "list"}:
+    if logical_type.kind in {"scalar", "struct", "list"}:
         return object
     raise AssertionError(f"Unreachable logical kind: {logical_type.kind}")
 
@@ -383,6 +390,8 @@ def _polars_dtype(logical_type: _LogicalType) -> pl.DataType:
         return pl.Boolean()
     if logical_type.kind == "string":
         return pl.String()
+    if logical_type.kind == "scalar":
+        return pl.Object()
     if logical_type.kind == "datetime":
         return pl.Datetime(time_unit="us", time_zone="UTC")
     if logical_type.kind == "struct":

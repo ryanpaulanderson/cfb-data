@@ -12,6 +12,12 @@ class _UnsupportedRow(BaseModel):
     payload: dict[str, int]
 
 
+class _UnsupportedUnionRow(BaseModel):
+    """Provide a general union outside the one approved scalar contract."""
+
+    value: str | int
+
+
 @pytest.mark.parametrize(
     ("adapter", "backend"),
     [(_PandasAdapter(), "pandas"), (_PolarsAdapter(), "polars")],
@@ -33,3 +39,24 @@ def test_unsupported_annotation_fails_without_object_fallback(
     assert exc_info.value.__cause__ is not None
     assert str(exc_info.value.__cause__) == "_UnsupportedTableAnnotationError"
     assert "value" not in repr(vars(exc_info.value.__cause__))
+
+
+@pytest.mark.parametrize(
+    ("adapter", "backend"),
+    [(_PandasAdapter(), "pandas"), (_PolarsAdapter(), "polars")],
+)
+def test_unapproved_union_still_fails_without_object_fallback(
+    adapter: object,
+    backend: str,
+) -> None:
+    """Keep arbitrary unions outside the heterogeneous Stats scalar policy."""
+    with pytest.raises(CFBDDataFrameConversionError) as exc_info:
+        adapter.from_models(
+            endpoint="/unsupported-union",
+            row_model=_UnsupportedUnionRow,
+            models=[_UnsupportedUnionRow(value=1)],
+        )
+
+    assert exc_info.value.backend == backend
+    assert exc_info.value.endpoint == "/unsupported-union"
+    assert str(exc_info.value.__cause__) == "_UnsupportedTableAnnotationError"
