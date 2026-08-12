@@ -8,7 +8,7 @@ updates:
       timezone: "America/New_York"
     # Preserve this library's existing lower bounds while widening supported
     # ranges when a deliberately reviewed update requires it.
-    versioning-strategy: "widen"
+    versioning-strategy: "increase-if-necessary"
     open-pull-requests-limit: 10
     commit-message:
       prefix: "deps"
