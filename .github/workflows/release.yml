@@ -32,11 +32,20 @@ jobs:
       - name: Detect merged version bump
         id: version
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
           set -euo pipefail
+
+          previous_sha="$(
+            gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/commits/${MERGE_SHA}" \
+              --jq '.parents[0].sha // empty'
+          )"
+          if [[ -z "$previous_sha" ]]; then
+            echo "Merge commit $MERGE_SHA has no first parent" >&2
+            exit 1
+          fi
 
           previous_pyproject="$(mktemp)"
           merged_pyproject="$(mktemp)"
@@ -44,7 +53,7 @@ jobs:
 
           gh api --method GET \
             -H "Accept: application/vnd.github.raw+json" \
-            -f ref="$BASE_SHA" \
+            -f ref="$previous_sha" \
             "repos/${GITHUB_REPOSITORY}/contents/pyproject.toml" \
             >"$previous_pyproject"
           gh api --method GET \
