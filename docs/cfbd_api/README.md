@@ -14,6 +14,9 @@ official [`CFBD/cfb-api-v2`](https://github.com/CFBD/cfb-api-v2) source.
 | [Conferences](conferences_api.md) | 3 | `client.conferences` |
 | [Teams](teams_api.md) | 6 | `client.teams` |
 | [Stats](stats_api.md) | 8 | `client.stats` |
+| [Metrics](metrics_api.md) | 8 | `client.metrics` |
+| [Ratings](ratings_api.md) | 7 | `client.ratings` |
+| [Players](players_api.md) | 5 | `client.players` |
 
 `CFBDClient` sends authenticated GET requests to the canonical API origin by
 default. Request fields use snake case in Python and serialize to upstream

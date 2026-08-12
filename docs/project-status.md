@@ -1,15 +1,16 @@
 # Project status
 
 > Status as of August 12, 2026: version 0.2.0 implements the supported Games,
-> Drives, Plays, Venues, Conferences, Teams, and Stats client surface. Broader
-> endpoint, dataset, and workflow coverage remains future work.
+> Drives, Plays, Venues, Conferences, Teams, Stats, Metrics, Ratings, and
+> Players client surface. Broader endpoint, dataset, and workflow coverage
+> remains future work.
 
 ## Current product surface
 
 `CFBDClient` is the sole primary client. It owns one context-managed,
 connection-pooled `aiohttp.ClientSession` and exposes typed `games`, `drives`,
-`plays`, `venues`, `conferences`, `teams`, and `stats` namespaces. Every endpoint
-follows the same boundary sequence:
+`plays`, `venues`, `conferences`, `teams`, `stats`, `metrics`, `ratings`, and
+`players` namespaces. Every endpoint follows the same boundary sequence:
 
 ```text
 HTTP → decoded JSON → Pydantic response validation → logical schema → DataFrame
@@ -30,6 +31,9 @@ The implemented routes are `/games`, `/records`, `/calendar`, `/scoreboard`,
 The Stats routes are `/stats/player/season`, `/stats/player/success`,
 `/stats/player/success/game`, `/stats/season`, `/stats/categories`,
 `/stats/season/advanced`, `/stats/game/advanced`, and `/stats/game/havoc`.
+Metrics implements eight PPA and probability routes, Ratings implements seven
+rating-system routes, and Players implements the five documented player
+routes. The hidden `/player/ppa/passing` route is not public client surface.
 
 ## Reliability contract
 
@@ -56,7 +60,7 @@ are not part of the supported client.
 ## Deliberately not included in 0.2.0
 
 - Endpoint families beyond Games, Drives, Plays, Venues, Conferences, Teams,
-  and Stats.
+  Stats, Metrics, Ratings, and Players.
 - Credentialed live-API tests; deterministic tests use a local HTTP server.
 - Polars `LazyFrame` results.
 - Public dataset or workflow namespaces.

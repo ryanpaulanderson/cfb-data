@@ -14,6 +14,7 @@ from .enums import (
     PlayoffCompetition,
     PlayoffRound,
     SeasonType,
+    TransferEligibility,
 )
 from .errors import (
     CFBDAuthenticationError,
@@ -45,12 +46,37 @@ from .games.models.pydantic.requests import (
     TeamGameStatsRequest,
 )
 from .games.models.pydantic.responses import AdvancedBoxScore
+from .metrics.models.pydantic.requests import (
+    PlayerGamePPARequest,
+    PlayerSeasonPPARequest,
+    PredictedPointsRequest,
+    PregameWinProbabilityRequest,
+    TeamGamePPARequest,
+    TeamSeasonPPARequest,
+    WinProbabilityRequest,
+)
+from .players.models.pydantic.requests import (
+    PlayerSearchRequest,
+    PlayerSeasonOverviewRequest,
+    PlayerUsageRequest,
+    ReturningProductionRequest,
+    TransferPortalRequest,
+)
 from .plays.models.pydantic.requests import (
     LivePlaysRequest,
     PlaysRequest,
     PlayStatsRequest,
 )
 from .plays.models.pydantic.responses import DownType, HomeAway, LiveGame, RushPass
+from .ratings.models.pydantic.requests import (
+    ConferenceSPRatingsRequest,
+    CoreRatingsRequest,
+    EloRatingsRequest,
+    ExpandedSRSRatingsRequest,
+    FPIRatingsRequest,
+    SPRatingsRequest,
+    SRSRatingsRequest,
+)
 from .retry import RetryPolicy
 from .stats.models.pydantic.requests import (
     AdvancedGameStatsRequest,
@@ -98,8 +124,13 @@ __all__ = [
     "ConferenceChangesRequest",
     "ConferenceClassification",
     "ConferencesRequest",
+    "ConferenceSPRatingsRequest",
+    "CoreRatingsRequest",
     "DataFrameBackend",
     "DrivesRequest",
+    "EloRatingsRequest",
+    "ExpandedSRSRatingsRequest",
+    "FPIRatingsRequest",
     "GameMediaRequest",
     "GamesRequest",
     "GameWeatherRequest",
@@ -110,24 +141,39 @@ __all__ = [
     "LivePlaysRequest",
     "MediaType",
     "PlayerGameStatsRequest",
+    "PlayerGamePPARequest",
     "PlayerGameSuccessRequest",
     "PlayoffCompetition",
     "PlayoffRound",
     "PlaysRequest",
     "PlayStatsRequest",
     "PlayerSeasonStatsRequest",
+    "PlayerSearchRequest",
+    "PlayerSeasonOverviewRequest",
+    "PlayerSeasonPPARequest",
     "PlayerSeasonSuccessRequest",
+    "PlayerUsageRequest",
+    "PredictedPointsRequest",
+    "PregameWinProbabilityRequest",
     "RecordsRequest",
     "RetryPolicy",
     "RosterRequest",
+    "ReturningProductionRequest",
     "RushPass",
     "ScoreboardRequest",
     "SeasonType",
+    "SPRatingsRequest",
+    "SRSRatingsRequest",
+    "TeamGamePPARequest",
     "TeamGameStatsRequest",
     "TeamSeasonStatsRequest",
+    "TeamSeasonPPARequest",
     "TalentRequest",
     "TeamATSRequest",
     "TeamMatchupRequest",
     "TeamsRequest",
+    "TransferPortalRequest",
+    "TransferEligibility",
+    "WinProbabilityRequest",
     "DownType",
 ]
