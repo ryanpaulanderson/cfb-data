@@ -15,10 +15,13 @@ from cfb_data import (
     GameMediaRequest,
     GamesRequest,
     GameWeatherRequest,
+    LivePlaysRequest,
     MediaType,
     PlayerGameStatsRequest,
     PlayoffCompetition,
     PlayoffRound,
+    PlaysRequest,
+    PlayStatsRequest,
     RecordsRequest,
     RetryPolicy,
     ScoreboardRequest,
@@ -34,6 +37,11 @@ def test_request_models_are_exported_and_serialize_upstream_aliases() -> None:
         (PlayerGameStatsRequest(game_id=12), {"id": 12}),
         (TeamGameStatsRequest(game_id=13), {"id": 13}),
         (AdvancedBoxScoreRequest(game_id=14), {"id": 14}),
+        (
+            PlayStatsRequest(game_id=15, athlete_id=16, stat_type_id=17),
+            {"gameId": 15, "athleteId": 16, "statTypeId": 17},
+        ),
+        (LivePlaysRequest(game_id=18), {"gameId": 18}),
     ]
 
     for request, expected in requests:
@@ -47,6 +55,9 @@ def test_game_id_uses_the_public_name_when_validating_request_models() -> None:
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         GamesRequest.model_validate({"id": 10})
 
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        LivePlaysRequest.model_validate({"gameId": 10})
+
 
 def test_shared_enums_accept_members_and_documented_strings() -> None:
     game = GamesRequest(
@@ -58,12 +69,20 @@ def test_shared_enums_accept_members_and_documented_strings() -> None:
     )
     media = GameMediaRequest(year=2024, media_type="tv")
     drives = DrivesRequest(year=2024, season_type=SeasonType.regular)
+    plays = PlaysRequest(
+        year=2024,
+        week=1,
+        season_type="regular",
+        classification="fbs",
+    )
 
     assert game.season_type is SeasonType.postseason
     assert game.classification is Classification.fbs
     assert game.competition is PlayoffCompetition.cfp
     assert media.media_type is MediaType.tv
     assert drives.season_type is SeasonType.regular
+    assert plays.season_type is SeasonType.regular
+    assert plays.classification is Classification.fbs
 
 
 def test_response_models_use_the_same_shared_enums(
@@ -86,12 +105,34 @@ def test_response_models_use_the_same_shared_enums(
         (PlayerGameStatsRequest, {"year": 2024, "week": 1}),
         (TeamGameStatsRequest, {"year": 2024, "team": "Alabama"}),
         (DrivesRequest, {"year": 2024}),
+        (PlaysRequest, {"year": 2024, "week": 1}),
+        (PlayStatsRequest, {}),
+        (LivePlaysRequest, {"game_id": 401628347}),
     ],
 )
 def test_exported_request_models_accept_documented_minimums(
     request_type: type[object], values: dict[str, object]
 ) -> None:
     request_type(**values)
+
+
+@pytest.mark.parametrize(
+    ("request_type", "values"),
+    [
+        (PlaysRequest, {"year": 2024}),
+        (PlaysRequest, {"week": 1}),
+        (PlayStatsRequest, {"game_id": 0}),
+        (PlayStatsRequest, {"athlete_id": -1}),
+        (PlayStatsRequest, {"stat_type_id": 0}),
+        (LivePlaysRequest, {"game_id": 0}),
+    ],
+)
+def test_plays_requests_reject_missing_or_invalid_selectors(
+    request_type: type[object], values: dict[str, object]
+) -> None:
+    """Reject incomplete historical selectors and non-positive IDs."""
+    with pytest.raises(ValidationError):
+        request_type(**values)
 
 
 def test_response_timestamp_is_normalized_to_utc(

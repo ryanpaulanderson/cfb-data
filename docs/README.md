@@ -8,7 +8,7 @@
   deliberately deferred work.
 - [`architecture/0001-validated-models-before-dataframes.md`](architecture/0001-validated-models-before-dataframes.md)
   — accepted validation, DataFrame, dataset, and workflow layering decision.
-- [`cfbd_api/`](cfbd_api/) — implemented Games and Drives endpoint contracts.
+- [`cfbd_api/`](cfbd_api/) — implemented Games, Drives, and Plays contracts.
 - [`next-api-groups.md`](next-api-groups.md) — source-backed prioritization of
   the remaining official API groups.
 - [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — contributor setup and quality

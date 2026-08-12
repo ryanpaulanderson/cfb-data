@@ -23,9 +23,9 @@ orchestration.
 `CFBDClient` uses composition and the following dependency direction:
 
 ```text
-GamesResource / DrivesResource
-             │
-             ▼
+GamesResource / DrivesResource / PlaysResource
+                    │
+                    ▼
       endpoint executor
              │
              ▼
@@ -68,9 +68,9 @@ async context manager so session ownership and cleanup are deterministic.
 
 ## Public return modes
 
-Tabular Games and Drives endpoints return the selected eager DataFrame type.
-Raw JSON and general validated-model modes are excluded. Advanced box score is
-the exception because its independent game, team, and player sections lack one
+Tabular Games, Drives, and Plays endpoints return the selected eager DataFrame
+type. Raw JSON and general validated-model modes are excluded. Advanced box
+score and live plays are the exceptions because their nested sections lack one
 natural table.
 
 The former client hierarchy, route decorator, generic
