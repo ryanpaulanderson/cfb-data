@@ -7,7 +7,13 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from cfb_data.enums import Classification, MediaType, SeasonType
+from cfb_data.enums import (
+    Classification,
+    MediaType,
+    PlayoffCompetition,
+    PlayoffRound,
+    SeasonType,
+)
 
 
 class _ResponseModel(BaseModel):
@@ -44,9 +50,9 @@ class GamePlayoff(_ResponseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    competition: str
+    competition: PlayoffCompetition
     format: str
-    round: str
+    round: PlayoffRound
     round_name: str = Field(alias="roundName")
     bracket_slot: str = Field(alias="bracketSlot")
     home_seed: int | None = Field(alias="homeSeed", ge=0)
