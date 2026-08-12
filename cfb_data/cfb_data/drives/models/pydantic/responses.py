@@ -8,10 +8,10 @@ from pydantic import BaseModel, ConfigDict, Field
 class DriveTime(BaseModel):
     """Time remaining in a period."""
 
-    seconds: int | None = Field(default=None)
-    minutes: int | None = Field(default=None)
+    seconds: int | None
+    minutes: int | None
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
 
 class Drive(BaseModel):
@@ -33,6 +33,7 @@ class Drive(BaseModel):
     end_yardline: int = Field(alias="endYardline")
     end_yards_to_goal: int = Field(alias="endYardsToGoal")
     end_time: DriveTime = Field(alias="endTime")
+    elapsed: DriveTime
     plays: int = Field(alias="plays")
     yards: int = Field(alias="yards")
     drive_result: str = Field(alias="driveResult")
@@ -42,4 +43,4 @@ class Drive(BaseModel):
     end_offense_score: int = Field(alias="endOffenseScore")
     end_defense_score: int = Field(alias="endDefenseScore")
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")

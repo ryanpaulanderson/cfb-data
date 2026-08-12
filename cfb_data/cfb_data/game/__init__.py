@@ -1,6 +1,11 @@
-"""Game data module for College Football Data API package.
+"""Expose the implemented games endpoint clients."""
 
-This module provides access to college football game data, including
-game information, scores, statistics, and related functionality through
-the College Football Data API.
-"""
+from .api import CFBDGamesAPI
+from .pandas import CFBDGamesPandasAPI
+from .validation import CFBDGamesValidationAPI
+
+__all__ = [
+    "CFBDGamesAPI",
+    "CFBDGamesValidationAPI",
+    "CFBDGamesPandasAPI",
+]

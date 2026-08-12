@@ -17,10 +17,36 @@ clients, centered on three capabilities:
 - Pydantic validation for request and response data;
 - Pandera-validated pandas DataFrames for analysis.
 
-The repository currently contains internal implementations of those layers for
-several games endpoints and the drives endpoint. Deciding how they should be
-presented as a stable public client is deliberately deferred until the
-foundation is sound.
+The repository currently contains usable domain clients for eight games
+endpoints and the drives endpoint. Their request and response contracts track
+the official CFBD API v5.24.0 documentation. Deciding how they should be
+presented as one stable top-level client remains deliberately deferred.
+
+## Current domain clients
+
+Set an API key issued by CollegeFootballData and choose the response layer:
+
+```python
+from cfb_data.game import CFBDGamesValidationAPI
+
+api = CFBDGamesValidationAPI(api_key="...")
+games = await api.make_request(
+    "/games",
+    {"year": 2024, "team": "Michigan"},
+)
+```
+
+- `CFBDGamesAPI` and `CFBDDrivesAPI` return raw JSON after validating request
+  parameters.
+- `CFBDGamesValidationAPI` and `CFBDDrivesValidationAPI` return Pydantic
+  response models.
+- `CFBDGamesPandasAPI` and `CFBDDrivesPandasAPI` return Pandera-validated
+  DataFrames.
+
+See [`docs/cfbd_api/`](docs/cfbd_api/) for the implemented routes, selectors,
+response shapes, and access restrictions. The client uses the canonical
+`https://api.collegefootballdata.com` host, normal TLS verification, and a
+finite request timeout.
 
 ## Development setup
 
@@ -71,7 +97,6 @@ cfb_data/
 │   ├── project-status.md     Current state and known gaps
 │   ├── cfbd_api/             Endpoint research and reference notes
 │   └── history/              Archived design analyses and plans
-├── api_reference/            Stored CFBD OpenAPI reference
 ├── pyproject.toml            Packaging, dependencies, and tool configuration
 └── Makefile                  Shared local/CI development contract
 ```
@@ -81,9 +106,9 @@ cfb_data/
 - [Design a cohesive public client API (#53)](https://github.com/ryanpaulanderson/cfb-data/issues/53)
 - [Harden the HTTP transport and error handling (#54)](https://github.com/ryanpaulanderson/cfb-data/issues/54)
 
-The second issue includes restoring normal TLS verification, adding timeouts,
-managing the `aiohttp` session lifecycle, improving errors, and adding genuine
-installed-user end-to-end coverage.
+The transport now has normal TLS verification and finite timeouts. Issue #54
+continues to track reusable session ownership, richer error context, and
+credentialed installed-user end-to-end coverage.
 
 ## Contributing
 

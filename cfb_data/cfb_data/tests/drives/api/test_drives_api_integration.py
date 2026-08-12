@@ -161,14 +161,11 @@ class TestDrivesRequestIntegration:
         assert any(error["loc"] == ("year",) for error in errors)
         assert any("1869" in error["msg"] for error in errors)
 
-    def test_invalid_drives_request_bad_week(self) -> None:
-        """Test that invalid week raises ValidationError."""
-        with pytest.raises(ValidationError) as exc_info:
-            DrivesRequest(year=2023, week=0)
+    def test_drives_request_accepts_week_zero(self) -> None:
+        """Accept an integer week without imposing an undocumented lower bound."""
+        request = DrivesRequest(year=2023, week=0)
 
-        errors = exc_info.value.errors()
-        assert any(error["loc"] == ("week",) for error in errors)
-        assert any("greater than 0" in error["msg"] for error in errors)
+        assert request.week == 0
 
     def test_invalid_drives_request_bad_season_type(self) -> None:
         """Test that invalid season_type raises ValidationError."""

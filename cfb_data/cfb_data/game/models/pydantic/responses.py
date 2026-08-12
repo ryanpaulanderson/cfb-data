@@ -1,34 +1,21 @@
-"""College Football Data API game response models.
+"""Validate responses from the implemented CFBD games endpoints."""
 
-Pydantic models for validating API responses from CFBD game endpoints.
-"""
+from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from cfb_data.base.types import JSONObject
+
+class _ResponseModel(BaseModel):
+    """Apply the upstream closed-object contract to response models."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
 
-# Enums
 class SeasonType(StrEnum):
-    """
-    Season type enumeration.
-
-    :param regular: Regular season
-    :type regular: str
-    :param postseason: Postseason games
-    :type postseason: str
-    :param both: Both regular and postseason
-    :type both: str
-    :param allstar: All-star games
-    :type allstar: str
-    :param spring_regular: Spring regular season
-    :type spring_regular: str
-    :param spring_postseason: Spring postseason
-    :type spring_postseason: str
-    """
+    """Identify the phase of a college football season."""
 
     regular = "regular"
     postseason = "postseason"
@@ -39,18 +26,7 @@ class SeasonType(StrEnum):
 
 
 class Division(StrEnum):
-    """
-    Division classification enumeration.
-
-    :param fbs: Football Bowl Subdivision
-    :type fbs: str
-    :param fcs: Football Championship Subdivision
-    :type fcs: str
-    :param ii: Division II
-    :type ii: str
-    :param iii: Division III
-    :type iii: str
-    """
+    """Identify a college football division classification."""
 
     fbs = "fbs"
     fcs = "fcs"
@@ -59,20 +35,7 @@ class Division(StrEnum):
 
 
 class MediaType(StrEnum):
-    """
-    Media type enumeration.
-
-    :param tv: Television broadcast
-    :type tv: str
-    :param radio: Radio broadcast
-    :type radio: str
-    :param web: Web streaming
-    :type web: str
-    :param ppv: Pay-per-view
-    :type ppv: str
-    :param mobile: Mobile streaming
-    :type mobile: str
-    """
+    """Identify a game broadcast medium."""
 
     tv = "tv"
     radio = "radio"
@@ -81,903 +44,396 @@ class MediaType(StrEnum):
     mobile = "mobile"
 
 
-# Base Models
-class TeamInfo(BaseModel):
-    """
-    Basic team information model.
+class GamePlayoff(_ResponseModel):
+    """Describe the playoff context attached to a game."""
 
-    :param id: Team ID
-    :type id: Optional[int]
-    :param school: School name
-    :type school: str
-    :param conference: Conference name
-    :type conference: Optional[str]
-    :param classification: Division classification
-    :type classification: Optional[str]
-    :param color: Primary team color
-    :type color: Optional[str]
-    :param alt_color: Alternate team color
-    :type alt_color: Optional[str]
-    :param logos: List of team logo URLs
-    :type logos: Optional[List[str]]
-    """
+    model_config = ConfigDict(populate_by_name=True)
 
-    id: int | None = None
-    school: str
-    conference: str | None = None
-    classification: str | None = None
-    color: str | None = None
-    alt_color: str | None = None
-    logos: list[str] | None = None
+    competition: str
+    format: str
+    round: str
+    round_name: str = Field(alias="roundName")
+    bracket_slot: str = Field(alias="bracketSlot")
+    home_seed: int | None = Field(alias="homeSeed")
+    away_seed: int | None = Field(alias="awaySeed")
+    bowl_name: str | None = Field(alias="bowlName")
 
 
-class Venue(BaseModel):
-    """
-    Venue information model.
-
-    :param id: Venue ID
-    :type id: Optional[int]
-    :param name: Venue name
-    :type name: Optional[str]
-    :param city: Venue city
-    :type city: Optional[str]
-    :param state: Venue state
-    :type state: Optional[str]
-    :param zip: Venue zip code
-    :type zip: Optional[str]
-    :param country_code: Country code
-    :type country_code: Optional[str]
-    :param timezone: Venue timezone
-    :type timezone: Optional[str]
-    :param latitude: Venue latitude
-    :type latitude: Optional[float]
-    :param longitude: Venue longitude
-    :type longitude: Optional[float]
-    :param elevation: Venue elevation in feet
-    :type elevation: Optional[float]
-    :param capacity: Venue capacity
-    :type capacity: Optional[int]
-    :param year_constructed: Year venue was constructed
-    :type year_constructed: Optional[int]
-    :param grass: Whether venue has grass field
-    :type grass: Optional[bool]
-    :param dome: Whether venue is a dome
-    :type dome: Optional[bool]
-    """
-
-    id: int | None = None
-    name: str | None = None
-    city: str | None = None
-    state: str | None = None
-    zip: str | None = None
-    country_code: str | None = None
-    timezone: str | None = None
-    latitude: float | None = None
-    longitude: float | None = None
-    elevation: float | None = None
-    capacity: int | None = None
-    year_constructed: int | None = None
-    grass: bool | None = None
-    dome: bool | None = None
-
-
-# Game Models
-class Game(BaseModel):
-    """
-    Game information model for /games endpoint.
-
-    :param id: Game ID
-    :type id: int
-    :param season: Season year
-    :type season: int
-    :param week: Week number
-    :type week: int
-    :param season_type: Type of season
-    :type season_type: str
-    :param start_date: Game start date and time
-    :type start_date: datetime
-    :param start_time_tbd: Whether start time is TBD
-    :type start_time_tbd: bool
-    :param completed: Whether game is completed
-    :type completed: bool
-    :param neutral_site: Whether game is at neutral site
-    :type neutral_site: bool
-    :param conference_game: Whether this is a conference game
-    :type conference_game: Optional[bool]
-    :param attendance: Game attendance
-    :type attendance: Optional[int]
-    :param venue_id: Venue ID
-    :type venue_id: Optional[int]
-    :param venue: Venue name
-    :type venue: Optional[str]
-    :param home_id: Home team ID
-    :type home_id: Optional[int]
-    :param home_team: Home team name
-    :type home_team: str
-    :param home_conference: Home team conference
-    :type home_conference: Optional[str]
-    :param home_classification: Home team classification
-    :type home_classification: Optional[str]
-    :param home_points: Home team points
-    :type home_points: Optional[int]
-    :param home_line_scores: Home team line scores by quarter
-    :type home_line_scores: Optional[List[Optional[int]]]
-    :param home_post_win_prob: Home team post-game win probability
-    :type home_post_win_prob: Optional[float]
-    :param home_pregame_elo: Home team pregame Elo rating
-    :type home_pregame_elo: Optional[int]
-    :param home_postgame_elo: Home team postgame Elo rating
-    :type home_postgame_elo: Optional[int]
-    :param away_id: Away team ID
-    :type away_id: Optional[int]
-    :param away_team: Away team name
-    :type away_team: str
-    :param away_conference: Away team conference
-    :type away_conference: Optional[str]
-    :param away_classification: Away team classification
-    :type away_classification: Optional[str]
-    :param away_points: Away team points
-    :type away_points: Optional[int]
-    :param away_line_scores: Away team line scores by quarter
-    :type away_line_scores: Optional[List[Optional[int]]]
-    :param away_post_win_prob: Away team post-game win probability
-    :type away_post_win_prob: Optional[float]
-    :param away_pregame_elo: Away team pregame Elo rating
-    :type away_pregame_elo: Optional[int]
-    :param away_postgame_elo: Away team postgame Elo rating
-    :type away_postgame_elo: Optional[int]
-    :param excitement_index: Game excitement index
-    :type excitement_index: Optional[float]
-    :param highlights: Link to game highlights
-    :type highlights: Optional[str]
-    :param notes: Game notes
-    :type notes: Optional[str]
-    """
+class Game(_ResponseModel):
+    """Represent a game returned by ``GET /games``."""
 
     model_config = ConfigDict(populate_by_name=True)
 
     id: int
     season: int
     week: int
-    season_type: str = Field(alias="seasonType")
+    season_type: SeasonType = Field(alias="seasonType")
     start_date: datetime = Field(alias="startDate")
-    start_time_tbd: bool = Field(default=False, alias="startTimeTBD")
-    completed: bool = False
-    neutral_site: bool = Field(default=False, alias="neutralSite")
-    conference_game: bool | None = Field(default=None, alias="conferenceGame")
-    attendance: int | None = None
-    venue_id: int | None = Field(default=None, alias="venueId")
-    venue: str | None = None
-    home_id: int | None = Field(default=None, alias="homeId")
+    start_time_tbd: bool = Field(alias="startTimeTBD")
+    completed: bool
+    neutral_site: bool = Field(alias="neutralSite")
+    conference_game: bool = Field(alias="conferenceGame")
+    attendance: int | None
+    venue_id: int | None = Field(alias="venueId")
+    venue: str | None
+    home_id: int = Field(alias="homeId")
     home_team: str = Field(alias="homeTeam")
-    home_conference: str | None = Field(default=None, alias="homeConference")
-    home_classification: str | None = Field(default=None, alias="homeClassification")
-    home_points: int | None = Field(default=None, alias="homePoints")
-    home_line_scores: list[int | None] | None = Field(
-        default=None, alias="homeLineScores"
+    home_conference: str | None = Field(alias="homeConference")
+    home_classification: Division | None = Field(alias="homeClassification")
+    home_points: int | None = Field(alias="homePoints")
+    home_line_scores: list[float] | None = Field(alias="homeLineScores")
+    home_postgame_win_probability: float | None = Field(
+        alias="homePostgameWinProbability"
     )
-    home_post_win_prob: float | None = Field(
-        default=None, ge=0, le=1, alias="homePostgameWinProbability"
-    )
-    home_pregame_elo: int | None = Field(default=None, alias="homePregameElo")
-    home_postgame_elo: int | None = Field(default=None, alias="homePostgameElo")
-    away_id: int | None = Field(default=None, alias="awayId")
+    home_pregame_elo: int | None = Field(alias="homePregameElo")
+    home_postgame_elo: int | None = Field(alias="homePostgameElo")
+    away_id: int = Field(alias="awayId")
     away_team: str = Field(alias="awayTeam")
-    away_conference: str | None = Field(default=None, alias="awayConference")
-    away_classification: str | None = Field(default=None, alias="awayClassification")
-    away_points: int | None = Field(default=None, alias="awayPoints")
-    away_line_scores: list[int | None] | None = Field(
-        default=None, alias="awayLineScores"
+    away_conference: str | None = Field(alias="awayConference")
+    away_classification: Division | None = Field(alias="awayClassification")
+    away_points: int | None = Field(alias="awayPoints")
+    away_line_scores: list[float] | None = Field(alias="awayLineScores")
+    away_postgame_win_probability: float | None = Field(
+        alias="awayPostgameWinProbability"
     )
-    away_post_win_prob: float | None = Field(
-        default=None, ge=0, le=1, alias="awayPostgameWinProbability"
-    )
-    away_pregame_elo: int | None = Field(default=None, alias="awayPregameElo")
-    away_postgame_elo: int | None = Field(default=None, alias="awayPostgameElo")
-    excitement_index: float | None = Field(default=None, alias="excitementIndex")
-    highlights: str | None = None
-    notes: str | None = None
+    away_pregame_elo: int | None = Field(alias="awayPregameElo")
+    away_postgame_elo: int | None = Field(alias="awayPostgameElo")
+    excitement_index: float | None = Field(alias="excitementIndex")
+    highlights: str | None
+    notes: str | None
+    playoff: GamePlayoff | None
 
     @field_validator("home_points", "away_points")
     @classmethod
-    def points_must_be_non_negative(cls, v: int | None) -> int | None:
-        """
-        Validate that points are non-negative.
+    def points_must_be_non_negative(cls, value: int | None) -> int | None:
+        """Return a non-negative point total.
 
-        :param v: Points value
-        :type v: Optional[int]
-        :return: Validated points value
-        :rtype: Optional[int]
-        :raises ValueError: If ``v`` is negative
+        :param value: Point total from the API.
+        :return: The validated point total.
+        :raises ValueError: If the point total is negative.
         """
-        if v is not None and v < 0:
+        if value is not None and value < 0:
             raise ValueError("Points cannot be negative")
-        return v
+        return value
 
 
-class CalendarWeek(BaseModel):
-    """
-    Calendar week model for /calendar endpoint.
-
-    :param season: Season year
-    :type season: int
-    :param week: Week number
-    :type week: int
-    :param season_type: Season type
-    :type season_type: str
-    :param start_date: Week start date
-    :type start_date: datetime
-    :param end_date: Week end date
-    :type end_date: datetime
-    :param first_game_start: First game start time
-    :type first_game_start: datetime
-    :param last_game_start: Last game start time
-    :type last_game_start: datetime
-    """
+class CalendarWeek(_ResponseModel):
+    """Represent a season week returned by ``GET /calendar``."""
 
     model_config = ConfigDict(populate_by_name=True)
 
     season: int
     week: int
-    season_type: str = Field(alias="seasonType")
+    season_type: SeasonType = Field(alias="seasonType")
     start_date: datetime = Field(alias="startDate")
     end_date: datetime = Field(alias="endDate")
     first_game_start: datetime = Field(alias="firstGameStart")
     last_game_start: datetime = Field(alias="lastGameStart")
 
 
-class GameMedia(BaseModel):
-    """
-    Game media information model for /games/media endpoint.
-
-    :param id: Game ID
-    :type id: int
-    :param season: Season year
-    :type season: int
-    :param week: Week number
-    :type week: int
-    :param season_type: Season type
-    :type season_type: str
-    :param start_time: Game start time
-    :type start_time: datetime
-    :param is_start_time_tbd: Whether start time is TBD
-    :type is_start_time_tbd: bool
-    :param home_team: Home team name
-    :type home_team: str
-    :param home_conference: Home team conference
-    :type home_conference: Optional[str]
-    :param away_team: Away team name
-    :type away_team: str
-    :param away_conference: Away team conference
-    :type away_conference: Optional[str]
-    :param media_type: Type of media
-    :type media_type: Optional[str]
-    :param tv: TV network
-    :type tv: Optional[str]
-    :param radio: Radio network
-    :type radio: Optional[str]
-    :param web: Web streaming service
-    :type web: Optional[str]
-    :param ppv: PPV information
-    :type ppv: Optional[str]
-    :param mobile: Mobile streaming information
-    :type mobile: Optional[str]
-    :param outlet: Media outlet
-    :type outlet: Optional[str]
-    """
+class GameMedia(_ResponseModel):
+    """Represent one broadcast returned by ``GET /games/media``."""
 
     model_config = ConfigDict(populate_by_name=True)
 
     id: int
     season: int
     week: int
-    season_type: str = Field(alias="seasonType")
+    season_type: SeasonType = Field(alias="seasonType")
     start_time: datetime = Field(alias="startTime")
-    is_start_time_tbd: bool = Field(default=False, alias="isStartTimeTBD")
+    is_start_time_tbd: bool = Field(alias="isStartTimeTBD")
     home_team: str = Field(alias="homeTeam")
-    home_conference: str | None = Field(default=None, alias="homeConference")
+    home_conference: str | None = Field(alias="homeConference")
     away_team: str = Field(alias="awayTeam")
-    away_conference: str | None = Field(default=None, alias="awayConference")
-    media_type: str | None = Field(default=None, alias="mediaType")
-    tv: str | None = None
-    radio: str | None = None
-    web: str | None = None
-    ppv: str | None = None
-    mobile: str | None = None
-    outlet: str | None = None
+    away_conference: str | None = Field(alias="awayConference")
+    media_type: MediaType = Field(alias="mediaType")
+    outlet: str
 
 
-class GameWeather(BaseModel):
-    """
-    Game weather information model for /games/weather endpoint.
-
-    :param id: Game ID
-    :type id: int
-    :param season: Season year
-    :type season: int
-    :param week: Week number
-    :type week: int
-    :param season_type: Season type
-    :type season_type: str
-    :param start_time: Game start time
-    :type start_time: datetime
-    :param game_indoors: Whether game is indoors
-    :type game_indoors: Optional[bool]
-    :param venue_id: Venue ID
-    :type venue_id: Optional[int]
-    :param venue: Venue name
-    :type venue: Optional[str]
-    :param temperature: Temperature in Fahrenheit
-    :type temperature: Optional[float]
-    :param dew_point: Dew point in Fahrenheit
-    :type dew_point: Optional[float]
-    :param humidity: Humidity percentage
-    :type humidity: Optional[float]
-    :param precipitation: Precipitation in inches
-    :type precipitation: Optional[float]
-    :param snowfall: Snowfall in inches
-    :type snowfall: Optional[float]
-    :param wind_direction: Wind direction in degrees
-    :type wind_direction: Optional[float]
-    :param wind_speed: Wind speed in mph
-    :type wind_speed: Optional[float]
-    :param pressure: Barometric pressure in inches
-    :type pressure: Optional[float]
-    :param weather_condition_code: Weather condition code
-    :type weather_condition_code: Optional[str]
-    :param weather_condition: Weather condition description
-    :type weather_condition: Optional[str]
-    """
+class GameWeather(_ResponseModel):
+    """Represent weather returned by ``GET /games/weather``."""
 
     model_config = ConfigDict(populate_by_name=True)
 
     id: int
     season: int
     week: int
-    season_type: str = Field(alias="seasonType")
+    season_type: SeasonType = Field(alias="seasonType")
     start_time: datetime = Field(alias="startTime")
-    game_indoors: bool | None = Field(default=None, alias="gameIndoors")
-    venue_id: int | None = Field(default=None, alias="venueId")
-    venue: str | None = None
-    temperature: float | None = None
-    dew_point: float | None = Field(default=None, alias="dewPoint")
-    humidity: float | None = Field(default=None, ge=0, le=100)
-    precipitation: float | None = Field(default=None, ge=0)
-    snowfall: float | None = Field(default=None, ge=0)
-    wind_direction: float | None = Field(
-        default=None, ge=0, le=360, alias="windDirection"
-    )
-    wind_speed: float | None = Field(default=None, ge=0, alias="windSpeed")
-    pressure: float | None = None
-    weather_condition_code: str | None = Field(
-        default=None, alias="weatherConditionCode"
-    )
-    weather_condition: str | None = Field(default=None, alias="weatherCondition")
+    game_indoors: bool = Field(alias="gameIndoors")
+    home_team: str = Field(alias="homeTeam")
+    home_conference: str | None = Field(alias="homeConference")
+    away_team: str = Field(alias="awayTeam")
+    away_conference: str | None = Field(alias="awayConference")
+    venue_id: int = Field(alias="venueId")
+    venue: str
+    temperature: float | None
+    dew_point: float | None = Field(alias="dewPoint")
+    humidity: float | None
+    precipitation: float | None
+    snowfall: float | None
+    wind_direction: float | None = Field(alias="windDirection")
+    wind_speed: float | None = Field(alias="windSpeed")
+    pressure: float | None
+    weather_condition_code: float | None = Field(alias="weatherConditionCode")
+    weather_condition: str | None = Field(alias="weatherCondition")
 
 
-# Team Records Models
-class TeamRecord(BaseModel):
-    """
-    Win-loss record model.
-
-    :param games: Total games played
-    :type games: int
-    :param wins: Number of wins
-    :type wins: int
-    :param losses: Number of losses
-    :type losses: int
-    :param ties: Number of ties
-    :type ties: int
-    """
+class TeamRecord(_ResponseModel):
+    """Represent a win-loss-tie record for one game grouping."""
 
     games: int
     wins: int
     losses: int
-    ties: int = 0
+    ties: int
 
 
-class TeamRecords(BaseModel):
-    """
-    Team season records model for /records endpoint.
-
-    :param year: Season year
-    :type year: int
-    :param team_id: Team ID
-    :type team_id: Optional[int]
-    :param team: Team name
-    :type team: str
-    :param classification: Team classification (fbs, fcs, etc.)
-    :type classification: Optional[str]
-    :param conference: Conference name
-    :type conference: Optional[str]
-    :param division: Division classification
-    :type division: Optional[str]
-    :param expected_wins: Expected wins based on analytics
-    :type expected_wins: Optional[float]
-    :param total: Total record
-    :type total: TeamRecord
-    :param conference_games: Conference games record
-    :type conference_games: Optional[TeamRecord]
-    :param home_games: Home games record
-    :type home_games: Optional[TeamRecord]
-    :param away_games: Away games record
-    :type away_games: Optional[TeamRecord]
-    :param neutral_site_games: Neutral site games record
-    :type neutral_site_games: Optional[TeamRecord]
-    :param regular_season: Regular season record
-    :type regular_season: Optional[TeamRecord]
-    :param postseason: Postseason record
-    :type postseason: Optional[TeamRecord]
-    """
+class TeamRecords(_ResponseModel):
+    """Represent a team season returned by ``GET /records``."""
 
     model_config = ConfigDict(populate_by_name=True)
 
     year: int
-    team_id: int | None = Field(default=None, alias="teamId")
+    team_id: int = Field(alias="teamId")
     team: str
-    classification: str | None = None
-    conference: str | None = None
-    division: str | None = None
-    expected_wins: float | None = Field(default=None, alias="expectedWins")
+    classification: Division | None
+    conference: str
+    division: str
+    expected_wins: float | None = Field(alias="expectedWins")
     total: TeamRecord
-    conference_games: TeamRecord | None = Field(default=None, alias="conferenceGames")
-    home_games: TeamRecord | None = Field(default=None, alias="homeGames")
-    away_games: TeamRecord | None = Field(default=None, alias="awayGames")
-    neutral_site_games: TeamRecord | None = Field(
-        default=None, alias="neutralSiteGames"
-    )
-    regular_season: TeamRecord | None = Field(default=None, alias="regularSeason")
-    postseason: TeamRecord | None = None
+    conference_games: TeamRecord = Field(alias="conferenceGames")
+    home_games: TeamRecord = Field(alias="homeGames")
+    away_games: TeamRecord = Field(alias="awayGames")
+    neutral_site_games: TeamRecord = Field(alias="neutralSiteGames")
+    regular_season: TeamRecord = Field(alias="regularSeason")
+    postseason: TeamRecord
 
 
-# Player Game Stats Models
-class PlayerGamePassing(BaseModel):
-    """
-    Player passing statistics for a game.
+class TeamGameStat(_ResponseModel):
+    """Represent one named team statistic in a game box score."""
 
-    :param player_id: Player ID
-    :type player_id: int
-    :param player: Player name
-    :type player: str
-    :param completions: Pass completions
-    :type completions: Optional[int]
-    :param attempts: Pass attempts
-    :type attempts: Optional[int]
-    :param passing_yards: Passing yards
-    :type passing_yards: Optional[float]
-    :param passing_tds: Passing touchdowns
-    :type passing_tds: Optional[int]
-    :param interceptions: Interceptions thrown
-    :type interceptions: Optional[int]
-    :param yards_per_attempt: Yards per pass attempt
-    :type yards_per_attempt: Optional[float]
-    :param completion_percentage: Completion percentage
-    :type completion_percentage: Optional[float]
-    """
-
-    player_id: int
-    player: str
-    completions: int | None = None
-    attempts: int | None = None
-    passing_yards: float | None = None
-    passing_tds: int | None = None
-    interceptions: int | None = None
-    yards_per_attempt: float | None = None
-    completion_percentage: float | None = Field(None, ge=0, le=100)
-
-
-class PlayerGameRushing(BaseModel):
-    """
-    Player rushing statistics for a game.
-
-    :param player_id: Player ID
-    :type player_id: int
-    :param player: Player name
-    :type player: str
-    :param carries: Number of carries
-    :type carries: Optional[int]
-    :param rushing_yards: Rushing yards
-    :type rushing_yards: Optional[float]
-    :param rushing_tds: Rushing touchdowns
-    :type rushing_tds: Optional[int]
-    :param yards_per_carry: Yards per carry
-    :type yards_per_carry: Optional[float]
-    :param long_rushing: Longest rush
-    :type long_rushing: Optional[int]
-    """
-
-    player_id: int
-    player: str
-    carries: int | None = None
-    rushing_yards: float | None = None
-    rushing_tds: int | None = None
-    yards_per_carry: float | None = None
-    long_rushing: int | None = None
-
-
-class PlayerGameReceiving(BaseModel):
-    """
-    Player receiving statistics for a game.
-
-    :param player_id: Player ID
-    :type player_id: int
-    :param player: Player name
-    :type player: str
-    :param receptions: Number of receptions
-    :type receptions: Optional[int]
-    :param receiving_yards: Receiving yards
-    :type receiving_yards: Optional[float]
-    :param receiving_tds: Receiving touchdowns
-    :type receiving_tds: Optional[int]
-    :param yards_per_reception: Yards per reception
-    :type yards_per_reception: Optional[float]
-    :param long_reception: Longest reception
-    :type long_reception: Optional[int]
-    """
-
-    player_id: int
-    player: str
-    receptions: int | None = None
-    receiving_yards: float | None = None
-    receiving_tds: int | None = None
-    yards_per_reception: float | None = None
-    long_reception: int | None = None
-
-
-class PlayerGameDefensive(BaseModel):
-    """
-    Player defensive statistics for a game.
-
-    :param player_id: Player ID
-    :type player_id: int
-    :param player: Player name
-    :type player: str
-    :param tackles: Total tackles
-    :type tackles: Optional[float]
-    :param tackles_for_loss: Tackles for loss
-    :type tackles_for_loss: Optional[float]
-    :param sacks: Sacks
-    :type sacks: Optional[float]
-    :param interceptions: Interceptions
-    :type interceptions: Optional[int]
-    :param passes_defended: Passes defended
-    :type passes_defended: Optional[int]
-    :param fumbles_forced: Fumbles forced
-    :type fumbles_forced: Optional[int]
-    :param fumbles_recovered: Fumbles recovered
-    :type fumbles_recovered: Optional[int]
-    :param defensive_tds: Defensive touchdowns
-    :type defensive_tds: Optional[int]
-    """
-
-    player_id: int
-    player: str
-    tackles: float | None = None
-    tackles_for_loss: float | None = None
-    sacks: float | None = None
-    interceptions: int | None = None
-    passes_defended: int | None = None
-    fumbles_forced: int | None = None
-    fumbles_recovered: int | None = None
-    defensive_tds: int | None = None
-
-
-class PlayerGameStats(BaseModel):
-    """
-    Player game statistics model for /games/players endpoint.
-
-    :param game_id: Game ID
-    :type game_id: int
-    :param team: Team name
-    :type team: str
-    :param conference: Conference name
-    :type conference: Optional[str]
-    :param category: Stats category
-    :type category: str
-    :param passing: Passing statistics
-    :type passing: Optional[List[PlayerGamePassing]]
-    :param rushing: Rushing statistics
-    :type rushing: Optional[List[PlayerGameRushing]]
-    :param receiving: Receiving statistics
-    :type receiving: Optional[List[PlayerGameReceiving]]
-    :param defensive: Defensive statistics
-    :type defensive: Optional[List[PlayerGameDefensive]]
-    """
-
-    game_id: int
-    team: str
-    conference: str | None = None
     category: str
-    passing: list[PlayerGamePassing] | None = None
-    rushing: list[PlayerGameRushing] | None = None
-    receiving: list[PlayerGameReceiving] | None = None
-    defensive: list[PlayerGameDefensive] | None = None
+    stat: str
 
 
-# Team Game Stats Models
-class TeamGameStats(BaseModel):
-    """
-    Team game statistics model for /games/teams endpoint.
+class TeamGameStatsTeam(_ResponseModel):
+    """Represent one team in a team-statistics game response."""
 
-    :param game_id: Game ID
-    :type game_id: int
-    :param school: School name
-    :type school: str
-    :param conference: Conference name
-    :type conference: Optional[str]
-    :param home_away: Home or away
-    :type home_away: str
-    :param opponent: Opponent name
-    :type opponent: str
-    :param points: Points scored
-    :type points: int
-    :param total_yards: Total yards
-    :type total_yards: Optional[float]
-    :param net_passing_yards: Net passing yards
-    :type net_passing_yards: Optional[float]
-    :param completion_attempts: Completion attempts
-    :type completion_attempts: Optional[str]
-    :param passing_tds: Passing touchdowns
-    :type passing_tds: Optional[int]
-    :param rushing_yards: Rushing yards
-    :type rushing_yards: Optional[float]
-    :param rushing_attempts: Rushing attempts
-    :type rushing_attempts: Optional[int]
-    :param rushing_tds: Rushing touchdowns
-    :type rushing_tds: Optional[int]
-    :param first_downs: First downs
-    :type first_downs: Optional[int]
-    :param third_down_efficiency: Third down efficiency
-    :type third_down_efficiency: Optional[str]
-    :param fourth_down_efficiency: Fourth down efficiency
-    :type fourth_down_efficiency: Optional[str]
-    :param total_penalties: Total penalties
-    :type total_penalties: Optional[int]
-    :param penalty_yards: Penalty yards
-    :type penalty_yards: Optional[int]
-    :param turnovers: Turnovers
-    :type turnovers: Optional[int]
-    :param fumbles_lost: Fumbles lost
-    :type fumbles_lost: Optional[int]
-    :param interceptions_thrown: Interceptions thrown
-    :type interceptions_thrown: Optional[int]
-    :param possession_time: Possession time in seconds
-    :type possession_time: Optional[str]
-    """
+    model_config = ConfigDict(populate_by_name=True)
 
-    game_id: int
-    school: str
-    conference: str | None = None
-    home_away: str
-    opponent: str
-    points: int
-    total_yards: float | None = None
-    net_passing_yards: float | None = None
-    completion_attempts: str | None = None
-    passing_tds: int | None = None
-    rushing_yards: float | None = None
-    rushing_attempts: int | None = None
-    rushing_tds: int | None = None
-    first_downs: int | None = None
-    third_down_efficiency: str | None = None
-    fourth_down_efficiency: str | None = None
-    total_penalties: int | None = None
-    penalty_yards: int | None = None
-    turnovers: int | None = None
-    fumbles_lost: int | None = None
-    interceptions_thrown: int | None = None
-    possession_time: str | None = None
-
-
-# Advanced Box Score Models
-class BoxScoreTeamStats(BaseModel):
-    """
-    Advanced team statistics for box score.
-
-    :param team: Team name
-    :type team: str
-    :param points: Points scored
-    :type points: int
-    :param drives: Number of drives
-    :type drives: Optional[int]
-    :param scoring_opportunities: Scoring opportunities
-    :type scoring_opportunities: Optional[int]
-    :param points_per_opportunity: Points per scoring opportunity
-    :type points_per_opportunity: Optional[float]
-    :param explosiveness: Explosiveness metric
-    :type explosiveness: Optional[float]
-    :param play_count: Total plays
-    :type play_count: Optional[int]
-    :param stuff_rate: Stuff rate
-    :type stuff_rate: Optional[float]
-    :param line_yards: Line yards metric
-    :type line_yards: Optional[float]
-    :param second_level_yards: Second level yards metric
-    :type second_level_yards: Optional[float]
-    :param open_field_yards: Open field yards metric
-    :type open_field_yards: Optional[float]
-    :param success_rate: Success rate
-    :type success_rate: Optional[float]
-    :param field_position: Average field position
-    :type field_position: Optional[float]
-    :param havoc: Havoc rate
-    :type havoc: Optional[float]
-    """
-
+    team_id: int = Field(alias="teamId")
     team: str
-    points: int
-    drives: int | None = None
-    scoring_opportunities: int | None = None
-    points_per_opportunity: float | None = None
-    explosiveness: float | None = None
-    play_count: int | None = None
-    stuff_rate: float | None = None
-    line_yards: float | None = None
-    second_level_yards: float | None = None
-    open_field_yards: float | None = None
-    success_rate: float | None = None
-    field_position: float | None = None
-    havoc: float | None = None
+    conference: str | None
+    home_away: str = Field(alias="homeAway", pattern="^(home|away)$")
+    points: int | None
+    stats: list[TeamGameStat]
 
 
-class BoxScorePlayerUsage(BaseModel):
-    """
-    Player usage statistics in box score.
-
-    :param player: Player name
-    :type player: str
-    :param team: Team name
-    :type team: str
-    :param position: Player position
-    :type position: str
-    :param total: Total usage
-    :type total: float
-    :param quarter1: First quarter usage
-    :type quarter1: Optional[float]
-    :param quarter2: Second quarter usage
-    :type quarter2: Optional[float]
-    :param quarter3: Third quarter usage
-    :type quarter3: Optional[float]
-    :param quarter4: Fourth quarter usage
-    :type quarter4: Optional[float]
-    :param rushing: Rushing usage
-    :type rushing: Optional[float]
-    :param passing: Passing usage
-    :type passing: Optional[float]
-    """
-
-    player: str
-    team: str
-    position: str
-    total: float
-    quarter1: float | None = None
-    quarter2: float | None = None
-    quarter3: float | None = None
-    quarter4: float | None = None
-    rushing: float | None = None
-    passing: float | None = None
-
-
-class BoxScorePlayerPPA(BaseModel):
-    """
-    Player PPA (Predicted Points Added) in box score.
-
-    :param player: Player name
-    :type player: str
-    :param team: Team name
-    :type team: str
-    :param position: Player position
-    :type position: str
-    :param average_ppa: Average PPA per play
-    :type average_ppa: float
-    :param total_ppa: Total PPA
-    :type total_ppa: float
-    :param rushing: Rushing PPA
-    :type rushing: Optional[float]
-    :param passing: Passing PPA
-    :type passing: Optional[float]
-    """
-
-    player: str
-    team: str
-    position: str
-    average_ppa: float
-    total_ppa: float
-    rushing: float | None = None
-    passing: float | None = None
-
-
-class AdvancedBoxScore(BaseModel):
-    """
-    Advanced box score model for /games/box/advanced endpoint.
-
-    :param game_id: Game ID
-    :type game_id: int
-    :param home_team: Home team stats
-    :type home_team: BoxScoreTeamStats
-    :param away_team: Away team stats
-    :type away_team: BoxScoreTeamStats
-    :param players: Player-level statistics
-    :type players: Optional[Dict[str, Any]]
-    """
-
-    game_id: int
-    home_team: BoxScoreTeamStats
-    away_team: BoxScoreTeamStats
-    players: JSONObject | None = None
-
-
-class GameLine(BaseModel):
-    """
-    Game line model for /scoreboard endpoint.
-
-    :param home_team: Spread for home team
-    :type home_team: float
-    :param away_team: Spread for away team
-    :type away_team: float
-    :param over_under: Over/Under line
-    :type over_under: float
-    """
-
-    home_team: float
-    away_team: float
-    over_under: float
-
-
-class Scoreboard(BaseModel):
-    """
-    Scoreboard model for /scoreboard endpoint.
-
-    :param id: Game ID
-    :type id: int
-    :param season: Season year
-    :type season: int
-    :param week: Week number
-    :type week: int
-    :param season_type: Type of season
-    :type season_type: str
-    :param start_date: Game start date and time
-    :type start_date: datetime
-    :param home_team: Home team name
-    :type home_team: str
-    :param away_team: Away team name
-    :type away_team: str
-    :param home_points: Home team points
-    :type home_points: Optional[int]
-    :param away_points: Away team points
-    :type away_points: Optional[int]
-    :param neutral_site: Whether game is at neutral site
-    :type neutral_site: bool
-    :param conference_game: Whether this is a conference game
-    :type conference_game: Optional[bool]
-    :param line: Game line/spread information
-    :type line: Optional[GameLine]
-    """
+class TeamGameStats(_ResponseModel):
+    """Represent a game returned by ``GET /games/teams``."""
 
     id: int
-    season: int
-    week: int
-    season_type: str
-    start_date: datetime
-    home_team: str
-    away_team: str
-    home_points: int | None = None
-    away_points: int | None = None
-    neutral_site: bool = False
-    conference_game: bool | None = None
-    line: GameLine | None = None
+    teams: list[TeamGameStatsTeam]
 
-    @field_validator("home_points", "away_points")
-    @classmethod
-    def points_must_be_non_negative(cls, v: int | None) -> int | None:
-        """Ensure point totals are not negative.
 
-        :param v: Points value
-        :type v: Optional[int]
-        :return: Validated points value
-        :rtype: Optional[int]
-        :raises ValueError: If ``v`` is negative
-        """
-        if v is not None and v < 0:
-            raise ValueError("Points cannot be negative")
-        return v
+class PlayerGameStatPlayer(_ResponseModel):
+    """Represent one athlete value in a player-statistics response."""
+
+    id: str
+    name: str
+    stat: str
+
+
+class PlayerGameStatType(_ResponseModel):
+    """Group player statistics by their display type."""
+
+    name: str
+    athletes: list[PlayerGameStatPlayer]
+
+
+class PlayerGameStatCategory(_ResponseModel):
+    """Group player statistics by category."""
+
+    name: str
+    types: list[PlayerGameStatType]
+
+
+class PlayerGameStatsTeam(_ResponseModel):
+    """Represent one team in a player-statistics game response."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    team: str
+    conference: str | None
+    home_away: str = Field(alias="homeAway", pattern="^(home|away)$")
+    points: int | None
+    categories: list[PlayerGameStatCategory]
+
+
+class PlayerGameStats(_ResponseModel):
+    """Represent a game returned by ``GET /games/players``."""
+
+    id: int
+    teams: list[PlayerGameStatsTeam]
+
+
+class StatsByQuarter(_ResponseModel):
+    """Represent a total metric and its first four quarter splits."""
+
+    total: float
+    quarter1: float | None
+    quarter2: float | None
+    quarter3: float | None
+    quarter4: float | None
+
+
+class TeamPPA(_ResponseModel):
+    """Represent team predicted-points-added metrics."""
+
+    team: str
+    plays: int
+    overall: StatsByQuarter
+    passing: StatsByQuarter
+    rushing: StatsByQuarter
+
+
+class TeamSuccessRates(_ResponseModel):
+    """Represent team success-rate metrics."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    team: str
+    overall: StatsByQuarter
+    standard_downs: StatsByQuarter = Field(alias="standardDowns")
+    passing_downs: StatsByQuarter = Field(alias="passingDowns")
+
+
+class TeamExplosiveness(_ResponseModel):
+    """Represent team explosiveness by quarter."""
+
+    team: str
+    overall: StatsByQuarter
+
+
+class TeamRushingStats(_ResponseModel):
+    """Represent advanced team rushing metrics."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    team: str
+    power_success: float = Field(alias="powerSuccess")
+    stuff_rate: float = Field(alias="stuffRate")
+    line_yards: float = Field(alias="lineYards")
+    line_yards_average: float = Field(alias="lineYardsAverage")
+    second_level_yards: float = Field(alias="secondLevelYards")
+    second_level_yards_average: float = Field(alias="secondLevelYardsAverage")
+    open_field_yards: float = Field(alias="openFieldYards")
+    open_field_yards_average: float = Field(alias="openFieldYardsAverage")
+
+
+class TeamHavoc(_ResponseModel):
+    """Represent team havoc metrics."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    team: str
+    total: float
+    front_seven: float = Field(alias="frontSeven")
+    defensive_back: float = Field(alias="db")
+
+
+class TeamScoringOpportunities(_ResponseModel):
+    """Represent team scoring-opportunity metrics."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    team: str
+    opportunities: int
+    points: int
+    points_per_opportunity: float = Field(alias="pointsPerOpportunity")
+
+
+class TeamFieldPosition(_ResponseModel):
+    """Represent average team starting field position."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    team: str
+    average_start: float = Field(alias="averageStart")
+    average_starting_predicted_points: float = Field(
+        alias="averageStartingPredictedPoints"
+    )
+
+
+class PlayerStatsByQuarter(StatsByQuarter):
+    """Represent a player's usage or PPA splits."""
+
+    rushing: float
+    passing: float
+
+
+class PlayerGameUsage(PlayerStatsByQuarter):
+    """Represent one player's game usage."""
+
+    player: str
+    team: str
+    position: str
+
+
+class PlayerPPA(_ResponseModel):
+    """Represent one player's average and cumulative game PPA."""
+
+    player: str
+    team: str
+    position: str
+    average: PlayerStatsByQuarter
+    cumulative: PlayerStatsByQuarter
+
+
+class AdvancedGameInfo(_ResponseModel):
+    """Represent the game summary within an advanced box score."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    home_team: str = Field(alias="homeTeam")
+    home_points: int = Field(alias="homePoints")
+    home_win_probability: float = Field(alias="homeWinProb")
+    away_team: str = Field(alias="awayTeam")
+    away_points: int = Field(alias="awayPoints")
+    away_win_probability: float = Field(alias="awayWinProb")
+    home_winner: bool = Field(alias="homeWinner")
+    excitement: float
+
+
+class AdvancedTeamStats(_ResponseModel):
+    """Group team metrics within an advanced box score."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    ppa: list[TeamPPA]
+    cumulative_ppa: list[TeamPPA] = Field(alias="cumulativePpa")
+    success_rates: list[TeamSuccessRates] = Field(alias="successRates")
+    explosiveness: list[TeamExplosiveness]
+    rushing: list[TeamRushingStats]
+    havoc: list[TeamHavoc]
+    scoring_opportunities: list[TeamScoringOpportunities] = Field(
+        alias="scoringOpportunities"
+    )
+    field_position: list[TeamFieldPosition] = Field(alias="fieldPosition")
+
+
+class AdvancedPlayerStats(_ResponseModel):
+    """Group player metrics within an advanced box score."""
+
+    usage: list[PlayerGameUsage]
+    ppa: list[PlayerPPA]
+
+
+class AdvancedBoxScore(_ResponseModel):
+    """Represent ``GET /game/box/advanced`` data."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    game_info: AdvancedGameInfo = Field(alias="gameInfo")
+    teams: AdvancedTeamStats
+    players: AdvancedPlayerStats

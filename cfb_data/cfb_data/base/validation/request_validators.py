@@ -15,8 +15,8 @@ class SeasonType(StrEnum):
     """
     Season type enumeration for API requests.
 
-    Values match the API specification exactly as observed from
-    https://apinext.collegefootballdata.com/ Swagger documentation.
+    Values match the current API reference at
+    https://api.collegefootballdata.com/api.
 
     :param regular: Regular season games
     :type regular: str
@@ -52,8 +52,8 @@ class Classification(StrEnum):
     """
     Division classification enumeration for API requests.
 
-    Values match the API specification exactly as observed from
-    https://apinext.collegefootballdata.com/ Swagger documentation.
+    Values match the current API reference at
+    https://api.collegefootballdata.com/api.
 
     :param fbs: Football Bowl Subdivision (Division I FBS)
     :type fbs: str
@@ -77,6 +77,31 @@ class Classification(StrEnum):
         :rtype: str
         """
         return self.value
+
+
+class MediaType(StrEnum):
+    """Identify an accepted game broadcast medium."""
+
+    tv = "tv"
+    radio = "radio"
+    web = "web"
+    ppv = "ppv"
+    mobile = "mobile"
+
+
+class PlayoffCompetition(StrEnum):
+    """Identify an accepted playoff competition filter."""
+
+    cfp = "cfp"
+
+
+class PlayoffRound(StrEnum):
+    """Identify an accepted College Football Playoff round filter."""
+
+    first_round = "first_round"
+    quarterfinal = "quarterfinal"
+    semifinal = "semifinal"
+    championship = "championship"
 
 
 def validate_year_or_id_required(
@@ -131,7 +156,7 @@ def validate_team_game_stats_logic(
     """
     Validate the complex conditional logic for /games/teams and /games/players endpoints.
 
-    API Rules from https://apinext.collegefootballdata.com/:
+    Current CFBD API rules:
     - year is required (along with one of week, team, or conference), unless id is specified
     - At least one of week, team, or conference must be specified when year is provided
 

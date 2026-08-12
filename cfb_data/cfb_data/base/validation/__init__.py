@@ -30,6 +30,9 @@ Example:
 
 from .request_validators import (
     Classification,
+    MediaType,
+    PlayoffCompetition,
+    PlayoffRound,
     RequestValidationMixin,
     SeasonType,
     validate_at_least_one_of,
@@ -41,6 +44,9 @@ from .validation_api import CFBDValidationAPI
 __all__ = [
     "CFBDValidationAPI",
     "Classification",
+    "MediaType",
+    "PlayoffCompetition",
+    "PlayoffRound",
     "RequestValidationMixin",
     "SeasonType",
     "validate_at_least_one_of",

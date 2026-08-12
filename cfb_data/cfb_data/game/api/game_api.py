@@ -53,7 +53,8 @@ class CFBDGamesAPI(CFBDAPIBase):
         """
         Get game information.
 
-        :param params: Query parameters including year (required), week, seasonType, team, home, away, conference, classification, id
+        :param params: Query parameters including year, week, seasonType, team,
+            home, away, conference, classification, id, competition, and round.
         :type params: Dict[str, Any]
         :return: List of game dictionaries
         :rtype: List[Dict[str, Any]]

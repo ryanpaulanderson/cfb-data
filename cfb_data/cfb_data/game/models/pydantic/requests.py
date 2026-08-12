@@ -7,7 +7,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from cfb_data.base.validation import (
     Classification,
+    MediaType,
+    PlayoffCompetition,
+    PlayoffRound,
     SeasonType,
+    validate_at_least_one_of,
     validate_team_game_stats_logic,
     validate_year_or_id_required,
 )
@@ -37,17 +41,19 @@ class GamesRequest(BaseModel):
     :type id: Optional[int]
     """
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    year: int | None = Field(default=None, ge=1869, le=2030)
-    week: int | None = Field(default=None, ge=0, le=20)
+    year: int | None = Field(default=None, ge=1869)
+    week: int | None = Field(default=None, ge=0)
     season_type: SeasonType | None = Field(default=None, alias="seasonType")
     team: str | None = None
     home: str | None = None
     away: str | None = None
     conference: str | None = None
     classification: Classification | None = None
-    id: int | None = Field(default=None, ge=0)
+    id: int | None = Field(default=None, gt=0)
+    competition: PlayoffCompetition | None = None
+    round: PlayoffRound | None = None
 
     @model_validator(mode="after")
     def validate_year_or_id(self) -> "GamesRequest":
@@ -61,6 +67,16 @@ class GamesRequest(BaseModel):
         :raises ValueError: If neither year nor id is provided.
         """
         validate_year_or_id_required(self.year, self.id, "id")
+        if self.round is not None and self.competition is None:
+            raise ValueError(
+                "competition parameter is required when round is specified"
+            )
+        if (
+            self.competition is PlayoffCompetition.cfp
+            and self.season_type is not None
+            and self.season_type not in {SeasonType.postseason, SeasonType.both}
+        ):
+            raise ValueError("CFP games are postseason games")
         return self
 
 
@@ -72,9 +88,9 @@ class CalendarRequest(BaseModel):
     :type year: int
     """
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    year: int = Field(ge=1869, le=2030)
+    year: int = Field(ge=1869)
 
 
 class RecordsRequest(BaseModel):
@@ -89,11 +105,24 @@ class RecordsRequest(BaseModel):
     :type conference: Optional[str]
     """
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    year: int | None = Field(default=None, ge=1869, le=2030)
+    year: int | None = Field(default=None, ge=1869)
     team: str | None = None
     conference: str | None = None
+
+    @model_validator(mode="after")
+    def validate_year_or_team(self) -> "RecordsRequest":
+        """Require one of the two upstream record selectors.
+
+        :return: The validated request.
+        :raises ValueError: If neither ``year`` nor ``team`` is provided.
+        """
+        validate_at_least_one_of(
+            {"year": self.year, "team": self.team},
+            ("year", "team"),
+        )
+        return self
 
 
 class GameMediaRequest(BaseModel):
@@ -116,14 +145,14 @@ class GameMediaRequest(BaseModel):
     :type classification: Optional[Classification]
     """
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    year: int = Field(ge=1869, le=2030)
-    week: int | None = Field(default=None, ge=0, le=20)
+    year: int = Field(ge=1869)
+    week: int | None = Field(default=None, ge=0)
     season_type: SeasonType | None = Field(default=None, alias="seasonType")
     team: str | None = None
     conference: str | None = None
-    media_type: str | None = Field(default=None, alias="mediaType")
+    media_type: MediaType | None = Field(default=None, alias="mediaType")
     classification: Classification | None = None
 
 
@@ -147,11 +176,11 @@ class GameWeatherRequest(BaseModel):
     :type classification: Optional[Classification]
     """
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    game_id: int | None = Field(default=None, ge=0, alias="gameId")
-    year: int | None = Field(default=None, ge=1869, le=2030)
-    week: int | None = Field(default=None, ge=0, le=20)
+    game_id: int | None = Field(default=None, gt=0, alias="gameId")
+    year: int | None = Field(default=None, ge=1869)
+    week: int | None = Field(default=None, ge=0)
     season_type: SeasonType | None = Field(default=None, alias="seasonType")
     team: str | None = None
     conference: str | None = None
@@ -197,15 +226,15 @@ class PlayerGameStatsRequest(BaseModel):
     :type classification: Optional[Classification]
     """
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    year: int | None = Field(default=None, ge=1869, le=2030)
-    week: int | None = Field(default=None, ge=0, le=20)
+    year: int | None = Field(default=None, ge=1869)
+    week: int | None = Field(default=None, ge=0)
     season_type: SeasonType | None = Field(default=None, alias="seasonType")
     team: str | None = None
     conference: str | None = None
     category: str | None = None
-    id: int | None = Field(default=None, ge=0)
+    id: int | None = Field(default=None, gt=0)
     classification: Classification | None = None
 
     @model_validator(mode="after")
@@ -248,14 +277,14 @@ class TeamGameStatsRequest(BaseModel):
     :type classification: Optional[Classification]
     """
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    year: int | None = Field(default=None, ge=1869, le=2030)
-    week: int | None = Field(default=None, ge=0, le=20)
+    year: int | None = Field(default=None, ge=1869)
+    week: int | None = Field(default=None, ge=0)
     season_type: SeasonType | None = Field(default=None, alias="seasonType")
     team: str | None = None
     conference: str | None = None
-    id: int | None = Field(default=None, ge=0)
+    id: int | None = Field(default=None, gt=0)
     classification: Classification | None = None
 
     @model_validator(mode="after")
@@ -285,6 +314,6 @@ class AdvancedBoxScoreRequest(BaseModel):
     :type id: int
     """
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    id: int = Field(ge=0)
+    id: int = Field(gt=0)

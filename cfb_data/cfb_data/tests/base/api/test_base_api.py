@@ -164,6 +164,14 @@ def test_discover_routes_finds_decorated_methods():
     assert api._route_map["/dummy"].__name__ == "_dummy"
 
 
+def test_client_uses_canonical_api_host_and_bounded_timeout():
+    """Use the documented production host with a finite request timeout."""
+    api = DummyAPI()
+
+    assert api.base_url == "https://api.collegefootballdata.com"
+    assert api._timeout.total == 30.0
+
+
 def test_make_request_routes_to_registered_handler():
     """Calls routed handler when path is registered."""
     api = DummyAPI()
@@ -183,17 +191,22 @@ def test_make_request_calls_make_request_when_no_handler():
     assert result == {"done": True}
 
 
-def test_make_request_executes_http_call():
-    """Execute HTTP call and return JSON data."""
+def test_make_request_executes_http_call(monkeypatch):
+    """Execute a verified-TLS HTTP call and return JSON data."""
     api = DummyAPI()
     dummy_resp = DummyResponse({"data": 123})
     dummy_session = DummySession(dummy_resp)
+    session_options = {}
 
-    # Patch aiohttp.ClientSession within the module
+    def client_session(**kwargs):
+        session_options.update(kwargs)
+        return dummy_session
+
     base_mod = importlib.import_module("cfb_data.base.api.base_api")
-    base_mod.aiohttp.ClientSession = lambda **kwargs: dummy_session
+    monkeypatch.setattr(base_mod.aiohttp, "ClientSession", client_session)
 
     result = run(api._make_request("/path", {"k": "v"}))
     assert result == {"data": 123}
     assert dummy_resp.called
     assert dummy_session.calls == [(f"{api.base_url}/path", api.headers, {"k": "v"})]
+    assert session_options == {"timeout": api._timeout}

@@ -1,11 +1,17 @@
 """Test request models with validation logic."""
 
 import pytest
-from cfb_data.base.validation.request_validators import Classification, SeasonType
+from cfb_data.base.validation.request_validators import (
+    Classification,
+    PlayoffCompetition,
+    PlayoffRound,
+    SeasonType,
+)
 from cfb_data.game.models.pydantic.requests import (
     GamesRequest,
     GameWeatherRequest,
     PlayerGameStatsRequest,
+    RecordsRequest,
     TeamGameStatsRequest,
 )
 from pydantic import ValidationError
@@ -61,6 +67,41 @@ class TestGamesRequest:
         errors = exc_info.value.errors()
         assert len(errors) == 1
         assert "year is required when id is not specified" in errors[0]["msg"]
+
+    def test_playoff_filters(self) -> None:
+        """Accept documented CFP filters and preserve their query names."""
+        request = GamesRequest(
+            year=2024,
+            season_type=SeasonType.postseason,
+            competition=PlayoffCompetition.cfp,
+            round=PlayoffRound.semifinal,
+        )
+
+        assert request.model_dump(exclude_none=True, by_alias=True) == {
+            "year": 2024,
+            "seasonType": "postseason",
+            "competition": "cfp",
+            "round": "semifinal",
+        }
+
+    def test_round_requires_competition(self) -> None:
+        """Reject a playoff round without its required competition."""
+        with pytest.raises(ValidationError, match="competition parameter is required"):
+            GamesRequest(year=2024, round=PlayoffRound.semifinal)
+
+    def test_cfp_rejects_regular_season_filter(self) -> None:
+        """Reject a regular-season filter for the postseason CFP competition."""
+        with pytest.raises(ValidationError, match="CFP games are postseason games"):
+            GamesRequest(
+                year=2024,
+                season_type=SeasonType.regular,
+                competition=PlayoffCompetition.cfp,
+            )
+
+    def test_unknown_parameter_is_not_silently_dropped(self) -> None:
+        """Reject misspelled parameters instead of widening the request."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            GamesRequest.model_validate({"year": 2024, "season": "regular"})
 
     def test_season_type_enum_validation(self) -> None:
         """Test season_type field accepts valid enum values."""
@@ -138,6 +179,21 @@ class TestGamesRequest:
         dumped = request.model_dump(by_alias=True)
         assert "seasonType" in dumped
         assert dumped["seasonType"] == "regular"
+
+
+class TestRecordsRequest:
+    """Test ``GET /records`` request constraints."""
+
+    def test_year_or_team_is_required(self) -> None:
+        """Reject an unbounded records request."""
+        with pytest.raises(ValidationError, match="year, team"):
+            RecordsRequest()
+
+    def test_team_can_select_records_without_year(self) -> None:
+        """Allow the documented team-only selector."""
+        request = RecordsRequest(team="Alabama")
+
+        assert request.team == "Alabama"
 
 
 class TestTeamGameStatsRequest:
@@ -424,9 +480,9 @@ class TestPlayerGameStatsRequest:
         request = PlayerGameStatsRequest(year=2023, team="")
         assert request.team == ""
 
-        # Test with zero id
-        request = PlayerGameStatsRequest(id=0)
-        assert request.id == 0
+        # Zero is not a usable game ID in the upstream service.
+        with pytest.raises(ValidationError):
+            PlayerGameStatsRequest(id=0)
 
 
 class TestGameWeatherRequest:

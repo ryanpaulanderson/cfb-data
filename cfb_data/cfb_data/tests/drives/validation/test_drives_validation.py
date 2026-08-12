@@ -56,6 +56,7 @@ def test_make_request_returns_models():
         "endYardline": 30,
         "endYardsToGoal": 70,
         "endTime": {"seconds": 0, "minutes": 12},
+        "elapsed": {"seconds": 0, "minutes": 3},
         "plays": 3,
         "yards": 5,
         "driveResult": "Punt",

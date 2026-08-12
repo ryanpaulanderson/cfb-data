@@ -5,8 +5,6 @@ from datetime import datetime
 from pandera.pandas import DataFrameModel, Field
 from pandera.typing import Series
 
-from cfb_data.base.types import JSONObject
-
 
 # -------------------------------------------------------------------
 # /games endpoint
@@ -31,31 +29,32 @@ class GameSchema(DataFrameModel):
     start_time_tbd: Series[bool] = Field()
     completed: Series[bool] = Field()
     neutral_site: Series[bool] = Field()
-    conference_game: Series[bool | None] = Field(nullable=True)
-    attendance: Series[int | None] = Field(nullable=True, ge=0)
-    venue_id: Series[int | None] = Field(nullable=True, ge=0)
-    venue: Series[str | None] = Field(nullable=True)
-    home_id: Series[int | None] = Field(nullable=True, ge=0)
+    conference_game: Series[bool] = Field()
+    attendance: Series[float] = Field(nullable=True, ge=0)
+    venue_id: Series[float] = Field(nullable=True, ge=0)
+    venue: Series[str] = Field(nullable=True)
+    home_id: Series[int] = Field(ge=0)
     home_team: Series[str] = Field()
-    home_conference: Series[str | None] = Field(nullable=True)
-    home_classification: Series[str | None] = Field(nullable=True)
-    home_points: Series[int | None] = Field(nullable=True, ge=0)
-    home_line_scores: Series[list[int | None] | None] = Field(nullable=True)
-    home_post_win_prob: Series[float | None] = Field(nullable=True, ge=0, le=1)
-    home_pregame_elo: Series[int | None] = Field(nullable=True)
-    home_postgame_elo: Series[int | None] = Field(nullable=True)
-    away_id: Series[int | None] = Field(nullable=True, ge=0)
+    home_conference: Series[str] = Field(nullable=True)
+    home_classification: Series[str] = Field(nullable=True)
+    home_points: Series[float] = Field(nullable=True, ge=0)
+    home_line_scores: Series[object] = Field(nullable=True)
+    home_postgame_win_probability: Series[float] = Field(nullable=True, ge=0, le=1)
+    home_pregame_elo: Series[float] = Field(nullable=True)
+    home_postgame_elo: Series[float] = Field(nullable=True)
+    away_id: Series[int] = Field(ge=0)
     away_team: Series[str] = Field()
-    away_conference: Series[str | None] = Field(nullable=True)
-    away_classification: Series[str | None] = Field(nullable=True)
-    away_points: Series[int | None] = Field(nullable=True, ge=0)
-    away_line_scores: Series[list[int | None] | None] = Field(nullable=True)
-    away_post_win_prob: Series[float | None] = Field(nullable=True, ge=0, le=1)
-    away_pregame_elo: Series[int | None] = Field(nullable=True)
-    away_postgame_elo: Series[int | None] = Field(nullable=True)
-    excitement_index: Series[float | None] = Field(nullable=True)
-    highlights: Series[str | None] = Field(nullable=True)
-    notes: Series[str | None] = Field(nullable=True)
+    away_conference: Series[str] = Field(nullable=True)
+    away_classification: Series[str] = Field(nullable=True)
+    away_points: Series[float] = Field(nullable=True, ge=0)
+    away_line_scores: Series[object] = Field(nullable=True)
+    away_postgame_win_probability: Series[float] = Field(nullable=True, ge=0, le=1)
+    away_pregame_elo: Series[float] = Field(nullable=True)
+    away_postgame_elo: Series[float] = Field(nullable=True)
+    excitement_index: Series[float] = Field(nullable=True)
+    highlights: Series[str] = Field(nullable=True)
+    notes: Series[str] = Field(nullable=True)
+    playoff: Series[object] = Field(nullable=True)
 
     class Config:
         """Pandera configuration."""
@@ -116,16 +115,11 @@ class GameMediaSchema(DataFrameModel):
     start_time: Series[datetime] = Field()
     is_start_time_tbd: Series[bool] = Field()
     home_team: Series[str] = Field()
-    home_conference: Series[str | None] = Field(nullable=True)
+    home_conference: Series[str] = Field(nullable=True)
     away_team: Series[str] = Field()
-    away_conference: Series[str | None] = Field(nullable=True)
-    media_type: Series[str | None] = Field(nullable=True)
-    tv: Series[str | None] = Field(nullable=True)
-    radio: Series[str | None] = Field(nullable=True)
-    web: Series[str | None] = Field(nullable=True)
-    ppv: Series[str | None] = Field(nullable=True)
-    mobile: Series[str | None] = Field(nullable=True)
-    outlet: Series[str | None] = Field(nullable=True)
+    away_conference: Series[str] = Field(nullable=True)
+    media_type: Series[str] = Field(isin=["tv", "radio", "web", "ppv", "mobile"])
+    outlet: Series[str] = Field()
 
     class Config:
         """Pandera configuration."""
@@ -145,19 +139,23 @@ class GameWeatherSchema(DataFrameModel):
     week: Series[int] = Field(ge=0)
     season_type: Series[str] = Field(isin=["regular", "postseason", "both"])
     start_time: Series[datetime] = Field()
-    game_indoors: Series[bool | None] = Field(nullable=True)
-    venue_id: Series[int | None] = Field(nullable=True, ge=0)
-    venue: Series[str | None] = Field(nullable=True)
-    temperature: Series[float | None] = Field(nullable=True)
-    dew_point: Series[float | None] = Field(nullable=True)
-    humidity: Series[float | None] = Field(nullable=True, ge=0, le=100)
-    precipitation: Series[float | None] = Field(nullable=True, ge=0)
-    snowfall: Series[float | None] = Field(nullable=True, ge=0)
-    wind_direction: Series[float | None] = Field(nullable=True, ge=0, le=360)
-    wind_speed: Series[float | None] = Field(nullable=True, ge=0)
-    pressure: Series[float | None] = Field(nullable=True)
-    weather_condition_code: Series[str | None] = Field(nullable=True)
-    weather_condition: Series[str | None] = Field(nullable=True)
+    game_indoors: Series[bool] = Field()
+    home_team: Series[str] = Field()
+    home_conference: Series[str] = Field(nullable=True)
+    away_team: Series[str] = Field()
+    away_conference: Series[str] = Field(nullable=True)
+    venue_id: Series[int] = Field(ge=0)
+    venue: Series[str] = Field()
+    temperature: Series[float] = Field(nullable=True)
+    dew_point: Series[float] = Field(nullable=True)
+    humidity: Series[float] = Field(nullable=True, ge=0, le=100)
+    precipitation: Series[float] = Field(nullable=True, ge=0)
+    snowfall: Series[float] = Field(nullable=True, ge=0)
+    wind_direction: Series[float] = Field(nullable=True, ge=0, le=360)
+    wind_speed: Series[float] = Field(nullable=True, ge=0)
+    pressure: Series[float] = Field(nullable=True)
+    weather_condition_code: Series[float] = Field(nullable=True)
+    weather_condition: Series[str] = Field(nullable=True)
 
     class Config:
         """Pandera configuration."""
@@ -173,19 +171,19 @@ class TeamRecordsSchema(DataFrameModel):
     """Schema for /records endpoint."""
 
     year: Series[int] = Field(ge=0)
-    team_id: Series[int | None] = Field(nullable=True, ge=0)
+    team_id: Series[int] = Field(ge=0)
     team: Series[str] = Field()
-    classification: Series[str | None] = Field(nullable=True)
-    conference: Series[str | None] = Field(nullable=True)
-    division: Series[str | None] = Field(nullable=True)
-    expected_wins: Series[float | None] = Field(nullable=True)
-    total: Series[dict[str, int]] = Field()
-    conference_games: Series[dict[str, int] | None] = Field(nullable=True)
-    home_games: Series[dict[str, int] | None] = Field(nullable=True)
-    away_games: Series[dict[str, int] | None] = Field(nullable=True)
-    neutral_site_games: Series[dict[str, int] | None] = Field(nullable=True)
-    regular_season: Series[dict[str, int] | None] = Field(nullable=True)
-    postseason: Series[dict[str, int] | None] = Field(nullable=True)
+    classification: Series[str] = Field(nullable=True)
+    conference: Series[str] = Field()
+    division: Series[str] = Field()
+    expected_wins: Series[float] = Field(nullable=True)
+    total: Series[object] = Field()
+    conference_games: Series[object] = Field()
+    home_games: Series[object] = Field()
+    away_games: Series[object] = Field()
+    neutral_site_games: Series[object] = Field()
+    regular_season: Series[object] = Field()
+    postseason: Series[object] = Field()
 
     class Config:
         """Pandera configuration."""
@@ -200,14 +198,8 @@ class TeamRecordsSchema(DataFrameModel):
 class PlayerGameStatsSchema(DataFrameModel):
     """Schema for /games/players endpoint."""
 
-    game_id: Series[int] = Field(ge=0)
-    team: Series[str] = Field()
-    conference: Series[str | None] = Field(nullable=True)
-    category: Series[str] = Field()
-    passing: Series[list[JSONObject] | None] = Field(nullable=True)
-    rushing: Series[list[JSONObject] | None] = Field(nullable=True)
-    receiving: Series[list[JSONObject] | None] = Field(nullable=True)
-    defensive: Series[list[JSONObject] | None] = Field(nullable=True)
+    id: Series[int] = Field(ge=0)
+    teams: Series[object] = Field()
 
     class Config:
         """Pandera configuration."""
@@ -222,28 +214,8 @@ class PlayerGameStatsSchema(DataFrameModel):
 class TeamGameStatsSchema(DataFrameModel):
     """Schema for /games/teams endpoint."""
 
-    game_id: Series[int] = Field(ge=0)
-    school: Series[str] = Field()
-    conference: Series[str | None] = Field(nullable=True)
-    home_away: Series[str] = Field(isin=["home", "away"])
-    opponent: Series[str] = Field()
-    points: Series[int] = Field(ge=0)
-    total_yards: Series[float | None] = Field(nullable=True)
-    net_passing_yards: Series[float | None] = Field(nullable=True)
-    completion_attempts: Series[str | None] = Field(nullable=True)
-    passing_tds: Series[int | None] = Field(nullable=True)
-    rushing_yards: Series[float | None] = Field(nullable=True)
-    rushing_attempts: Series[int | None] = Field(nullable=True)
-    rushing_tds: Series[int | None] = Field(nullable=True)
-    first_downs: Series[int | None] = Field(nullable=True)
-    third_down_efficiency: Series[str | None] = Field(nullable=True)
-    fourth_down_efficiency: Series[str | None] = Field(nullable=True)
-    total_penalties: Series[int | None] = Field(nullable=True)
-    penalty_yards: Series[int | None] = Field(nullable=True)
-    turnovers: Series[int | None] = Field(nullable=True)
-    fumbles_lost: Series[int | None] = Field(nullable=True)
-    interceptions_thrown: Series[int | None] = Field(nullable=True)
-    possession_time: Series[str | None] = Field(nullable=True)
+    id: Series[int] = Field(ge=0)
+    teams: Series[object] = Field()
 
     class Config:
         """Pandera configuration."""
@@ -279,11 +251,11 @@ class ScoreboardSchema(DataFrameModel):
     start_date: Series[datetime] = Field()
     home_team: Series[str] = Field()
     away_team: Series[str] = Field()
-    home_points: Series[int | None] = Field(nullable=True, ge=0)
-    away_points: Series[int | None] = Field(nullable=True, ge=0)
+    home_points: Series[float] = Field(nullable=True, ge=0)
+    away_points: Series[float] = Field(nullable=True, ge=0)
     neutral_site: Series[bool] = Field()
-    conference_game: Series[bool | None] = Field(nullable=True)
-    line: Series[dict[str, float] | None] = Field(nullable=True)
+    conference_game: Series[object] = Field(nullable=True)
+    line: Series[object] = Field(nullable=True)
 
     class Config:
         """Pandera configuration."""

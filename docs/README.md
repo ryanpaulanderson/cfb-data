@@ -21,6 +21,8 @@ reliable statement of package usability.
 
 ## Authoritative sources
 
-The stored endpoint notes and OpenAPI file are snapshots. Before implementing
-or changing API behavior, compare them with the current
-[CollegeFootballData API documentation](https://api.collegefootballdata.com/).
+Before implementing or changing API behavior, use the current
+[CollegeFootballData API documentation](https://api.collegefootballdata.com/api)
+and the versioned
+[official API source](https://github.com/CFBD/cfb-api-v2). Do not check in a
+generated or downloaded OpenAPI snapshot as a competing source of truth.
