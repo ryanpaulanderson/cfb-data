@@ -1,9 +1,9 @@
 # College Football Data Python Toolkit
 
-`cfb-data` 0.2.0 is an asynchronous, validated client for the implemented
-[CollegeFootballData API](https://collegefootballdata.com/) Games, Drives, and
-Plays endpoints. It returns eager pandas DataFrames by default and can return
-the same logical tables as Polars DataFrames.
+`cfb-data` 0.2.0 is an asynchronous, validated client for implemented
+[CollegeFootballData API](https://collegefootballdata.com/) game, play, and
+reference-data endpoints. It returns eager pandas DataFrames by default and
+can return the same logical tables as Polars DataFrames.
 
 The request path is explicit:
 
@@ -54,10 +54,12 @@ async def main() -> None:
         games = await client.games.list(year=2024, team="Michigan")
         drives = await client.drives.list(year=2024, team="Michigan")
         plays = await client.plays.list(year=2024, week=1, team="Michigan")
+        teams = await client.teams.fbs(year=2024)
 
     print(games.head())
     print(drives.head())
     print(plays.head())
+    print(teams.head())
 
 
 asyncio.run(main())
@@ -116,15 +118,29 @@ name is always `game_id`; request serialization maps it to upstream `id` or
 | `client.plays.stats` | `PlayStatsRequest` | `PlayStat` rows as selected frame |
 | `client.plays.stat_types` | None | `PlayStatType` rows as selected frame |
 | `client.plays.live` | `LivePlaysRequest` | `LiveGame` model |
+| `client.venues.list` | None | `Venue` rows as selected frame |
+| `client.conferences.list` | `ConferencesRequest` | `Conference` rows as selected frame |
+| `client.conferences.changes` | `ConferenceChangesRequest` | `TeamConferenceChange` rows as selected frame |
+| `client.conferences.affiliations` | `ConferenceAffiliationsRequest` | `TeamConferenceAffiliation` rows as selected frame |
+| `client.teams.list` | `TeamsRequest` | `Team` rows as selected frame |
+| `client.teams.fbs` | `FBSTeamsRequest` | `Team` rows as selected frame |
+| `client.teams.matchup` | `TeamMatchupRequest` | one `Matchup` row as selected frame |
+| `client.teams.ats` | `TeamATSRequest` | `TeamATS` rows as selected frame |
+| `client.teams.roster` | `RosterRequest` | `RosterPlayer` rows as selected frame |
+| `client.teams.talent` | `TalentRequest` | `TeamTalent` rows as selected frame |
 
 Request models and shared `StrEnum` values are exported from `cfb_data` and
-their supported `cfb_data.games`, `cfb_data.drives`, or `cfb_data.plays`
-namespaces. Enum fields also accept their documented string values.
+their supported domain namespaces. Enum fields also accept their documented
+string values.
 
 Raw JSON and general validated-model return modes are intentionally excluded.
 Advanced box score and live plays return models because their nested sections
 do not form one natural table. The upstream live-plays route requires Patreon
 Tier 2 access.
+
+Team matchup is a one-row frame containing summary columns and a nested
+`games` column. pandas represents `games` as `object`; Polars represents it as
+`List[Struct]`.
 
 ## DataFrame contract
 

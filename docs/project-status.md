@@ -1,14 +1,15 @@
 # Project status
 
 > Status as of August 12, 2026: version 0.2.0 implements the supported Games,
-> Drives, and Plays client surface. Broader endpoint, dataset, and workflow
-> coverage remains future work.
+> Drives, Plays, Venues, Conferences, and Teams client surface. Broader
+> endpoint, dataset, and workflow coverage remains future work.
 
 ## Current product surface
 
 `CFBDClient` is the sole primary client. It owns one context-managed,
 connection-pooled `aiohttp.ClientSession` and exposes typed `games`, `drives`,
-and `plays` namespaces. Every endpoint follows the same boundary sequence:
+`plays`, `venues`, `conferences`, and `teams` namespaces. Every endpoint
+follows the same boundary sequence:
 
 ```text
 HTTP → decoded JSON → Pydantic response validation → logical schema → DataFrame
@@ -23,7 +24,9 @@ nested sections do not form one natural table.
 The implemented routes are `/games`, `/records`, `/calendar`, `/scoreboard`,
 `/games/media`, `/games/weather`, `/games/players`, `/games/teams`,
 `/game/box/advanced`, `/drives`, `/plays`, `/plays/types`, `/plays/stats`,
-`/plays/stats/types`, and `/live/plays`.
+`/plays/stats/types`, `/live/plays`, `/venues`, `/conferences`,
+`/conferences/changes`, `/conferences/affiliations`, `/teams`, `/teams/fbs`,
+`/teams/matchup`, `/teams/ats`, `/roster`, and `/talent`.
 
 ## Reliability contract
 
@@ -49,7 +52,8 @@ are not part of the supported client.
 
 ## Deliberately not included in 0.2.0
 
-- Endpoint families beyond Games, Drives, and Plays.
+- Endpoint families beyond Games, Drives, Plays, Venues, Conferences, and
+  Teams.
 - Credentialed live-API tests; deterministic tests use a local HTTP server.
 - Polars `LazyFrame` results.
 - Public dataset or workflow namespaces.
