@@ -1,5 +1,9 @@
 # Drives API Implementation Plan
 
+> **Historical document (2025):** This file records an earlier implementation
+> plan and design target. It is retained to explain architectural intent; it is
+> not the current roadmap or an authoritative statement of package status.
+
 ## Overview
 This document provides a complete implementation plan to bring the drives API in line with the robust game API architecture. The drives API currently lacks critical request validation infrastructure and relies on hard-coded parameter checking instead of the established model-based validation patterns. This plan will create the missing validation components and integrate them with the existing shared validation utilities.
 

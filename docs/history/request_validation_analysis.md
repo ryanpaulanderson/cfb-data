@@ -1,5 +1,9 @@
 # College Football Data API Request Validation Analysis
 
+> **Historical document (2025):** This file records an earlier analysis and
+> design target. It is retained to explain architectural intent; it is not the
+> current roadmap or an authoritative statement of package status.
+
 ## Executive Summary
 The current request models have several critical validation gaps that allow invalid API requests to be created. The API specification defines complex conditional validation rules that are not enforced in our Pydantic models.
 

@@ -1,5 +1,9 @@
 # Games Module Completion Summary
 
+> **Historical document (2025):** “Completion” here describes the internal
+> implementation and test target at that time. It does not mean the package had
+> a stable, installable, or supported end-user interface.
+
 ## Overview
 
 This document summarizes the completion of the games module implementation based on comprehensive analysis and comparison with the College Football Data API specification in `docs/cfbd_api/games_api.md`.

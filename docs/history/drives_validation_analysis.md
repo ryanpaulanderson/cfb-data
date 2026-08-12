@@ -1,5 +1,9 @@
 # College Football Data API Drives Request Validation Analysis
 
+> **Historical document (2025):** This file records an earlier analysis and
+> design target. It is retained to explain architectural intent; it is not the
+> current roadmap or an authoritative statement of package status.
+
 ## Executive Summary
 The drives API endpoint lacks critical request validation infrastructure that exists in the games API. Unlike the games endpoint which has dedicated request models with validation logic, the drives API relies entirely on hard-coded parameter checking and has no request models whatsoever. This creates significant validation gaps and inconsistencies with the established architectural patterns.
 

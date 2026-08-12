@@ -164,8 +164,10 @@ When adding new endpoint documentation:
 ## Related Documentation
 
 - **Project Overview**: [`../../README.md`](../../README.md) - Main project documentation
-- **Implementation Analysis**: [`../../cfb_data/request_validation_analysis.md`](../../cfb_data/request_validation_analysis.md) - Technical validation analysis
-- **Implementation Plan**: [`../../cfb_data/request_validation_implementation_plan.md`](../../cfb_data/request_validation_implementation_plan.md) - Development roadmap
+- **Historical implementation analysis**:
+  [`../history/request_validation_analysis.md`](../history/request_validation_analysis.md)
+- **Historical implementation plan**:
+  [`../history/request_validation_implementation_plan.md`](../history/request_validation_implementation_plan.md)
 
 ---
 
