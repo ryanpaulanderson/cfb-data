@@ -9,6 +9,7 @@ official [`CFBD/cfb-api-v2`](https://github.com/CFBD/cfb-api-v2) source.
 | --- | ---: | --- |
 | [Games](games_api.md) | 9 | `client.games` |
 | [Drives](drives_api.md) | 1 | `client.drives` |
+| [Plays](plays_api.md) | 5 | `client.plays` |
 
 `CFBDClient` sends authenticated GET requests to the canonical API origin by
 default. Request fields use snake case in Python and serialize to upstream
@@ -18,8 +19,8 @@ public ID name. Unknown fields and invalid combinations fail before HTTP.
 All decoded responses pass through the endpoint's Pydantic model before frame
 conversion. Nested `/games/teams`, `/games/players`, scoreboard, records, and
 drives structures remain nested. pandas stores nested values in `object`
-columns; Polars uses native `Struct` and `List` columns. Advanced box score is
-returned as one nested Pydantic model.
+columns; Polars uses native `Struct` and `List` columns. Advanced box score and
+live plays are returned as nested Pydantic models.
 
 See the top-level [`README.md`](../../README.md) for lifecycle, authentication,
 retry, error, dtype, and installation contracts.

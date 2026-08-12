@@ -27,6 +27,7 @@ from cfb_data._transport import (
 from cfb_data.drives.resource import DrivesResource
 from cfb_data.errors import CFBDConfigurationError
 from cfb_data.games.resource import GamesResource
+from cfb_data.plays.resource import PlaysResource
 from cfb_data.retry import RetryPolicy
 
 if TYPE_CHECKING:
@@ -37,7 +38,7 @@ _FrameT = TypeVar("_FrameT")
 
 
 class CFBDClient(Generic[_FrameT]):
-    """Access validated Games and Drives resources through one pooled session.
+    """Access validated Games, Drives, and Plays through one pooled session.
 
     The client is one-shot and must be used with ``async with``. Endpoint calls
     return eager pandas DataFrames by default or eager Polars DataFrames when
@@ -116,6 +117,7 @@ class CFBDClient(Generic[_FrameT]):
         self._transport = transport
         self._games = GamesResource(executor, adapter)
         self._drives = DrivesResource(executor, adapter)
+        self._plays = PlaysResource(executor, adapter)
 
     @property
     def games(self) -> GamesResource[_FrameT]:
@@ -132,6 +134,14 @@ class CFBDClient(Generic[_FrameT]):
         :return: Resource bound to this client's session and DataFrame backend.
         """
         return self._drives
+
+    @property
+    def plays(self) -> PlaysResource[_FrameT]:
+        """Return the typed Plays endpoint namespace.
+
+        :return: Resource bound to this client's session and DataFrame backend.
+        """
+        return self._plays
 
     async def __aenter__(self) -> Self:
         await self._transport.open()

@@ -39,6 +39,12 @@ from .games.models.pydantic.requests import (
     TeamGameStatsRequest,
 )
 from .games.models.pydantic.responses import AdvancedBoxScore
+from .plays.models.pydantic.requests import (
+    LivePlaysRequest,
+    PlaysRequest,
+    PlayStatsRequest,
+)
+from .plays.models.pydantic.responses import DownType, HomeAway, LiveGame, RushPass
 from .retry import RetryPolicy
 
 __all__ = [
@@ -68,13 +74,20 @@ __all__ = [
     "GameMediaRequest",
     "GamesRequest",
     "GameWeatherRequest",
+    "HomeAway",
+    "LiveGame",
+    "LivePlaysRequest",
     "MediaType",
     "PlayerGameStatsRequest",
     "PlayoffCompetition",
     "PlayoffRound",
+    "PlaysRequest",
+    "PlayStatsRequest",
     "RecordsRequest",
     "RetryPolicy",
+    "RushPass",
     "ScoreboardRequest",
     "SeasonType",
     "TeamGameStatsRequest",
+    "DownType",
 ]

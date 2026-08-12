@@ -5,6 +5,7 @@ from importlib.resources import files
 
 import cfb_data.drives
 import cfb_data.games
+import cfb_data.plays
 
 import cfb_data
 
@@ -28,10 +29,14 @@ def test_legacy_clients_and_generic_routing_are_not_exported() -> None:
         "CFBDDrivesAPI",
         "CFBDDrivesValidationAPI",
         "CFBDDrivesPandasAPI",
+        "CFBDPlaysAPI",
+        "CFBDPlaysValidationAPI",
+        "CFBDPlaysPandasAPI",
         "route",
     }
 
     assert legacy_names.isdisjoint(vars(cfb_data))
     assert legacy_names.isdisjoint(vars(cfb_data.games))
     assert legacy_names.isdisjoint(vars(cfb_data.drives))
+    assert legacy_names.isdisjoint(vars(cfb_data.plays))
     assert not hasattr(cfb_data.CFBDClient("key"), "make_request")

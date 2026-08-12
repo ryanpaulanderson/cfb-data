@@ -1,9 +1,9 @@
 # College Football Data Python Toolkit
 
 `cfb-data` 0.2.0 is an asynchronous, validated client for the implemented
-[CollegeFootballData API](https://collegefootballdata.com/) Games and Drives
-endpoints. It returns eager pandas DataFrames by default and can return the
-same logical tables as Polars DataFrames.
+[CollegeFootballData API](https://collegefootballdata.com/) Games, Drives, and
+Plays endpoints. It returns eager pandas DataFrames by default and can return
+the same logical tables as Polars DataFrames.
 
 The request path is explicit:
 
@@ -53,9 +53,11 @@ async def main() -> None:
     async with CFBDClient() as client:
         games = await client.games.list(year=2024, team="Michigan")
         drives = await client.drives.list(year=2024, team="Michigan")
+        plays = await client.plays.list(year=2024, week=1, team="Michigan")
 
     print(games.head())
     print(drives.head())
+    print(plays.head())
 
 
 asyncio.run(main())
@@ -109,14 +111,20 @@ name is always `game_id`; request serialization maps it to upstream `id` or
 | `client.games.team_stats` | `TeamGameStatsRequest` | `TeamGameStats` rows as selected frame |
 | `client.games.advanced_box_score` | `AdvancedBoxScoreRequest` | `AdvancedBoxScore` model |
 | `client.drives.list` | `DrivesRequest` | `Drive` rows as selected frame |
+| `client.plays.list` | `PlaysRequest` | `Play` rows as selected frame |
+| `client.plays.types` | None | `PlayType` rows as selected frame |
+| `client.plays.stats` | `PlayStatsRequest` | `PlayStat` rows as selected frame |
+| `client.plays.stat_types` | None | `PlayStatType` rows as selected frame |
+| `client.plays.live` | `LivePlaysRequest` | `LiveGame` model |
 
 Request models and shared `StrEnum` values are exported from `cfb_data` and
-their supported `cfb_data.games` or `cfb_data.drives` namespaces. Enum fields
-also accept their documented string values.
+their supported `cfb_data.games`, `cfb_data.drives`, or `cfb_data.plays`
+namespaces. Enum fields also accept their documented string values.
 
 Raw JSON and general validated-model return modes are intentionally excluded.
-The advanced box score is the sole model-returning endpoint because its nested
-game, team, and player sections do not form one natural table.
+Advanced box score and live plays return models because their nested sections
+do not form one natural table. The upstream live-plays route requires Patreon
+Tier 2 access.
 
 ## DataFrame contract
 

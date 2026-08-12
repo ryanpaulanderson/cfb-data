@@ -1,14 +1,14 @@
 # Project status
 
-> Status as of August 12, 2026: version 0.2.0 implements the supported Games
-> and Drives client surface. Broader endpoint, dataset, and workflow coverage
-> remains future work.
+> Status as of August 12, 2026: version 0.2.0 implements the supported Games,
+> Drives, and Plays client surface. Broader endpoint, dataset, and workflow
+> coverage remains future work.
 
 ## Current product surface
 
 `CFBDClient` is the sole primary client. It owns one context-managed,
-connection-pooled `aiohttp.ClientSession` and exposes typed `games` and
-`drives` namespaces. Every endpoint follows the same boundary sequence:
+connection-pooled `aiohttp.ClientSession` and exposes typed `games`, `drives`,
+and `plays` namespaces. Every endpoint follows the same boundary sequence:
 
 ```text
 HTTP → decoded JSON → Pydantic response validation → logical schema → DataFrame
@@ -17,12 +17,13 @@ HTTP → decoded JSON → Pydantic response validation → logical schema → Da
 pandas is the default backend. Polars is available through the `polars` extra.
 Both return eager frames with the same endpoint methods, request validation,
 column names/order, API row order, nulls, and logical values. Advanced box
-score is intentionally returned as an `AdvancedBoxScore` model because its
+score and live plays intentionally return validated models because their
 nested sections do not form one natural table.
 
 The implemented routes are `/games`, `/records`, `/calendar`, `/scoreboard`,
 `/games/media`, `/games/weather`, `/games/players`, `/games/teams`,
-`/game/box/advanced`, and `/drives`.
+`/game/box/advanced`, `/drives`, `/plays`, `/plays/types`, `/plays/stats`,
+`/plays/stats/types`, and `/live/plays`.
 
 ## Reliability contract
 
@@ -48,7 +49,7 @@ are not part of the supported client.
 
 ## Deliberately not included in 0.2.0
 
-- Endpoint families beyond Games and Drives.
+- Endpoint families beyond Games, Drives, and Plays.
 - Credentialed live-API tests; deterministic tests use a local HTTP server.
 - Polars `LazyFrame` results.
 - Public dataset or workflow namespaces.
