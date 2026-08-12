@@ -2,73 +2,39 @@ name: CI
 
 on:
   pull_request:
-    branches:
-      - main
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-and-test:
+  check:
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+
     steps:
-      - name: Checkout code (full history)
+      - name: Check out repository
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0       # ensures origin/main is present
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.x"
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
-      - name: Cache pip downloads
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('cfb_data/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+      - name: Install project
+        run: make install
 
-      - name: Cache pre-commit environments
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/pre-commit
-          key: ${{ runner.os }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pre-commit-
-
-      - name: Create & activate virtualenv, install deps
-        run: |
-          python -m venv .env
-          source .env/bin/activate
-          pip install --upgrade pip
-          pip install -r cfb_data/requirements.txt pre-commit pytest
-
-      - name: Install pre-commit hooks
-        run: |
-          source .env/bin/activate
-          pre-commit install --install-hooks
-
-      - name: Run pre-commit on changed files only
-        run: |
-          source .env/bin/activate
-
-          # Fetch the target branch so we can diff against it
-          git fetch origin main
-
-          # List changed files in this PR (compare against origin/main)
-          changed=$(git diff --name-only origin/main...HEAD)
-
-          # Filter to files pre-commit cares about
-          files=$(echo "$changed" | grep -E '\.py$|\.md$|\.yaml$' || true)
-
-          if [ -n "$files" ]; then
-            echo "Running pre-commit on changed files:"
-            echo "$files"
-            pre-commit run --files $files
-          else
-            echo "No relevant files changed; skipping pre-commit."
-          fi
-
-      - name: Run tests
-        run: |
-          source .env/bin/activate
-          pytest -q
+      - name: Run shared quality contract
+        run: make check

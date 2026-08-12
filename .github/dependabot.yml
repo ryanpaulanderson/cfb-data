@@ -2,7 +2,7 @@ version: 2
 updates:
   # Enable version updates for pip dependencies
   - package-ecosystem: "pip"
-    directory: "/cfb_data"
+    directory: "/"
     schedule:
       interval: "daily"
       time: "01:00"
