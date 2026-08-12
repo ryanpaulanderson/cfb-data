@@ -39,7 +39,10 @@ class CFBDPandasAPI(CFBDValidationAPI):
         else:
             records = [data]
 
-        df = pd.DataFrame(records)
+        if not records and schema is not None:
+            df = pd.DataFrame(columns=schema.to_schema().columns)
+        else:
+            df = pd.DataFrame(records)
         if schema is not None:
             df = schema.validate(df)
         return df

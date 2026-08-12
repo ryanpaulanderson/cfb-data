@@ -1,1 +1,1 @@
-"""Exports for drives Pandera models."""
+"""Export Pandera schemas for drives endpoints."""

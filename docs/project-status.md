@@ -18,15 +18,17 @@ decisions.
 
 - A shared asynchronous HTTP and route-discovery layer.
 - Raw, Pydantic-validated, and pandas-oriented domain client layers.
-- Request and response models for several games endpoints and the drives
-  endpoint.
+- Request and response models for every current endpoint in the Games and
+  Drives API categories.
 - Route handlers for `/games`, `/records`, `/calendar`, `/games/media`,
-  `/games/weather`, `/games/players`, `/games/teams`,
+  `/scoreboard`, `/games/weather`, `/games/players`, `/games/teams`,
   `/game/box/advanced`, and `/drives`.
 - A substantial mocked test suite covering validation and internal request
   behavior.
 - Request and response contracts reconciled with the official CFBD API v5.24.0
   source and current API reference.
+- Parallel `cfb_data.games` and `cfb_data.drives` package structures with raw,
+  Pydantic-validation, and pandas client layers.
 - A canonical production API host, normal TLS verification, and finite HTTP
   request timeouts.
 

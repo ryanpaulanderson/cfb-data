@@ -3,7 +3,7 @@
 import time
 from typing import Any
 
-from cfb_data.game.models.pydantic.requests import GamesRequest, TeamGameStatsRequest
+from cfb_data.games.models.pydantic.requests import GamesRequest, TeamGameStatsRequest
 
 
 class TestValidationPerformance:

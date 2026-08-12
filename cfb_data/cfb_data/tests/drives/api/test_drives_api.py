@@ -54,6 +54,6 @@ def test_get_drives_calls_make_request():
 
 
 def test_route_map_contains_registered_path():
-    """Path decorated with :func:`route` should be registered."""
+    """Discover every route in the official Drives category."""
     api = DummyAPI()
-    assert "/drives" in api._route_map
+    assert set(api._route_map) == {"/drives"}

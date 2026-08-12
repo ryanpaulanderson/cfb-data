@@ -24,7 +24,8 @@ The response is an array of drive objects. Each object contains:
 - play count, yards, result, and start/end scores.
 
 The `startTime`, `endTime`, and `elapsed` objects each contain nullable integer
-`minutes` and `seconds` values.
+`minutes` and `seconds` values. `offenseConference`, `defenseConference`, and
+`driveNumber` are required response keys whose values may be null.
 
 ```python
 from cfb_data.drives import CFBDDrivesValidationAPI

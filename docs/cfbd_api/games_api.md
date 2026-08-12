@@ -6,7 +6,9 @@ the official
 [`games/controller.ts`](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/games/controller.ts),
 [`games/types.ts`](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/games/types.ts),
 and
-[`boxScores/types.ts`](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/boxScores/types.ts)
+[`boxScores/types.ts`](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/boxScores/types.ts),
+with endpoint access rules from
+[`config/auth.ts`](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/config/auth.ts)
 from API version 5.24.0.
 
 ## Request contracts
@@ -20,11 +22,12 @@ from API version 5.24.0.
 | `GET /games/weather` | `gameId`, or `year` | `seasonType`, `week`, `team`, `conference`, `classification` |
 | `GET /records` | At least one of `year` or `team` | `conference` |
 | `GET /calendar` | `year` | None |
+| `GET /scoreboard` | None; `classification` defaults upstream to `fbs` | `classification`, `conference` |
 | `GET /game/box/advanced` | `id` | None |
 
-`/games/weather` requires the upstream Patreon access level. A `round` filter
-requires `competition=cfp`. CFP competition filters may only be combined with
-`seasonType=postseason` or `seasonType=both`.
+`/games/weather` and `/scoreboard` require Patreon Tier 1 or higher. A `round`
+filter requires `competition=cfp`. CFP competition filters may only be
+combined with `seasonType=postseason` or `seasonType=both`.
 
 Supported enums are:
 
@@ -98,6 +101,14 @@ objects containing `games`, `wins`, `losses`, and `ties`.
 Returns season week, season type, start date, and end date. The API continues
 to return the deprecated aliases `firstGameStart` and `lastGameStart`.
 
+### `/scoreboard`
+
+Returns the current scoreboard as `ScoreboardGame[]`. Each game includes its
+start time and status, live clock and possession state, venue, nested home and
+away teams with scores and win probabilities, weather, and betting data.
+Nullable fields remain present in the response, including before kickoff or
+when a data provider does not supply a value.
+
 ### `/game/box/advanced`
 
 Returns one object with three sections:
@@ -110,7 +121,7 @@ Returns one object with three sections:
 ## Client examples
 
 ```python
-from cfb_data.game import CFBDGamesValidationAPI
+from cfb_data.games import CFBDGamesValidationAPI
 
 api = CFBDGamesValidationAPI(api_key="...")
 games = await api.make_request(

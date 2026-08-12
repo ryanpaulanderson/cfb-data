@@ -10,8 +10,8 @@ they become stale and create a competing source of truth.
 
 | Family | Routes implemented | Contract notes |
 | --- | ---: | --- |
-| [Games](games_api.md) | 8 | Games, team/player stats, media, weather, records, calendar, and advanced box score |
-| [Drives](drives_api.md) | 1 | Historical drives and results |
+| [Games](games_api.md) | 9 | Complete current Games category, including scoreboard and advanced box score |
+| [Drives](drives_api.md) | 1 | Complete current Drives category |
 
 The client sends requests to `https://api.collegefootballdata.com` with bearer
 authentication. Python request fields use snake case and are serialized to the
@@ -19,7 +19,9 @@ API's camel-case names, such as `season_type` to `seasonType` and `game_id` to
 `gameId`. Unknown request fields are rejected so a misspelling cannot silently
 broaden a query.
 
-The response models deliberately follow the current nested API structures.
+The two domain implementations use parallel `cfb_data.games` and
+`cfb_data.drives` package structures. The response models deliberately follow
+the current nested API structures.
 In particular, `/games/teams` and `/games/players` return one object per game
 with nested `teams` collections, while `/game/box/advanced` returns nested
 `gameInfo`, `teams`, and `players` sections.
