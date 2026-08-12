@@ -1,7 +1,7 @@
 """Tests for external serialization boundary types."""
 
 import pytest
-from cfb_data.base.types import json_response, query_parameters
+from cfb_data.base.types import json_list, json_response, query_parameters
 
 
 def test_json_response_validates_nested_values() -> None:
@@ -16,6 +16,17 @@ def test_json_response_rejects_unsupported_values(value: object) -> None:
     """Reject unsupported JSON shapes and values."""
     with pytest.raises(TypeError):
         json_response(value)
+
+
+def test_json_list_accepts_scalar_arrays() -> None:
+    """Return recursively validated arrays containing scalar values."""
+    assert json_list(["passing", 42, None]) == ["passing", 42, None]
+
+
+def test_json_list_rejects_non_array() -> None:
+    """Reject a valid JSON value when it is not an array."""
+    with pytest.raises(TypeError, match="Expected a JSON array"):
+        json_list({"category": "passing"})
 
 
 def test_query_parameters_accept_scalars() -> None:

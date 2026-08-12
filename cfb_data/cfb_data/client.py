@@ -30,6 +30,7 @@ from cfb_data.errors import CFBDConfigurationError
 from cfb_data.games.resource import GamesResource
 from cfb_data.plays.resource import PlaysResource
 from cfb_data.retry import RetryPolicy
+from cfb_data.stats.resource import StatsResource
 from cfb_data.teams.resource import TeamsResource
 from cfb_data.venues.resource import VenuesResource
 
@@ -124,6 +125,7 @@ class CFBDClient(Generic[_FrameT]):
         self._venues = VenuesResource(executor, adapter)
         self._conferences = ConferencesResource(executor, adapter)
         self._teams = TeamsResource(executor, adapter)
+        self._stats = StatsResource(executor, adapter)
 
     @property
     def games(self) -> GamesResource[_FrameT]:
@@ -172,6 +174,14 @@ class CFBDClient(Generic[_FrameT]):
         :return: Resource bound to this client's session and DataFrame backend.
         """
         return self._teams
+
+    @property
+    def stats(self) -> StatsResource[_FrameT]:
+        """Return the typed Stats endpoint namespace.
+
+        :return: Resource bound to this client's session and DataFrame backend.
+        """
+        return self._stats
 
     async def __aenter__(self) -> Self:
         await self._transport.open()

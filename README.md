@@ -1,9 +1,9 @@
 # College Football Data Python Toolkit
 
 `cfb-data` 0.2.0 is an asynchronous, validated client for implemented
-[CollegeFootballData API](https://collegefootballdata.com/) game, play, and
-reference-data endpoints. It returns eager pandas DataFrames by default and
-can return the same logical tables as Polars DataFrames.
+[CollegeFootballData API](https://collegefootballdata.com/) game, play, stats,
+and reference-data endpoints. It returns eager pandas DataFrames by default
+and can return the same logical tables as Polars DataFrames.
 
 The request path is explicit:
 
@@ -54,11 +54,13 @@ async def main() -> None:
         games = await client.games.list(year=2024, team="Michigan")
         drives = await client.drives.list(year=2024, team="Michigan")
         plays = await client.plays.list(year=2024, week=1, team="Michigan")
+        stats = await client.stats.team_season(year=2024, team="Michigan")
         teams = await client.teams.fbs(year=2024)
 
     print(games.head())
     print(drives.head())
     print(plays.head())
+    print(stats.head())
     print(teams.head())
 
 
@@ -128,6 +130,14 @@ name is always `game_id`; request serialization maps it to upstream `id` or
 | `client.teams.ats` | `TeamATSRequest` | `TeamATS` rows as selected frame |
 | `client.teams.roster` | `RosterRequest` | `RosterPlayer` rows as selected frame |
 | `client.teams.talent` | `TalentRequest` | `TeamTalent` rows as selected frame |
+| `client.stats.player_season` | `PlayerSeasonStatsRequest` | `PlayerStat` rows as selected frame |
+| `client.stats.player_season_success` | `PlayerSeasonSuccessRequest` | `PlayerSeasonSuccessRate` rows as selected frame |
+| `client.stats.player_game_success` | `PlayerGameSuccessRequest` | `PlayerGameSuccessRate` rows as selected frame |
+| `client.stats.team_season` | `TeamSeasonStatsRequest` | `TeamStat` rows as selected frame |
+| `client.stats.categories` | None | `StatCategory` rows as selected frame |
+| `client.stats.advanced_season` | `AdvancedSeasonStatsRequest` | `AdvancedSeasonStat` rows as selected frame |
+| `client.stats.advanced_game` | `AdvancedGameStatsRequest` | `AdvancedGameStat` rows as selected frame |
+| `client.stats.game_havoc` | `GameHavocRequest` | `GameHavocStats` rows as selected frame |
 
 Request models and shared `StrEnum` values are exported from `cfb_data` and
 their supported domain namespaces. Enum fields also accept their documented
@@ -155,12 +165,15 @@ pandas uses:
 - `Int64`, `Float64`, and `boolean` for nullable scalars;
 - pandas `string` and `datetime64[ns, UTC]` dtypes;
 - `object` columns for nested structs and lists;
+- `object` for the explicitly heterogeneous Stats `stat_value` scalar;
 - a normal `RangeIndex`.
 
 Polars uses strict `Int64`, `Float64`, `Boolean`, `String`, UTC `Datetime`,
-`Struct`, and `List` columns. This means nested values have the same logical
-content while remaining Python mappings/lists in pandas and native nested
-columns in Polars.
+`Struct`, `List`, and the explicit heterogeneous `Object` Stats scalar. This
+means nested values have the same logical content while remaining Python
+mappings/lists in pandas and native nested columns in Polars. The
+`client.stats.team_season` `stat_value` column preserves each upstream string,
+integer, or float without coercion and is `object`/`Object` in both backends.
 
 All response timestamps must include a timezone. Validation normalizes them to
 UTC before conversion.

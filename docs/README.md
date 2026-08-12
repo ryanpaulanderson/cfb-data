@@ -8,6 +8,8 @@
   deliberately deferred work.
 - [`architecture/0001-validated-models-before-dataframes.md`](architecture/0001-validated-models-before-dataframes.md)
   — accepted validation, DataFrame, dataset, and workflow layering decision.
+- [`architecture/0002-heterogeneous-stat-scalars.md`](architecture/0002-heterogeneous-stat-scalars.md)
+  — accepted representation for the Stats string-or-number value contract.
 - [`cfbd_api/`](cfbd_api/) — implemented endpoint contracts by public namespace.
 - [`next-api-groups.md`](next-api-groups.md) — source-backed prioritization of
   the remaining official API groups.
