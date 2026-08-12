@@ -5,8 +5,7 @@ College Football Data API - Pandera Schema Models for Games Section
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-import pandera as pa
-from pandera import DataFrameModel, Field
+from pandera.pandas import DataFrameModel, Field
 from pandera.typing import Series
 
 

@@ -14,6 +14,7 @@ if importlib.util.find_spec("aiohttp") is None:
     importlib.import_module("sys").modules["aiohttp"] = aiohttp_stub
 
 import pytest
+
 from cfb_data.drives.api.drives_api import CFBDDrivesAPI
 
 

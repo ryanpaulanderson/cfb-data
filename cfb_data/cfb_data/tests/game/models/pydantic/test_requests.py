@@ -6,9 +6,9 @@ from pydantic import ValidationError
 from cfb_data.base.validation.request_validators import Classification, SeasonType
 from cfb_data.game.models.pydantic.requests import (
     GamesRequest,
-    TeamGameStatsRequest,
-    PlayerGameStatsRequest,
     GameWeatherRequest,
+    PlayerGameStatsRequest,
+    TeamGameStatsRequest,
 )
 
 

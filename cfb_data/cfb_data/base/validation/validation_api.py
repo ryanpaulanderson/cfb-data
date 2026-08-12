@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Union
 
-from cfb_data.base.api.base_api import CFBDAPIBase
 from pydantic import BaseModel
+
+from cfb_data.base.api.base_api import CFBDAPIBase
 
 
 class CFBDValidationAPI(CFBDAPIBase):

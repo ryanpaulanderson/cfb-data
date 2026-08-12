@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
-from cfb_data.base.validation.validation_api import CFBDValidationAPI
 from pydantic import BaseModel
+
+from cfb_data.base.validation.validation_api import CFBDValidationAPI
 
 
 class CFBDPandasAPI(CFBDValidationAPI):

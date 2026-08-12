@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import ssl
 from abc import ABC
 from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union
 
 import aiohttp
 from aiohttp import TCPConnector
-import ssl
-from pandera import DataFrameModel
+from pandera.pandas import DataFrameModel
 from pydantic import BaseModel
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -103,6 +103,9 @@ class CFBDAPIBase(ABC):
         """
         url: str = f"{self.base_url}{endpoint}"
 
+        # TODO(#54): Remove this insecure SSL override while hardening the HTTP
+        # transport. Certificate and hostname verification must be enabled by
+        # default before the client is considered production-ready.
         sslctx = ssl.create_default_context()
         sslctx.check_hostname = False
         sslctx.verify_mode = ssl.CERT_NONE

@@ -1,6 +1,7 @@
 """Pandas-returning games API client."""
 
 import pandas as pd
+
 from cfb_data.base.pandas.pandas_api import CFBDPandasAPI
 
 from ..validation.game_validation import CFBDGamesValidationAPI

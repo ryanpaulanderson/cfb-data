@@ -2,8 +2,7 @@
 
 from typing import Dict, Optional
 
-import pandera as pa
-from pandera import DataFrameModel, Field
+from pandera.pandas import DataFrameModel, Field
 from pandera.typing import Series
 
 
