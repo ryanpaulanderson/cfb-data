@@ -1,5 +1,9 @@
 # Request Validation Implementation Plan
 
+> **Historical document (2025):** This file records an earlier implementation
+> plan and design target. It is retained to explain architectural intent; it is
+> not the current roadmap or an authoritative statement of package status.
+
 ## Overview
 This document provides a complete implementation plan to fix all request validation issues identified in the College Football Data API models. The plan includes code specifications, implementation steps, and validation logic.
 

@@ -16,6 +16,7 @@ if importlib.util.find_spec("aiohttp") is None:
 
 import pandera as pa
 import pytest
+
 from cfb_data.base.api.base_api import route
 from cfb_data.base.pandas import CFBDPandasAPI
 from cfb_data.game.models.pandera.responses import CalendarWeekSchema

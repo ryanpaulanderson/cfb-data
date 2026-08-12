@@ -14,10 +14,11 @@ if importlib.util.find_spec("aiohttp") is None:
     importlib.import_module("sys").modules["aiohttp"] = aiohttp_stub
 
 import pytest
+from pydantic import ValidationError
+
 from cfb_data.base.api.base_api import route
 from cfb_data.base.validation import CFBDValidationAPI
 from cfb_data.game.models.pydantic.responses import CalendarWeek
-from pydantic import ValidationError
 
 
 class DummyValidationAPI(CFBDValidationAPI):

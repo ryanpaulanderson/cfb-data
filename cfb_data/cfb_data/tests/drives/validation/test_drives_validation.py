@@ -14,8 +14,9 @@ if importlib.util.find_spec("aiohttp") is None:
     importlib.import_module("sys").modules["aiohttp"] = aiohttp_stub
 
 import pytest
-from cfb_data.drives.validation import CFBDDrivesValidationAPI
 from pydantic import ValidationError
+
+from cfb_data.drives.validation import CFBDDrivesValidationAPI
 
 
 class DummyDrivesValidationAPI(CFBDDrivesValidationAPI):

@@ -4,8 +4,8 @@ from .requests import (
     DrivesRequest,
 )
 from .responses import (
-    DriveTime,
     Drive,
+    DriveTime,
 )
 
 __all__ = [
