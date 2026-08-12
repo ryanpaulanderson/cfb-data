@@ -399,7 +399,7 @@ class TeamScoringOpportunities(_ResponseModel):
 
     team: str
     opportunities: int = Field(ge=0)
-    points: int = Field(ge=0)
+    points: int
     points_per_opportunity: float = Field(alias="pointsPerOpportunity")
 
 

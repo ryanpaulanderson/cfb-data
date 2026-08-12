@@ -279,8 +279,8 @@ def test_advanced_box_score_matches_current_nested_contract() -> None:
                     {
                         "team": "Alabama",
                         "opportunities": 8,
-                        "points": 48,
-                        "pointsPerOpportunity": 6.0,
+                        "points": -7,
+                        "pointsPerOpportunity": -0.875,
                     }
                 ],
                 "fieldPosition": [
@@ -315,4 +315,5 @@ def test_advanced_box_score_matches_current_nested_contract() -> None:
 
     assert advanced.game_info.home_winner
     assert advanced.teams.havoc[0].defensive_back == 0.05
+    assert advanced.teams.scoring_opportunities[0].points == -7
     assert advanced.players.ppa[0].average.passing == 0.6
