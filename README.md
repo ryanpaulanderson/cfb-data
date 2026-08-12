@@ -2,8 +2,9 @@
 
 `cfb-data` 0.2.0 is an asynchronous, validated client for implemented
 [CollegeFootballData API](https://collegefootballdata.com/) game, play, stats,
-and reference-data endpoints. It returns eager pandas DataFrames by default
-and can return the same logical tables as Polars DataFrames.
+metrics, ratings, player, and reference-data endpoints. It returns eager pandas
+DataFrames by default and can return the same logical tables as Polars
+DataFrames.
 
 The request path is explicit:
 
@@ -55,12 +56,18 @@ async def main() -> None:
         drives = await client.drives.list(year=2024, team="Michigan")
         plays = await client.plays.list(year=2024, week=1, team="Michigan")
         stats = await client.stats.team_season(year=2024, team="Michigan")
+        ratings = await client.ratings.elo(year=2024, team="Michigan")
+        players = await client.players.search(
+            search_term="Edwards", year=2024, team="Michigan"
+        )
         teams = await client.teams.fbs(year=2024)
 
     print(games.head())
     print(drives.head())
     print(plays.head())
     print(stats.head())
+    print(ratings.head())
+    print(players.head())
     print(teams.head())
 
 
@@ -138,6 +145,26 @@ name is always `game_id`; request serialization maps it to upstream `id` or
 | `client.stats.advanced_season` | `AdvancedSeasonStatsRequest` | `AdvancedSeasonStat` rows as selected frame |
 | `client.stats.advanced_game` | `AdvancedGameStatsRequest` | `AdvancedGameStat` rows as selected frame |
 | `client.stats.game_havoc` | `GameHavocRequest` | `GameHavocStats` rows as selected frame |
+| `client.metrics.predicted_points` | `PredictedPointsRequest` | `PredictedPointsValue` rows as selected frame |
+| `client.metrics.team_season_ppa` | `TeamSeasonPPARequest` | `TeamSeasonPredictedPointsAdded` rows as selected frame |
+| `client.metrics.team_game_ppa` | `TeamGamePPARequest` | `TeamGamePredictedPointsAdded` rows as selected frame |
+| `client.metrics.player_game_ppa` | `PlayerGamePPARequest` | `PlayerGamePredictedPointsAdded` rows as selected frame |
+| `client.metrics.player_season_ppa` | `PlayerSeasonPPARequest` | `PlayerSeasonPredictedPointsAdded` rows as selected frame |
+| `client.metrics.win_probability` | `WinProbabilityRequest` | `PlayWinProbability` rows as selected frame |
+| `client.metrics.pregame_win_probability` | `PregameWinProbabilityRequest` | `PregameWinProbability` rows as selected frame |
+| `client.metrics.field_goal_expected_points` | None | `FieldGoalExpectedPoints` rows as selected frame |
+| `client.ratings.core` | `CoreRatingsRequest` | `TeamCoreRating` rows as selected frame |
+| `client.ratings.sp` | `SPRatingsRequest` | `TeamSP` rows as selected frame |
+| `client.ratings.conference_sp` | `ConferenceSPRatingsRequest` | `ConferenceSP` rows as selected frame |
+| `client.ratings.srs` | `SRSRatingsRequest` | `TeamSRS` rows as selected frame |
+| `client.ratings.expanded_srs` | `ExpandedSRSRatingsRequest` | `ExpandedTeamSRS` rows as selected frame |
+| `client.ratings.elo` | `EloRatingsRequest` | `TeamElo` rows as selected frame |
+| `client.ratings.fpi` | `FPIRatingsRequest` | `TeamFPI` rows as selected frame |
+| `client.players.search` | `PlayerSearchRequest` | `PlayerSearchResult` rows as selected frame |
+| `client.players.usage` | `PlayerUsageRequest` | `PlayerUsage` rows as selected frame |
+| `client.players.season_overview` | `PlayerSeasonOverviewRequest` | one `PlayerSeasonOverview` row as selected frame |
+| `client.players.returning_production` | `ReturningProductionRequest` | `ReturningProduction` rows as selected frame |
+| `client.players.transfer_portal` | `TransferPortalRequest` | `PlayerTransfer` rows as selected frame |
 
 Request models and shared `StrEnum` values are exported from `cfb_data` and
 their supported domain namespaces. Enum fields also accept their documented
@@ -148,9 +175,9 @@ Advanced box score and live plays return models because their nested sections
 do not form one natural table. The upstream live-plays route requires Patreon
 Tier 2 access.
 
-Team matchup is a one-row frame containing summary columns and a nested
-`games` column. pandas represents `games` as `object`; Polars represents it as
-`List[Struct]`.
+Team matchup and player season overview are one-row frames containing nested
+columns. pandas represents nested values as `object`; Polars represents them
+as native `Struct` and `List[Struct]` values.
 
 ## DataFrame contract
 

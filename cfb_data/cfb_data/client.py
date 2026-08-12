@@ -28,7 +28,10 @@ from cfb_data.conferences.resource import ConferencesResource
 from cfb_data.drives.resource import DrivesResource
 from cfb_data.errors import CFBDConfigurationError
 from cfb_data.games.resource import GamesResource
+from cfb_data.metrics.resource import MetricsResource
+from cfb_data.players.resource import PlayersResource
 from cfb_data.plays.resource import PlaysResource
+from cfb_data.ratings.resource import RatingsResource
 from cfb_data.retry import RetryPolicy
 from cfb_data.stats.resource import StatsResource
 from cfb_data.teams.resource import TeamsResource
@@ -126,6 +129,9 @@ class CFBDClient(Generic[_FrameT]):
         self._conferences = ConferencesResource(executor, adapter)
         self._teams = TeamsResource(executor, adapter)
         self._stats = StatsResource(executor, adapter)
+        self._metrics = MetricsResource(executor, adapter)
+        self._ratings = RatingsResource(executor, adapter)
+        self._players = PlayersResource(executor, adapter)
 
     @property
     def games(self) -> GamesResource[_FrameT]:
@@ -182,6 +188,30 @@ class CFBDClient(Generic[_FrameT]):
         :return: Resource bound to this client's session and DataFrame backend.
         """
         return self._stats
+
+    @property
+    def metrics(self) -> MetricsResource[_FrameT]:
+        """Return the typed Metrics endpoint namespace.
+
+        :return: Resource bound to this client's session and DataFrame backend.
+        """
+        return self._metrics
+
+    @property
+    def ratings(self) -> RatingsResource[_FrameT]:
+        """Return the typed Ratings endpoint namespace.
+
+        :return: Resource bound to this client's session and DataFrame backend.
+        """
+        return self._ratings
+
+    @property
+    def players(self) -> PlayersResource[_FrameT]:
+        """Return the typed Players endpoint namespace.
+
+        :return: Resource bound to this client's session and DataFrame backend.
+        """
+        return self._players
 
     async def __aenter__(self) -> Self:
         await self._transport.open()

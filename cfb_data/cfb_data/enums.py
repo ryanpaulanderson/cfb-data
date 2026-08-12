@@ -48,10 +48,21 @@ class PlayoffRound(StrEnum):
     championship = "championship"
 
 
+class TransferEligibility(StrEnum):
+    """Identify a transfer player's recorded eligibility status."""
+
+    withdrawn = "Withdrawn"
+    tbd = "TBD"
+    pending_appeal = "PendingAppeal"
+    sitting_one = "SittingOne"
+    immediate = "Immediate"
+
+
 __all__ = [
     "Classification",
     "MediaType",
     "PlayoffCompetition",
     "PlayoffRound",
     "SeasonType",
+    "TransferEligibility",
 ]

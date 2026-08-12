@@ -11,22 +11,41 @@ from cfb_data import (
     AdvancedBoxScoreRequest,
     CalendarRequest,
     Classification,
+    ConferenceSPRatingsRequest,
+    CoreRatingsRequest,
     DrivesRequest,
+    EloRatingsRequest,
+    ExpandedSRSRatingsRequest,
+    FPIRatingsRequest,
     GameMediaRequest,
     GamesRequest,
     GameWeatherRequest,
     LivePlaysRequest,
     MediaType,
+    PlayerGamePPARequest,
     PlayerGameStatsRequest,
+    PlayerSearchRequest,
+    PlayerSeasonOverviewRequest,
+    PlayerSeasonPPARequest,
+    PlayerUsageRequest,
     PlayoffCompetition,
     PlayoffRound,
     PlaysRequest,
     PlayStatsRequest,
+    PredictedPointsRequest,
+    PregameWinProbabilityRequest,
     RecordsRequest,
     RetryPolicy,
+    ReturningProductionRequest,
     ScoreboardRequest,
     SeasonType,
+    SPRatingsRequest,
+    SRSRatingsRequest,
+    TeamGamePPARequest,
     TeamGameStatsRequest,
+    TeamSeasonPPARequest,
+    TransferPortalRequest,
+    WinProbabilityRequest,
 )
 
 
@@ -42,6 +61,12 @@ def test_request_models_are_exported_and_serialize_upstream_aliases() -> None:
             {"gameId": 15, "athleteId": 16, "statTypeId": 17},
         ),
         (LivePlaysRequest(game_id=18), {"gameId": 18}),
+        (WinProbabilityRequest(game_id=19), {"gameId": 19}),
+        (PlayerSearchRequest(search_term="Smith"), {"searchTerm": "Smith"}),
+        (
+            PlayerUsageRequest(year=2024, player_id=20, exclude_garbage_time=True),
+            {"year": 2024, "playerId": 20, "excludeGarbageTime": True},
+        ),
     ]
 
     for request, expected in requests:
@@ -49,6 +74,33 @@ def test_request_models_are_exported_and_serialize_upstream_aliases() -> None:
             request.model_dump(mode="json", by_alias=True, exclude_none=True)
             == expected
         )
+
+
+@pytest.mark.parametrize(
+    ("request_type", "values"),
+    [
+        (PredictedPointsRequest, {"down": 1, "distance": 10}),
+        (TeamSeasonPPARequest, {"year": 2024}),
+        (TeamGamePPARequest, {"year": 2024}),
+        (PlayerGamePPARequest, {"year": 2024, "team": "Michigan"}),
+        (PlayerSeasonPPARequest, {"year": 2024}),
+        (PregameWinProbabilityRequest, {}),
+        (CoreRatingsRequest, {"year": 2024}),
+        (SPRatingsRequest, {"year": 2024}),
+        (ConferenceSPRatingsRequest, {}),
+        (SRSRatingsRequest, {"year": 2024}),
+        (ExpandedSRSRatingsRequest, {"year": 2024}),
+        (EloRatingsRequest, {}),
+        (FPIRatingsRequest, {"year": 2024}),
+        (PlayerSeasonOverviewRequest, {"year": 2024, "player_id": 1}),
+        (ReturningProductionRequest, {"year": 2024}),
+        (TransferPortalRequest, {"year": 2024}),
+    ],
+)
+def test_new_request_models_are_public_and_accept_documented_minimums(
+    request_type: type[object], values: dict[str, object]
+) -> None:
+    request_type(**values)
 
 
 def test_game_id_uses_the_public_name_when_validating_request_models() -> None:
