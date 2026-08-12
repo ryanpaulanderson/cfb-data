@@ -1,0 +1,57 @@
+"""Define values shared by CFBD requests and responses."""
+
+from enum import StrEnum
+
+
+class SeasonType(StrEnum):
+    """Identify the phase of a college football season."""
+
+    regular = "regular"
+    postseason = "postseason"
+    both = "both"
+    allstar = "allstar"
+    spring_regular = "spring_regular"
+    spring_postseason = "spring_postseason"
+
+
+class Classification(StrEnum):
+    """Identify a college football division classification."""
+
+    fbs = "fbs"
+    fcs = "fcs"
+    ii = "ii"
+    iii = "iii"
+
+
+class MediaType(StrEnum):
+    """Identify a game broadcast medium."""
+
+    tv = "tv"
+    radio = "radio"
+    web = "web"
+    ppv = "ppv"
+    mobile = "mobile"
+
+
+class PlayoffCompetition(StrEnum):
+    """Identify an accepted playoff competition filter."""
+
+    cfp = "cfp"
+
+
+class PlayoffRound(StrEnum):
+    """Identify an accepted College Football Playoff round filter."""
+
+    first_round = "first_round"
+    quarterfinal = "quarterfinal"
+    semifinal = "semifinal"
+    championship = "championship"
+
+
+__all__ = [
+    "Classification",
+    "MediaType",
+    "PlayoffCompetition",
+    "PlayoffRound",
+    "SeasonType",
+]

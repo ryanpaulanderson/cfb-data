@@ -1,1 +1,1 @@
-"""Provide Pydantic and Pandera models for drives endpoints."""
+"""Provide authoritative Pydantic models for Drives endpoints."""

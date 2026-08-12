@@ -1,28 +1,26 @@
 # Project documentation
 
-The documentation is split by purpose so that current project state is not
-confused with earlier design plans.
-
 ## Current documentation
 
-- [`project-status.md`](project-status.md) — current vision, implementation
-  inventory, known gaps, and tracked next work.
-- [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — development setup and quality
+- [`../README.md`](../README.md) — installation, client usage, DataFrame
+  contract, retries, errors, and 0.1.x migration.
+- [`project-status.md`](project-status.md) — implemented release scope and
+  deliberately deferred work.
+- [`architecture/0001-validated-models-before-dataframes.md`](architecture/0001-validated-models-before-dataframes.md)
+  — accepted validation, DataFrame, dataset, and workflow layering decision.
+- [`cfbd_api/`](cfbd_api/) — implemented Games and Drives endpoint contracts.
+- [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — contributor setup and quality
   contract.
-- [`cfbd_api/`](cfbd_api/) — endpoint research and API reference notes used to
-  inform request and response modeling.
 
 ## Historical documentation
 
-[`history/`](history/README.md) contains the original validation analyses,
-implementation plans, and completion summaries. These files explain earlier
-thinking and architectural intent, but they are not a current roadmap or a
-reliable statement of package usability.
+[`history/`](history/README.md) retains superseded analyses, plans, and
+completion summaries as context. It is not a current roadmap or statement of
+package behavior.
 
-## Authoritative sources
+## Authoritative upstream sources
 
-Before implementing or changing API behavior, use the current
+Before changing endpoint behavior, reconcile it with the current
 [CollegeFootballData API documentation](https://api.collegefootballdata.com/api)
-and the versioned
-[official API source](https://github.com/CFBD/cfb-api-v2). Do not check in a
-generated or downloaded OpenAPI snapshot as a competing source of truth.
+and versioned [official API source](https://github.com/CFBD/cfb-api-v2). Do not
+check in a downloaded OpenAPI snapshot as a competing source of truth.

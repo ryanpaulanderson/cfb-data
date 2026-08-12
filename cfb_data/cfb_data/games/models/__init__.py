@@ -1,1 +1,1 @@
-"""Provide Pydantic and Pandera models for games endpoints."""
+"""Provide authoritative Pydantic models for Games endpoints."""

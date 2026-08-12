@@ -1,5 +1,7 @@
 """Pydantic models for game endpoints."""
 
+from cfb_data.enums import Classification, MediaType, SeasonType
+
 from .requests import (
     AdvancedBoxScoreRequest,
     CalendarRequest,
@@ -17,13 +19,11 @@ from .responses import (
     AdvancedPlayerStats,
     AdvancedTeamStats,
     CalendarWeek,
-    Division,
     Game,
     GameMedia,
     GamePlayoff,
     GameStatus,
     GameWeather,
-    MediaType,
     PlayerGameStatCategory,
     PlayerGameStatPlayer,
     PlayerGameStats,
@@ -37,7 +37,6 @@ from .responses import (
     ScoreboardTeam,
     ScoreboardVenue,
     ScoreboardWeather,
-    SeasonType,
     StatsByQuarter,
     TeamExplosiveness,
     TeamFieldPosition,
@@ -66,7 +65,7 @@ __all__ = [
     "AdvancedBoxScoreRequest",
     # Response models
     "SeasonType",
-    "Division",
+    "Classification",
     "MediaType",
     "GameStatus",
     "GamePlayoff",

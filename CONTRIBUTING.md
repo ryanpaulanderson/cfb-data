@@ -1,63 +1,75 @@
 # Contributing
 
-This repository is in a foundation-rebuild phase. Changes should keep the
-development workflow predictable while avoiding premature decisions about the
-eventual public client API.
-
 ## Development setup
 
-Python 3.11 or newer is required.
+Python 3.11 through 3.13 is supported.
 
 ```sh
 make install
 make hooks
+make format
 make check
 ```
 
-`make install` creates a local `.venv` and installs the package in editable
-mode with the `dev` dependency group. `make check` is the quality contract used
-both locally and in GitHub Actions. It uses Ruff for formatting, imports,
-linting, and docstring conventions; mypy checks production code in strict mode;
-and pytest verifies behavior. The same command runs under Python 3.11 and 3.13
-in CI.
+`make install` creates `.venv` and installs `.[dev,polars]` so the contributor
+environment exercises the default pandas backend and optional Polars backend.
+`make check` is the shared local and CI contract: Ruff lint/format checks,
+strict mypy, and the complete pytest suite. CI runs it on Python 3.11 and 3.13
+and separately smoke-tests base and Polars installations.
 
-## Code expectations
+Follow [`AGENTS.md`](AGENTS.md), the authoritative repository engineering and
+Git guide. Run `make format` before `make check`; report every failure, skip,
+warning, or environment limitation during handoff.
 
-- Follow [`AGENTS.md`](AGENTS.md), the authoritative repository engineering
-  guide for documentation, typing, design, project structure, testing,
-  dependencies, security, and Git history. If this document and `AGENTS.md`
-  differ, follow `AGENTS.md`.
+## Architecture expectations
 
-Run `make format` when formatting is needed, followed by `make check` before
-opening a pull request.
+Read
+[`docs/architecture/0001-validated-models-before-dataframes.md`](docs/architecture/0001-validated-models-before-dataframes.md)
+before changing endpoint, validation, DataFrame, dataset, or workflow code.
+
+- Pydantic models own external request and response contracts.
+- The transport owns HTTP resources and retries; domain resources do not.
+- The endpoint executor returns validated models without depending on a
+  DataFrame backend.
+- Logical schemas are derived from model annotations and must map explicitly
+  in both adapters.
+- Public endpoint behavior must remain backend-neutral apart from concrete
+  frame type and native nested representation.
+- Future datasets validate their final joined row model before conversion;
+  workflows orchestrate endpoints and datasets above that layer.
+
+Do not reintroduce raw/model/pandas client hierarchies, generic public path
+routing, Pandera schemas, or backend-specific endpoint methods.
+
+## Testing
+
+Black-box tests through the installed `CFBDClient` are the primary acceptance
+evidence. Use a local `aiohttp` server or fake the HTTP transport boundary; do
+not make live credentialed calls in the default suite.
+
+For tabular behavior, cover pandas and Polars and assert concrete type, exact
+column/row order, nullable and UTC dtypes, typed empty frames, nested values,
+and no row loss. Request tests must prove invalid input stops before HTTP.
+Transport tests must be deterministic and must not expose credentials, query
+parameters, or response payloads in failure text.
 
 ## Static type checking
 
-The project uses mypy rather than Pyright because mypy provides a compact,
-Python-native dependency for a library that supports several Python versions,
-and its strict mode makes gradual typing escape hatches visible in review.
-Pyright generally reports errors faster and can be attractive for editor-heavy
-application development, but using both would create overlapping policies.
+Production modules run under mypy strict mode with the Pydantic plugin. The
+package ships `py.typed`. Preserve literal-backend inference for
+`CFBDClient`: default construction yields pandas results and a literal
+`"polars"` backend yields Polars results.
 
-The mypy configuration in `pyproject.toml` checks production modules with
-`strict = true`. External JSON starts as `object` and must be validated or
-narrowed before domain code uses it. Do not introduce `Any`, broad ignores, or
-unchecked casts to make the checker pass. A genuinely untyped third-party
-boundary must be localized and documented with the narrowest possible
-suppression.
+External JSON begins as `object` and must be validated or narrowed before use.
+Do not introduce `Any`, broad ignores, or unchecked casts to silence errors.
+Localize and explain any unavoidable third-party boundary.
 
-Mypy targets the Python interpreter running the shared command, so the CI
-matrix checks both the oldest and newest supported language versions. The
-configuration skips only NumPy's installed implementation stubs, whose syntax
-tracks its build interpreter, and marks pandas imports as untyped because
-pandas does not ship inline type information. These exceptions do not suppress
-errors in project modules. The package ships `py.typed` because all production
-modules now pass the strict contract and the marker is included explicitly in
-package data.
+## Dependencies and Git
 
-## Git workflow
+`pyproject.toml` is the only dependency and package-metadata source. pandas is
+a core dependency; Polars belongs only to the `polars` extra; development tools
+belong to `dev`.
 
-- Use the conventional branch names and detailed Conventional Commits defined
-  in `AGENTS.md`; do not commit directly to `main`.
-- Reference the relevant GitHub issue when a change implements tracked work.
-- Do not merge unless the shared quality contract passes.
+Use the branch names and detailed Conventional Commits defined in `AGENTS.md`.
+Do not commit directly to `main`, and do not merge unless the shared quality
+contract passes.

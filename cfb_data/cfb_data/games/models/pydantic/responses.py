@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from cfb_data.enums import Classification, MediaType, SeasonType
 
 
 class _ResponseModel(BaseModel):
@@ -13,35 +15,20 @@ class _ResponseModel(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
+    @field_validator("*", mode="after", check_fields=False)
+    @classmethod
+    def require_utc_datetimes(cls, value: object) -> object:
+        """Require aware response timestamps and normalize them to UTC.
 
-class SeasonType(StrEnum):
-    """Identify the phase of a college football season."""
-
-    regular = "regular"
-    postseason = "postseason"
-    both = "both"
-    allstar = "allstar"
-    spring_regular = "spring_regular"
-    spring_postseason = "spring_postseason"
-
-
-class Division(StrEnum):
-    """Identify a college football division classification."""
-
-    fbs = "fbs"
-    fcs = "fcs"
-    ii = "ii"
-    iii = "iii"
-
-
-class MediaType(StrEnum):
-    """Identify a game broadcast medium."""
-
-    tv = "tv"
-    radio = "radio"
-    web = "web"
-    ppv = "ppv"
-    mobile = "mobile"
+        :param value: Validated response field value.
+        :return: UTC-normalized datetime or the unchanged non-datetime value.
+        :raises ValueError: If a datetime does not identify an instant.
+        """
+        if not isinstance(value, datetime):
+            return value
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("Response timestamps must be timezone-aware")
+        return value.astimezone(UTC)
 
 
 class GameStatus(StrEnum):
@@ -62,8 +49,8 @@ class GamePlayoff(_ResponseModel):
     round: str
     round_name: str = Field(alias="roundName")
     bracket_slot: str = Field(alias="bracketSlot")
-    home_seed: int | None = Field(alias="homeSeed")
-    away_seed: int | None = Field(alias="awaySeed")
+    home_seed: int | None = Field(alias="homeSeed", ge=0)
+    away_seed: int | None = Field(alias="awaySeed", ge=0)
     bowl_name: str | None = Field(alias="bowlName")
 
 
@@ -72,37 +59,37 @@ class Game(_ResponseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    id: int
-    season: int
-    week: int
+    id: int = Field(ge=0)
+    season: int = Field(ge=0)
+    week: int = Field(ge=0)
     season_type: SeasonType = Field(alias="seasonType")
     start_date: datetime = Field(alias="startDate")
     start_time_tbd: bool = Field(alias="startTimeTBD")
     completed: bool
     neutral_site: bool = Field(alias="neutralSite")
     conference_game: bool = Field(alias="conferenceGame")
-    attendance: int | None
-    venue_id: int | None = Field(alias="venueId")
+    attendance: int | None = Field(ge=0)
+    venue_id: int | None = Field(alias="venueId", ge=0)
     venue: str | None
-    home_id: int = Field(alias="homeId")
+    home_id: int = Field(alias="homeId", ge=0)
     home_team: str = Field(alias="homeTeam")
     home_conference: str | None = Field(alias="homeConference")
-    home_classification: Division | None = Field(alias="homeClassification")
-    home_points: int | None = Field(alias="homePoints")
+    home_classification: Classification | None = Field(alias="homeClassification")
+    home_points: int | None = Field(alias="homePoints", ge=0)
     home_line_scores: list[float] | None = Field(alias="homeLineScores")
     home_postgame_win_probability: float | None = Field(
-        alias="homePostgameWinProbability"
+        alias="homePostgameWinProbability", ge=0, le=1
     )
     home_pregame_elo: int | None = Field(alias="homePregameElo")
     home_postgame_elo: int | None = Field(alias="homePostgameElo")
-    away_id: int = Field(alias="awayId")
+    away_id: int = Field(alias="awayId", ge=0)
     away_team: str = Field(alias="awayTeam")
     away_conference: str | None = Field(alias="awayConference")
-    away_classification: Division | None = Field(alias="awayClassification")
-    away_points: int | None = Field(alias="awayPoints")
+    away_classification: Classification | None = Field(alias="awayClassification")
+    away_points: int | None = Field(alias="awayPoints", ge=0)
     away_line_scores: list[float] | None = Field(alias="awayLineScores")
     away_postgame_win_probability: float | None = Field(
-        alias="awayPostgameWinProbability"
+        alias="awayPostgameWinProbability", ge=0, le=1
     )
     away_pregame_elo: int | None = Field(alias="awayPregameElo")
     away_postgame_elo: int | None = Field(alias="awayPostgameElo")
@@ -111,27 +98,14 @@ class Game(_ResponseModel):
     notes: str | None
     playoff: GamePlayoff | None
 
-    @field_validator("home_points", "away_points")
-    @classmethod
-    def points_must_be_non_negative(cls, value: int | None) -> int | None:
-        """Return a non-negative point total.
-
-        :param value: Point total from the API.
-        :return: The validated point total.
-        :raises ValueError: If the point total is negative.
-        """
-        if value is not None and value < 0:
-            raise ValueError("Points cannot be negative")
-        return value
-
 
 class CalendarWeek(_ResponseModel):
     """Represent a season week returned by ``GET /calendar``."""
 
     model_config = ConfigDict(populate_by_name=True)
 
-    season: int
-    week: int
+    season: int = Field(ge=0)
+    week: int = Field(ge=0)
     season_type: SeasonType = Field(alias="seasonType")
     start_date: datetime = Field(alias="startDate")
     end_date: datetime = Field(alias="endDate")
@@ -144,9 +118,9 @@ class GameMedia(_ResponseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    id: int
-    season: int
-    week: int
+    id: int = Field(ge=0)
+    season: int = Field(ge=0)
+    week: int = Field(ge=0)
     season_type: SeasonType = Field(alias="seasonType")
     start_time: datetime = Field(alias="startTime")
     is_start_time_tbd: bool = Field(alias="isStartTimeTBD")
@@ -163,9 +137,9 @@ class GameWeather(_ResponseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    id: int
-    season: int
-    week: int
+    id: int = Field(ge=0)
+    season: int = Field(ge=0)
+    week: int = Field(ge=0)
     season_type: SeasonType = Field(alias="seasonType")
     start_time: datetime = Field(alias="startTime")
     game_indoors: bool = Field(alias="gameIndoors")
@@ -173,15 +147,15 @@ class GameWeather(_ResponseModel):
     home_conference: str | None = Field(alias="homeConference")
     away_team: str = Field(alias="awayTeam")
     away_conference: str | None = Field(alias="awayConference")
-    venue_id: int = Field(alias="venueId")
+    venue_id: int = Field(alias="venueId", ge=0)
     venue: str
     temperature: float | None
     dew_point: float | None = Field(alias="dewPoint")
-    humidity: float | None
-    precipitation: float | None
-    snowfall: float | None
-    wind_direction: float | None = Field(alias="windDirection")
-    wind_speed: float | None = Field(alias="windSpeed")
+    humidity: float | None = Field(ge=0, le=100)
+    precipitation: float | None = Field(ge=0)
+    snowfall: float | None = Field(ge=0)
+    wind_direction: float | None = Field(alias="windDirection", ge=0, le=360)
+    wind_speed: float | None = Field(alias="windSpeed", ge=0)
     pressure: float | None
     weather_condition_code: float | None = Field(alias="weatherConditionCode")
     weather_condition: str | None = Field(alias="weatherCondition")
@@ -190,10 +164,10 @@ class GameWeather(_ResponseModel):
 class TeamRecord(_ResponseModel):
     """Represent a win-loss-tie record for one game grouping."""
 
-    games: int
-    wins: int
-    losses: int
-    ties: int
+    games: int = Field(ge=0)
+    wins: int = Field(ge=0)
+    losses: int = Field(ge=0)
+    ties: int = Field(ge=0)
 
 
 class TeamRecords(_ResponseModel):
@@ -201,10 +175,10 @@ class TeamRecords(_ResponseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    year: int
-    team_id: int = Field(alias="teamId")
+    year: int = Field(ge=0)
+    team_id: int = Field(alias="teamId", ge=0)
     team: str
-    classification: Division | None
+    classification: Classification | None
     conference: str
     division: str
     expected_wins: float | None = Field(alias="expectedWins")
@@ -230,13 +204,13 @@ class ScoreboardTeam(_ResponseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    id: int
+    id: int = Field(ge=0)
     name: str
     conference: str | None
-    classification: Division | None
-    points: int | None
+    classification: Classification | None
+    points: int | None = Field(ge=0)
     line_scores: list[int] | None = Field(alias="lineScores")
-    win_probability: float | None = Field(alias="winProbability")
+    win_probability: float | None = Field(alias="winProbability", ge=0, le=1)
 
 
 class ScoreboardWeather(_ResponseModel):
@@ -246,8 +220,8 @@ class ScoreboardWeather(_ResponseModel):
 
     temperature: float | None
     description: str | None
-    wind_speed: float | None = Field(alias="windSpeed")
-    wind_direction: float | None = Field(alias="windDirection")
+    wind_speed: float | None = Field(alias="windSpeed", ge=0)
+    wind_direction: float | None = Field(alias="windDirection", ge=0, le=360)
 
 
 class ScoreboardBetting(_ResponseModel):
@@ -266,14 +240,14 @@ class ScoreboardGame(_ResponseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    id: int
+    id: int = Field(ge=0)
     start_date: datetime = Field(alias="startDate")
     start_time_tbd: bool = Field(alias="startTimeTBD")
     tv: str | None
     neutral_site: bool = Field(alias="neutralSite")
     conference_game: bool = Field(alias="conferenceGame")
     status: GameStatus
-    period: int | None
+    period: int | None = Field(ge=0)
     clock: str | None
     situation: str | None
     possession: str | None
@@ -297,18 +271,18 @@ class TeamGameStatsTeam(_ResponseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    team_id: int = Field(alias="teamId")
+    team_id: int = Field(alias="teamId", ge=0)
     team: str
     conference: str | None
     home_away: str = Field(alias="homeAway", pattern="^(home|away)$")
-    points: int | None
+    points: int | None = Field(ge=0)
     stats: list[TeamGameStat]
 
 
 class TeamGameStats(_ResponseModel):
     """Represent a game returned by ``GET /games/teams``."""
 
-    id: int
+    id: int = Field(ge=0)
     teams: list[TeamGameStatsTeam]
 
 
@@ -342,14 +316,14 @@ class PlayerGameStatsTeam(_ResponseModel):
     team: str
     conference: str | None
     home_away: str = Field(alias="homeAway", pattern="^(home|away)$")
-    points: int | None
+    points: int | None = Field(ge=0)
     categories: list[PlayerGameStatCategory]
 
 
 class PlayerGameStats(_ResponseModel):
     """Represent a game returned by ``GET /games/players``."""
 
-    id: int
+    id: int = Field(ge=0)
     teams: list[PlayerGameStatsTeam]
 
 
@@ -367,7 +341,7 @@ class TeamPPA(_ResponseModel):
     """Represent team predicted-points-added metrics."""
 
     team: str
-    plays: int
+    plays: int = Field(ge=0)
     overall: StatsByQuarter
     passing: StatsByQuarter
     rushing: StatsByQuarter
@@ -424,8 +398,8 @@ class TeamScoringOpportunities(_ResponseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     team: str
-    opportunities: int
-    points: int
+    opportunities: int = Field(ge=0)
+    points: int = Field(ge=0)
     points_per_opportunity: float = Field(alias="pointsPerOpportunity")
 
 
@@ -472,11 +446,11 @@ class AdvancedGameInfo(_ResponseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     home_team: str = Field(alias="homeTeam")
-    home_points: int = Field(alias="homePoints")
-    home_win_probability: float = Field(alias="homeWinProb")
+    home_points: int = Field(alias="homePoints", ge=0)
+    home_win_probability: float = Field(alias="homeWinProb", ge=0, le=1)
     away_team: str = Field(alias="awayTeam")
-    away_points: int = Field(alias="awayPoints")
-    away_win_probability: float = Field(alias="awayWinProb")
+    away_points: int = Field(alias="awayPoints", ge=0)
+    away_win_probability: float = Field(alias="awayWinProb", ge=0, le=1)
     home_winner: bool = Field(alias="homeWinner")
     excitement: float
 

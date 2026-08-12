@@ -16,7 +16,7 @@ help:
 install:
 	test -d $(VENV) || $(PYTHON) -m venv $(VENV)
 	$(VENV_PYTHON) -m pip install --upgrade pip
-	$(VENV_PYTHON) -m pip install --editable ".[dev]"
+	$(VENV_PYTHON) -m pip install --editable ".[dev,polars]"
 
 hooks:
 	$(PRE_COMMIT) install

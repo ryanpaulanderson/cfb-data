@@ -28,15 +28,16 @@ The `startTime`, `endTime`, and `elapsed` objects each contain nullable integer
 `driveNumber` are required response keys whose values may be null.
 
 ```python
-from cfb_data.drives import CFBDDrivesValidationAPI
+from cfb_data import CFBDClient, DrivesRequest
 
-api = CFBDDrivesValidationAPI(api_key="...")
-drives = await api.make_request(
-    "/drives",
-    {"year": 2024, "team": "Michigan"},
-)
+async with CFBDClient() as client:
+    drives = await client.drives.list(year=2024, team="Michigan")
+    same_drives = await client.drives.list(
+        DrivesRequest(year=2024, team="Michigan")
+    )
 ```
 
-Use `CFBDDrivesAPI` for raw JSON responses or `CFBDDrivesPandasAPI` for a
-Pandera-validated DataFrame. Request models accept snake-case Python names and
-serialize them to the API's camel-case query names.
+The result is the selected pandas or Polars DataFrame. Request models and
+keyword filters use snake-case Python names and serialize to upstream
+camel-case query names. Raw JSON and general validated-model return modes are
+not exposed.

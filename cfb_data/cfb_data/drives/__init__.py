@@ -1,11 +1,13 @@
-"""Export the drives domain clients."""
+"""Export the supported Drives namespace and request contract."""
 
-from .api import CFBDDrivesAPI
-from .pandas import CFBDDrivesPandasAPI
-from .validation import CFBDDrivesValidationAPI
+from cfb_data.enums import Classification, SeasonType
+
+from .models.pydantic.requests import DrivesRequest
+from .resource import DrivesResource
 
 __all__ = [
-    "CFBDDrivesAPI",
-    "CFBDDrivesValidationAPI",
-    "CFBDDrivesPandasAPI",
+    "Classification",
+    "DrivesRequest",
+    "DrivesResource",
+    "SeasonType",
 ]

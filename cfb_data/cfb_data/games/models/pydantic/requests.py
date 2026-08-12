@@ -1,44 +1,39 @@
-"""College Football Data API game request models.
+"""Validate request parameters for implemented Games endpoints."""
 
-Pydantic models for validating API request parameters for CFBD game endpoints.
-"""
+from __future__ import annotations
+
+from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from cfb_data.base.validation import (
+from cfb_data._request_rules import (
+    _validate_at_least_one_of,
+    _validate_game_stats_selectors,
+    _validate_year_or_game_id,
+)
+from cfb_data.enums import (
     Classification,
     MediaType,
     PlayoffCompetition,
     PlayoffRound,
     SeasonType,
-    validate_at_least_one_of,
-    validate_team_game_stats_logic,
-    validate_year_or_id_required,
 )
 
 
 class GamesRequest(BaseModel):
-    """
-    Request parameters for /games endpoint.
+    """Validate filters accepted by ``GET /games``.
 
-    :param year: Required year filter (except when id is specified)
-    :type year: Optional[int]
-    :param week: Optional week filter
-    :type week: Optional[int]
-    :param season_type: Optional season type filter
-    :type season_type: Optional[SeasonType]
-    :param team: Optional team filter
-    :type team: Optional[str]
-    :param home: Optional home team filter
-    :type home: Optional[str]
-    :param away: Optional away team filter
-    :type away: Optional[str]
-    :param conference: Optional conference filter
-    :type conference: Optional[str]
-    :param classification: Optional division classification filter
-    :type classification: Optional[Classification]
-    :param id: Game id filter to retrieve a single game
-    :type id: Optional[int]
+    :param year: Season year, required unless ``game_id`` is supplied.
+    :param week: Non-negative season week.
+    :param season_type: Season phase.
+    :param team: Team appearing on either side of the game.
+    :param home: Home-team selector.
+    :param away: Away-team selector.
+    :param conference: Conference selector.
+    :param classification: Division classification selector.
+    :param game_id: Positive game identifier serialized as upstream ``id``.
+    :param competition: Playoff competition selector.
+    :param round: Playoff round, requiring ``competition``.
     """
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
@@ -51,22 +46,18 @@ class GamesRequest(BaseModel):
     away: str | None = None
     conference: str | None = None
     classification: Classification | None = None
-    id: int | None = Field(default=None, gt=0)
+    game_id: int | None = Field(default=None, gt=0, serialization_alias="id")
     competition: PlayoffCompetition | None = None
     round: PlayoffRound | None = None
 
     @model_validator(mode="after")
-    def validate_year_or_id(self) -> "GamesRequest":
-        """
-        Validate that year is required when id is not specified.
+    def validate_selectors(self) -> Self:
+        """Validate year/game and playoff selector relationships.
 
-        API Rule: "Required year filter (except when id is specified)"
-
-        :return: Validated model instance
-        :rtype: GamesRequest
-        :raises ValueError: If neither year nor id is provided.
+        :return: Validated request.
+        :raises ValueError: If required selectors are absent or incompatible.
         """
-        validate_year_or_id_required(self.year, self.id, "id")
+        _validate_year_or_game_id(self.year, self.game_id)
         if self.round is not None and self.competition is None:
             raise ValueError(
                 "competition parameter is required when round is specified"
@@ -81,11 +72,9 @@ class GamesRequest(BaseModel):
 
 
 class CalendarRequest(BaseModel):
-    """
-    Request parameters for /calendar endpoint.
+    """Validate filters accepted by ``GET /calendar``.
 
-    :param year: Required year filter
-    :type year: int
+    :param year: Required season year.
     """
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
@@ -94,15 +83,11 @@ class CalendarRequest(BaseModel):
 
 
 class RecordsRequest(BaseModel):
-    """
-    Request parameters for /records endpoint.
+    """Validate filters accepted by ``GET /records``.
 
-    :param year: Optional year filter
-    :type year: Optional[int]
-    :param team: Optional team filter
-    :type team: Optional[str]
-    :param conference: Optional conference filter
-    :type conference: Optional[str]
+    :param year: Optional season year.
+    :param team: Optional team selector.
+    :param conference: Optional conference selector.
     """
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
@@ -112,13 +97,13 @@ class RecordsRequest(BaseModel):
     conference: str | None = None
 
     @model_validator(mode="after")
-    def validate_year_or_team(self) -> "RecordsRequest":
+    def validate_year_or_team(self) -> Self:
         """Require one of the two upstream record selectors.
 
-        :return: The validated request.
-        :raises ValueError: If neither ``year`` nor ``team`` is provided.
+        :return: Validated request.
+        :raises ValueError: If neither ``year`` nor ``team`` is supplied.
         """
-        validate_at_least_one_of(
+        _validate_at_least_one_of(
             {"year": self.year, "team": self.team},
             ("year", "team"),
         )
@@ -126,11 +111,11 @@ class RecordsRequest(BaseModel):
 
 
 class ScoreboardRequest(BaseModel):
-    """Represent filters accepted by ``GET /scoreboard``.
+    """Validate filters accepted by ``GET /scoreboard``.
 
-    Omitting ``classification`` preserves the upstream default of ``fbs``.
+    Omitting ``classification`` preserves the upstream ``fbs`` default.
 
-    :param classification: Optional division classification filter.
+    :param classification: Optional division classification selector.
     :param conference: Optional conference name or abbreviation.
     """
 
@@ -141,23 +126,15 @@ class ScoreboardRequest(BaseModel):
 
 
 class GameMediaRequest(BaseModel):
-    """
-    Request parameters for /games/media endpoint.
+    """Validate filters accepted by ``GET /games/media``.
 
-    :param year: Required year filter
-    :type year: int
-    :param week: Optional week filter
-    :type week: Optional[int]
-    :param season_type: Optional season type filter
-    :type season_type: Optional[SeasonType]
-    :param team: Optional team filter
-    :type team: Optional[str]
-    :param conference: Optional conference filter
-    :type conference: Optional[str]
-    :param media_type: Optional media type filter
-    :type media_type: Optional[str]
-    :param classification: Optional division classification filter
-    :type classification: Optional[Classification]
+    :param year: Required season year.
+    :param week: Optional non-negative season week.
+    :param season_type: Optional season phase.
+    :param team: Optional team selector.
+    :param conference: Optional conference selector.
+    :param media_type: Optional broadcast-medium selector.
+    :param classification: Optional division classification selector.
     """
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
@@ -172,28 +149,20 @@ class GameMediaRequest(BaseModel):
 
 
 class GameWeatherRequest(BaseModel):
-    """
-    Request parameters for /games/weather endpoint.
+    """Validate filters accepted by ``GET /games/weather``.
 
-    :param game_id: Optional game ID filter
-    :type game_id: Optional[int]
-    :param year: Optional year filter (required if game_id not provided)
-    :type year: Optional[int]
-    :param week: Optional week filter
-    :type week: Optional[int]
-    :param season_type: Optional season type filter
-    :type season_type: Optional[SeasonType]
-    :param team: Optional team filter
-    :type team: Optional[str]
-    :param conference: Optional conference filter
-    :type conference: Optional[str]
-    :param classification: Optional division classification filter
-    :type classification: Optional[Classification]
+    :param game_id: Positive game identifier serialized as upstream ``gameId``.
+    :param year: Season year, required unless ``game_id`` is supplied.
+    :param week: Optional non-negative season week.
+    :param season_type: Optional season phase.
+    :param team: Optional team selector.
+    :param conference: Optional conference selector.
+    :param classification: Optional division classification selector.
     """
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    game_id: int | None = Field(default=None, gt=0, alias="gameId")
+    game_id: int | None = Field(default=None, gt=0, serialization_alias="gameId")
     year: int | None = Field(default=None, ge=1869)
     week: int | None = Field(default=None, ge=0)
     season_type: SeasonType | None = Field(default=None, alias="seasonType")
@@ -202,17 +171,11 @@ class GameWeatherRequest(BaseModel):
     classification: Classification | None = None
 
     @model_validator(mode="after")
-    def validate_weather_requirements(self) -> "GameWeatherRequest":
-        """
-        Validate requirements for /games/weather endpoint.
+    def validate_weather_requirements(self) -> Self:
+        """Require a year when no game ID selects one game.
 
-        API Rules:
-        - If game_id is provided, other filters are ignored (no validation needed)
-        - If game_id is not provided, year is the minimum required field
-
-        :return: Validated model instance
-        :rtype: GameWeatherRequest
-        :raises ValueError: If validation rules are violated.
+        :return: Validated request.
+        :raises ValueError: If both ``game_id`` and ``year`` are absent.
         """
         if self.game_id is None and self.year is None:
             raise ValueError("year is required when game_id is not specified")
@@ -220,25 +183,16 @@ class GameWeatherRequest(BaseModel):
 
 
 class PlayerGameStatsRequest(BaseModel):
-    """
-    Request parameters for /games/players endpoint.
+    """Validate filters accepted by ``GET /games/players``.
 
-    :param year: Optional year filter (required along with one of week, team, or conference, unless id is specified)
-    :type year: Optional[int]
-    :param week: Optional week filter (required if team and conference not specified)
-    :type week: Optional[int]
-    :param season_type: Optional season type filter
-    :type season_type: Optional[SeasonType]
-    :param team: Optional team filter (required if week and conference not specified)
-    :type team: Optional[str]
-    :param conference: Optional conference filter (required if week and team not specified)
-    :type conference: Optional[str]
-    :param category: Optional stats category filter
-    :type category: Optional[str]
-    :param id: Optional game ID filter
-    :type id: Optional[int]
-    :param classification: Optional division classification filter
-    :type classification: Optional[Classification]
+    :param year: Season year used for a grouped selector.
+    :param week: Optional non-negative season week.
+    :param season_type: Optional season phase.
+    :param team: Optional team selector.
+    :param conference: Optional conference selector.
+    :param category: Optional player-stat category.
+    :param game_id: Positive game identifier serialized as upstream ``id``.
+    :param classification: Optional division classification selector.
     """
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
@@ -249,47 +203,32 @@ class PlayerGameStatsRequest(BaseModel):
     team: str | None = None
     conference: str | None = None
     category: str | None = None
-    id: int | None = Field(default=None, gt=0)
+    game_id: int | None = Field(default=None, gt=0, serialization_alias="id")
     classification: Classification | None = None
 
     @model_validator(mode="after")
-    def validate_player_stats_requirements(self) -> "PlayerGameStatsRequest":
-        """
-        Validate complex conditional requirements for /games/players endpoint.
+    def validate_player_stats_requirements(self) -> Self:
+        """Validate the game-ID or grouped-selector alternatives.
 
-        API Rules:
-        - id bypasses all other requirements
-        - If id is not provided, year is required
-        - If year is provided, at least one of week, team, or conference must also be provided
-
-        :return: Validated model instance
-        :rtype: PlayerGameStatsRequest
-        :raises ValueError: If validation rules are violated.
+        :return: Validated request.
+        :raises ValueError: If the grouped selector is incomplete.
         """
-        validate_team_game_stats_logic(
-            self.year, self.week, self.team, self.conference, self.id
+        _validate_game_stats_selectors(
+            self.year, self.week, self.team, self.conference, self.game_id
         )
         return self
 
 
 class TeamGameStatsRequest(BaseModel):
-    """
-    Request parameters for /games/teams endpoint.
+    """Validate filters accepted by ``GET /games/teams``.
 
-    :param year: Optional year filter (required along with one of week, team, or conference, unless id is specified)
-    :type year: Optional[int]
-    :param week: Optional week filter (required if team and conference not specified)
-    :type week: Optional[int]
-    :param season_type: Optional season type filter
-    :type season_type: Optional[SeasonType]
-    :param team: Optional team filter (required if week and conference not specified)
-    :type team: Optional[str]
-    :param conference: Optional conference filter (required if week and team not specified)
-    :type conference: Optional[str]
-    :param id: Optional game ID filter
-    :type id: Optional[int]
-    :param classification: Optional division classification filter
-    :type classification: Optional[Classification]
+    :param year: Season year used for a grouped selector.
+    :param week: Optional non-negative season week.
+    :param season_type: Optional season phase.
+    :param team: Optional team selector.
+    :param conference: Optional conference selector.
+    :param game_id: Positive game identifier serialized as upstream ``id``.
+    :param classification: Optional division classification selector.
     """
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
@@ -299,36 +238,29 @@ class TeamGameStatsRequest(BaseModel):
     season_type: SeasonType | None = Field(default=None, alias="seasonType")
     team: str | None = None
     conference: str | None = None
-    id: int | None = Field(default=None, gt=0)
+    game_id: int | None = Field(default=None, gt=0, serialization_alias="id")
     classification: Classification | None = None
 
     @model_validator(mode="after")
-    def validate_team_stats_requirements(self) -> "TeamGameStatsRequest":
-        """
-        Validate complex conditional requirements for /games/teams endpoint.
+    def validate_team_stats_requirements(self) -> Self:
+        """Validate the game-ID or grouped-selector alternatives.
 
-        API Rules:
-        - year is required (along with one of week, team, or conference), unless id is specified
-        - At least one of week, team, or conference must be specified when year is provided
-
-        :return: Validated model instance
-        :rtype: TeamGameStatsRequest
-        :raises ValueError: If validation rules are violated.
+        :return: Validated request.
+        :raises ValueError: If the grouped selector is incomplete.
         """
-        validate_team_game_stats_logic(
-            self.year, self.week, self.team, self.conference, self.id
+        _validate_game_stats_selectors(
+            self.year, self.week, self.team, self.conference, self.game_id
         )
         return self
 
 
 class AdvancedBoxScoreRequest(BaseModel):
-    """
-    Request parameters for /game/box/advanced endpoint.
+    """Validate filters accepted by ``GET /game/box/advanced``.
 
-    :param id: Required game ID
-    :type id: int
+    :param game_id: Required positive game identifier serialized as upstream
+        ``id``.
     """
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    id: int = Field(gt=0)
+    game_id: int = Field(gt=0, serialization_alias="id")

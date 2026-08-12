@@ -1,11 +1,42 @@
-"""Export the games domain clients."""
+"""Export the supported Games namespace and request contracts."""
 
-from .api import CFBDGamesAPI
-from .pandas import CFBDGamesPandasAPI
-from .validation import CFBDGamesValidationAPI
+from cfb_data.enums import (
+    Classification,
+    MediaType,
+    PlayoffCompetition,
+    PlayoffRound,
+    SeasonType,
+)
+
+from .models.pydantic.requests import (
+    AdvancedBoxScoreRequest,
+    CalendarRequest,
+    GameMediaRequest,
+    GamesRequest,
+    GameWeatherRequest,
+    PlayerGameStatsRequest,
+    RecordsRequest,
+    ScoreboardRequest,
+    TeamGameStatsRequest,
+)
+from .models.pydantic.responses import AdvancedBoxScore
+from .resource import GamesResource
 
 __all__ = [
-    "CFBDGamesAPI",
-    "CFBDGamesValidationAPI",
-    "CFBDGamesPandasAPI",
+    "AdvancedBoxScoreRequest",
+    "AdvancedBoxScore",
+    "CalendarRequest",
+    "Classification",
+    "GameMediaRequest",
+    "GamesRequest",
+    "GamesResource",
+    "GameWeatherRequest",
+    "MediaType",
+    "PlayerGameStatsRequest",
+    "PlayoffCompetition",
+    "PlayoffRound",
+    "RecordsRequest",
+    "ScoreboardRequest",
+    "SeasonType",
+    "TeamGameStatsRequest",
 ]

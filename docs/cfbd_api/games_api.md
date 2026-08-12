@@ -15,15 +15,15 @@ from API version 5.24.0.
 
 | Route | Required selector | Optional filters |
 | --- | --- | --- |
-| `GET /games` | `year`, unless `id` is present | `week`, `seasonType`, `classification`, `team`, `home`, `away`, `conference`, `id`, `competition`, `round` |
-| `GET /games/teams` | `id`, or `year` plus at least one of `week`, `team`, or `conference` | `classification`, `seasonType` |
-| `GET /games/players` | `id`, or `year` plus at least one of `week`, `team`, or `conference` | `classification`, `seasonType`, `category` |
+| `GET /games` | `year`, unless upstream `id` (`game_id`) is present | `week`, `seasonType`, `classification`, `team`, `home`, `away`, `conference`, `id`, `competition`, `round` |
+| `GET /games/teams` | upstream `id` (`game_id`), or `year` plus at least one of `week`, `team`, or `conference` | `classification`, `seasonType` |
+| `GET /games/players` | upstream `id` (`game_id`), or `year` plus at least one of `week`, `team`, or `conference` | `classification`, `seasonType`, `category` |
 | `GET /games/media` | `year` | `seasonType`, `week`, `team`, `conference`, `mediaType`, `classification` |
-| `GET /games/weather` | `gameId`, or `year` | `seasonType`, `week`, `team`, `conference`, `classification` |
+| `GET /games/weather` | upstream `gameId` (`game_id`), or `year` | `seasonType`, `week`, `team`, `conference`, `classification` |
 | `GET /records` | At least one of `year` or `team` | `conference` |
 | `GET /calendar` | `year` | None |
 | `GET /scoreboard` | None; `classification` defaults upstream to `fbs` | `classification`, `conference` |
-| `GET /game/box/advanced` | `id` | None |
+| `GET /game/box/advanced` | upstream `id` (`game_id`) | None |
 
 `/games/weather` and `/scoreboard` require Patreon Tier 1 or higher. A `round`
 filter requires `competition=cfp`. CFP competition filters may only be
@@ -121,16 +121,17 @@ Returns one object with three sections:
 ## Client examples
 
 ```python
-from cfb_data.games import CFBDGamesValidationAPI
+from cfb_data import CFBDClient, GamesRequest
 
-api = CFBDGamesValidationAPI(api_key="...")
-games = await api.make_request(
-    "/games",
-    {"year": 2024, "team": "Michigan"},
-)
+async with CFBDClient() as client:
+    games = await client.games.list(year=2024, team="Michigan")
+    same_games = await client.games.list(
+        GamesRequest(year=2024, team="Michigan")
+    )
+    box = await client.games.advanced_box_score(game_id=401628347)
 ```
 
-Use `CFBDGamesAPI` for validated request parameters with raw JSON responses, or
-`CFBDGamesPandasAPI` for Pandera-validated DataFrames. The advanced box-score
-route has no tabular schema because its nested sections do not have one natural
-row shape.
+All methods except `advanced_box_score` return the client's selected pandas or
+Polars DataFrame. Raw JSON and general validated-model modes are not exposed.
+Advanced box score returns `AdvancedBoxScore` because its three nested sections
+do not have one natural row shape.
