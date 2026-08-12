@@ -1,0 +1,138 @@
+name: Dependabot auto-merge
+
+on:
+  pull_request_target:
+    branches: [main]
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  metadata:
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.repository == 'ryanpaulanderson/cfb-data'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+
+    outputs:
+      is-patch: ${{ steps.dependabot-metadata.outputs.update-type == 'version-update:semver-patch' }}
+
+    steps:
+      - name: Fetch Dependabot metadata
+        id: dependabot-metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  auto-merge:
+    needs: metadata
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.repository == 'ryanpaulanderson/cfb-data' &&
+      needs.metadata.outputs.is-patch == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+      statuses: read
+
+    steps:
+      - name: Wait for CI checks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          set -euo pipefail
+
+          deadline=$((SECONDS + 3600))
+          previous_signature=""
+          settled_polls=0
+          while (( SECONDS < deadline )); do
+            checks="$(gh pr checks "$PR_URL" --json name,workflow,bucket 2>/dev/null || true)"
+
+            if [[ -z "$checks" ]]; then
+              echo "Waiting for CI checks to register..."
+              sleep 30
+              continue
+            fi
+
+            if ! jq -e . >/dev/null 2>&1 <<<"$checks"; then
+              echo "Waiting for CI checks to return structured status..."
+              sleep 30
+              continue
+            fi
+
+            non_auto_checks="$(jq '[.[] | select(.workflow != "Dependabot auto-merge")]' <<<"$checks")"
+            normalized_checks="$(jq '
+              group_by([.workflow, .name])
+              | map({
+                  workflow: .[0].workflow,
+                  name: .[0].name,
+                  bucket: (
+                    if any(.[]; .bucket == "pending") then "pending"
+                    elif any(.[]; .bucket == "pass") then "pass"
+                    elif any(.[]; .bucket == "skipping") then "skipping"
+                    elif any(.[]; .bucket == "fail") then "fail"
+                    else "cancel"
+                    end
+                  )
+                })
+            ' <<<"$non_auto_checks")"
+            check_count="$(jq 'length' <<<"$normalized_checks")"
+            incomplete_count="$(jq '[.[] | select(.bucket != "pass" and .bucket != "skipping")] | length' <<<"$normalized_checks")"
+            failed_count="$(jq '[.[] | select(.bucket == "fail")] | length' <<<"$normalized_checks")"
+            python_311_count="$(jq '[.[] | select(.workflow == "CI" and .name == "Python 3.11" and .bucket == "pass")] | length' <<<"$normalized_checks")"
+            python_313_count="$(jq '[.[] | select(.workflow == "CI" and .name == "Python 3.13" and .bucket == "pass")] | length' <<<"$normalized_checks")"
+
+            if (( failed_count > 0 )); then
+              echo "A CI check failed."
+              exit 1
+            fi
+
+            if (( python_311_count == 1 && python_313_count == 1 && check_count > 0 && incomplete_count == 0 )); then
+              check_signature="$(jq -c 'sort_by([.workflow, .name, .bucket])' <<<"$normalized_checks")"
+              if [[ "$check_signature" == "$previous_signature" ]]; then
+                settled_polls=$((settled_polls + 1))
+              else
+                previous_signature="$check_signature"
+                settled_polls=1
+              fi
+
+              if (( settled_polls >= 3 )); then
+                echo "All reported CI checks passed."
+                break
+              fi
+              echo "CI checks are green and stable; waiting for late checks to register..."
+              sleep 30
+              continue
+            fi
+
+            previous_signature=""
+            settled_polls=0
+            echo "Waiting for CI checks to register and complete..."
+            sleep 30
+          done
+
+          if (( SECONDS >= deadline )); then
+            echo "Timed out waiting for CI checks."
+            exit 1
+          fi
+
+      - name: Merge patch update
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: >-
+          gh pr merge "$PR_URL" --merge --delete-branch
+          --match-head-commit "$PR_HEAD_SHA"
