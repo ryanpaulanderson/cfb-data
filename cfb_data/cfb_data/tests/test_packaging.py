@@ -21,7 +21,7 @@ import cfb_data
 def test_distribution_and_package_are_importable() -> None:
     """Verify an editable install exposes the package and its metadata."""
     assert cfb_data.__doc__
-    assert version("cfb-data") == "0.4.0"
+    assert version("cfb-data") == "0.4.1"
     assert resource_files(cfb_data).joinpath("py.typed").is_file()
 
 
@@ -49,8 +49,23 @@ def test_project_license_matches_distribution_metadata() -> None:
     )
 
 
+def test_release_workflow_uses_trusted_main_push() -> None:
+    """Keep release execution on the trusted main push revision."""
+    repository_root = Path(__file__).resolve().parents[3]
+    workflow = (repository_root / ".github/workflows/release.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "\n  pull_request_target:" not in workflow
+    assert "\n  push:\n    branches: [main]\n" in workflow
+    assert "\n  workflow_dispatch:" not in workflow
+    assert "needs.release.outputs.release_sha" not in workflow
+    assert "ref: ${{ github.sha }}" in workflow
+    assert workflow.count("id-token: write") == 1
+
+
 def test_legacy_clients_and_generic_routing_are_not_exported() -> None:
-    """Keep the 0.4.0 package surface free of compatibility wrappers."""
+    """Keep the 0.4.1 package surface free of compatibility wrappers."""
     legacy_names = {
         "CFBDAPIBase",
         "CFBDValidationAPI",

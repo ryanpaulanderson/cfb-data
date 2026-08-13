@@ -1,21 +1,20 @@
 name: Release
 
 on:
-  pull_request_target:
+  push:
     branches: [main]
     paths:
       - pyproject.toml
-    types:
-      - closed
+
+permissions: {}
 
 concurrency:
-  group: release-${{ github.event.pull_request.merge_commit_sha }}
+  group: release-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
   release:
     name: Create GitHub release
-    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -25,35 +24,40 @@ jobs:
       contents: write
 
     steps:
-      # This workflow has a write token, so merged PR content is read only as
-      # data. Never check out or execute code from the pull request here.
+      # This workflow has a write token, so repository content is read only as
+      # data. Build and publish run in separate, least-privilege jobs.
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
-      - name: Detect merged version bump
+      - name: Detect main version bump
         id: version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          PUSH_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
 
-          previous_sha="$(
-            gh api --method GET \
-              "repos/${GITHUB_REPOSITORY}/commits/${MERGE_SHA}" \
-              --jq '.parents | select(length == 2) | .[0].sha'
-          )"
-          if [[ -z "$previous_sha" ]]; then
-            echo "Expected merged PR commit $MERGE_SHA to have exactly two parents." >&2
-            echo "Release automation requires the merge-commit-only policy." >&2
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Release automation must run from refs/heads/main, not $GITHUB_REF." >&2
             exit 1
           fi
 
+          release_pyproject="$(mktemp)"
           previous_pyproject="$(mktemp)"
-          merged_pyproject="$(mktemp)"
-          trap 'rm -f "$previous_pyproject" "$merged_pyproject"' EXIT
+          trap 'rm -f "$release_pyproject" "$previous_pyproject"' EXIT
+
+          previous_sha="$(
+            gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/commits/${PUSH_SHA}" \
+              --jq '.parents | select(length == 2) | .[0].sha'
+          )"
+          if [[ -z "$previous_sha" ]]; then
+            echo "Expected main commit $PUSH_SHA to have exactly two parents." >&2
+            echo "Release automation requires the merge-commit-only policy." >&2
+            exit 1
+          fi
 
           gh api --method GET \
             -H "Accept: application/vnd.github.raw+json" \
@@ -62,11 +66,14 @@ jobs:
             >"$previous_pyproject"
           gh api --method GET \
             -H "Accept: application/vnd.github.raw+json" \
-            -f ref="$MERGE_SHA" \
+            -f ref="$PUSH_SHA" \
             "repos/${GITHUB_REPOSITORY}/contents/pyproject.toml" \
-            >"$merged_pyproject"
+            >"$release_pyproject"
 
-          python - "$previous_pyproject" "$merged_pyproject" "$GITHUB_OUTPUT" <<'PY'
+          python - \
+            "$previous_pyproject" \
+            "$release_pyproject" \
+            "$GITHUB_OUTPUT" <<'PY'
           import re
           import sys
           import tomllib
@@ -96,34 +103,37 @@ jobs:
 
 
           previous_version = read_version(Path(sys.argv[1]))
-          merged_version = read_version(Path(sys.argv[2]))
+          release_version = read_version(Path(sys.argv[2]))
           output_path = Path(sys.argv[3])
-
           previous_parts = tuple(int(part) for part in previous_version.split("."))
-          merged_parts = tuple(int(part) for part in merged_version.split("."))
+          release_parts = tuple(int(part) for part in release_version.split("."))
 
-          if merged_parts < previous_parts:
+          if release_parts < previous_parts:
               raise SystemExit(
-                  f"project.version decreased from {previous_version} to {merged_version}"
+                  "project.version decreased from "
+                  f"{previous_version} to {release_version}"
               )
+          should_release = release_parts > previous_parts
 
-          should_release = merged_parts > previous_parts
           with output_path.open("a", encoding="utf-8") as output:
               print(f"should_release={str(should_release).lower()}", file=output)
               if should_release:
-                  print(f"version={merged_version}", file=output)
+                  print(f"version={release_version}", file=output)
 
           if should_release:
-              print(f"Detected release version {previous_version} -> {merged_version}")
+              print(f"Detected release version {previous_version} -> {release_version}")
           else:
-              print(f"project.version remains {merged_version}; no release will be created")
+              print(
+                  f"project.version remains {release_version}; "
+                  "no release will be created"
+              )
           PY
 
       - name: Create GitHub release
         if: steps.version.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          RELEASE_SHA: ${{ github.sha }}
           TAG: v${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
@@ -152,8 +162,8 @@ jobs:
             fi
           fi
 
-          if [[ -n "$tag_commit" && "$tag_commit" != "$MERGE_SHA" ]]; then
-            echo "Tag $TAG already points to $tag_commit, not $MERGE_SHA" >&2
+          if [[ -n "$tag_commit" && "$tag_commit" != "$RELEASE_SHA" ]]; then
+            echo "Tag $TAG already points to $tag_commit, not $RELEASE_SHA" >&2
             exit 1
           fi
 
@@ -165,7 +175,7 @@ jobs:
           gh release create "$TAG" \
             --generate-notes \
             --repo "$GITHUB_REPOSITORY" \
-            --target "$MERGE_SHA" \
+            --target "$RELEASE_SHA" \
             --title "$TAG"
 
   build-distributions:
@@ -181,7 +191,7 @@ jobs:
       - name: Check out released commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Set up Python

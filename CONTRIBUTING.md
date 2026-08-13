@@ -99,13 +99,20 @@ contract passes.
 
 To create a release, update `[project].version` in `pyproject.toml` to a
 strictly higher `MAJOR.MINOR.PATCH` version in a pull request. When that pull
-request is merged into `main`, the release workflow creates the matching
-`vMAJOR.MINOR.PATCH` tag and published GitHub release at the merge commit. It
-then builds and validates the wheel and source distribution from that exact
-commit before publishing them to PyPI through Trusted Publishing. GitHub
-generates the release notes from merged pull requests and groups them by their
-`enhancement`, `bug`, `documentation`, or `dependencies` labels, with an
-additional catch-all section.
+request is merged into `main`, the resulting push runs the release workflow,
+which creates the matching `vMAJOR.MINOR.PATCH` tag and published GitHub
+release at the merge commit. It then builds and validates the wheel and source
+distribution from that exact commit before publishing them to PyPI through
+Trusted Publishing. GitHub generates the release notes from merged pull
+requests and groups them by their `enhancement`, `bug`, `documentation`, or
+`dependencies` labels, with an additional catch-all section.
+
+PyPI does not authorize Trusted Publishing from GitHub's
+`pull_request_target` event. Keep release publishing on a `push` to `main`.
+If publishing fails transiently after the GitHub release is created, rerun the
+failed workflow jobs so they remain bound to the original trusted `main`
+commit. A source or workflow correction requires a new, higher version through
+the normal pull-request release process.
 
 The PyPI publisher is scoped to `.github/workflows/release.yml` and the
 protected `pypi` GitHub environment. The publishing job alone receives the
