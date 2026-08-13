@@ -125,11 +125,30 @@ jobs:
         run: |
           set -euo pipefail
 
-          tag_commit="$(
-            gh api --method GET \
-              "repos/${GITHUB_REPOSITORY}/commits/${TAG}" \
-              --jq .sha 2>/dev/null || true
-          )"
+          tag_headers="$(mktemp)"
+          tag_error="$(mktemp)"
+          trap 'rm -f "$tag_headers" "$tag_error"' EXIT
+
+          tag_commit=""
+          if gh api --include --silent --method GET \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" \
+            >"$tag_headers" 2>"$tag_error"; then
+            tag_commit="$(
+              gh api --method GET \
+                "repos/${GITHUB_REPOSITORY}/commits/${TAG}" \
+                --jq .sha
+            )"
+          else
+            tag_status="$(
+              awk '$1 ~ /^HTTP\// { code = $2 } END { print code }' \
+                "$tag_headers"
+            )"
+            if [[ "$tag_status" != "404" ]]; then
+              cat "$tag_error" >&2
+              exit 1
+            fi
+          fi
+
           if [[ -n "$tag_commit" && "$tag_commit" != "$MERGE_SHA" ]]; then
             echo "Tag $TAG already points to $tag_commit, not $MERGE_SHA" >&2
             exit 1
