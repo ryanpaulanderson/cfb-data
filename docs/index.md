@@ -12,6 +12,10 @@ The request path is intentionally strict:
 HTTP → Pydantic models → logical schema → canonical Arrow table → DataFrame
 ```
 
+See the [request lifecycle architecture](architecture/request-lifecycle.md)
+for a diagram of how a call moves through validation, transport, response
+models, and result presentation.
+
 Start with the [installation and first-request guide](getting-started.md). Use
 the [namespace contracts](cfbd_api/README.md) to choose an endpoint, the
 [request guide](guides/requests.md) to understand filters and allowed values,
@@ -44,6 +48,7 @@ reference/responses
 :caption: Project
 
 project-status
+architecture/request-lifecycle
 architecture/0001-validated-models-before-dataframes
 architecture/0002-heterogeneous-stat-scalars
 architecture/0003-canonical-arrow-parquet
