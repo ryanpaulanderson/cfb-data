@@ -21,6 +21,11 @@ Follow [`AGENTS.md`](AGENTS.md), the authoritative repository engineering and
 Git guide. Run `make format` before `make check`; report every failure, skip,
 warning, or environment limitation during handoff.
 
+## Contribution licensing
+
+By submitting a contribution, you agree that it may be licensed under the
+project's [MIT License](LICENSE).
+
 ## Architecture expectations
 
 Read
