@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Generic, TypeVar, overload
+from typing import TypeVar, overload
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
@@ -16,7 +16,6 @@ from cfb_data.draft.models.pydantic.responses import (
     DraftTeam,
 )
 
-_FrameT = TypeVar("_FrameT")
 _RowT = TypeVar("_RowT", bound=BaseModel)
 
 _DRAFT_TEAM_ROWS = TypeAdapter(list[DraftTeam])
@@ -33,19 +32,19 @@ class _EmptyRequest(BaseModel):
 _EMPTY_REQUEST = _EmptyRequest()
 
 
-class DraftResource(Generic[_FrameT]):
+class DraftResource[FrameT]:
     """Provide validated Draft endpoints with selected frame results."""
 
     def __init__(
         self,
         executor: _EndpointExecutor,
-        dataframe_adapter: _DataFrameAdapter[_FrameT],
+        dataframe_adapter: _DataFrameAdapter[FrameT],
     ) -> None:
         """Bind the namespace to shared execution and presentation services."""
         self._executor = executor
         self._dataframe_adapter = dataframe_adapter
 
-    async def teams(self) -> _FrameT:
+    async def teams(self) -> FrameT:
         """Return NFL teams represented in historical draft data.
 
         :return: Eager frame containing validated NFL team rows.
@@ -57,7 +56,7 @@ class DraftResource(Generic[_FrameT]):
             row_model=DraftTeam,
         )
 
-    async def positions(self) -> _FrameT:
+    async def positions(self) -> FrameT:
         """Return position categories used in NFL Draft data.
 
         :return: Eager frame containing validated position rows.
@@ -70,7 +69,7 @@ class DraftResource(Generic[_FrameT]):
         )
 
     @overload
-    async def picks(self, request: DraftPicksRequest, /) -> _FrameT: ...
+    async def picks(self, request: DraftPicksRequest, /) -> FrameT: ...
 
     @overload
     async def picks(
@@ -83,11 +82,11 @@ class DraftResource(Generic[_FrameT]):
         school: str | None = None,
         conference: str | None = None,
         position: str | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def picks(
         self, request: DraftPicksRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return historical NFL Draft picks.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -118,7 +117,7 @@ class DraftResource(Generic[_FrameT]):
         endpoint: str,
         response_adapter: TypeAdapter[list[_RowT]],
         row_model: type[_RowT],
-    ) -> _FrameT:
+    ) -> FrameT:
         """Fetch and tabularize one filterless Draft endpoint."""
         rows = await self._executor.fetch_many(
             endpoint=endpoint,

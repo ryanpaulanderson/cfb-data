@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Generic, Literal, TypeAlias, TypeVar, overload
+from typing import Literal, TypeVar, overload
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -22,10 +22,9 @@ from cfb_data.recruiting.models.pydantic.responses import (
     TeamRecruitingRanking,
 )
 
-_FrameT = TypeVar("_FrameT")
 _RequestT = TypeVar("_RequestT", bound=BaseModel)
 _RowT = TypeVar("_RowT", bound=BaseModel)
-_RecruitClassificationArgument: TypeAlias = (
+type _RecruitClassificationArgument = (
     RecruitClassification | Literal["JUCO", "PrepSchool", "HighSchool"]
 )
 
@@ -34,20 +33,20 @@ _TEAM_RANKING_ROWS = TypeAdapter(list[TeamRecruitingRanking])
 _GROUP_ROWS = TypeAdapter(list[AggregatedTeamRecruiting])
 
 
-class RecruitingResource(Generic[_FrameT]):
+class RecruitingResource[FrameT]:
     """Provide validated Recruiting endpoints with selected frame results."""
 
     def __init__(
         self,
         executor: _EndpointExecutor,
-        dataframe_adapter: _DataFrameAdapter[_FrameT],
+        dataframe_adapter: _DataFrameAdapter[FrameT],
     ) -> None:
         """Bind the namespace to shared execution and presentation services."""
         self._executor = executor
         self._dataframe_adapter = dataframe_adapter
 
     @overload
-    async def players(self, request: RecruitingPlayersRequest, /) -> _FrameT: ...
+    async def players(self, request: RecruitingPlayersRequest, /) -> FrameT: ...
 
     @overload
     async def players(
@@ -60,11 +59,11 @@ class RecruitingResource(Generic[_FrameT]):
         position: str | None = None,
         state: str | None = None,
         classification: _RecruitClassificationArgument | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def players(
         self, request: RecruitingPlayersRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return ranked recruiting prospects.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -83,7 +82,7 @@ class RecruitingResource(Generic[_FrameT]):
         )
 
     @overload
-    async def teams(self, request: RecruitingTeamsRequest, /) -> _FrameT: ...
+    async def teams(self, request: RecruitingTeamsRequest, /) -> FrameT: ...
 
     @overload
     async def teams(
@@ -93,11 +92,11 @@ class RecruitingResource(Generic[_FrameT]):
         *,
         year: int | None = None,
         team: str | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def teams(
         self, request: RecruitingTeamsRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return team recruiting class rankings.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -116,7 +115,7 @@ class RecruitingResource(Generic[_FrameT]):
         )
 
     @overload
-    async def groups(self, request: RecruitingGroupsRequest, /) -> _FrameT: ...
+    async def groups(self, request: RecruitingGroupsRequest, /) -> FrameT: ...
 
     @overload
     async def groups(
@@ -129,11 +128,11 @@ class RecruitingResource(Generic[_FrameT]):
         recruit_type: _RecruitClassificationArgument | None = None,
         start_year: int | None = None,
         end_year: int | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def groups(
         self, request: RecruitingGroupsRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return recruiting ratings aggregated by team and position group.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -160,7 +159,7 @@ class RecruitingResource(Generic[_FrameT]):
         filters: Mapping[str, object],
         response_adapter: TypeAdapter[list[_RowT]],
         row_model: type[_RowT],
-    ) -> _FrameT:
+    ) -> FrameT:
         """Resolve, validate, fetch, and tabularize one list endpoint."""
         validated = _resolve_request(
             endpoint=endpoint,

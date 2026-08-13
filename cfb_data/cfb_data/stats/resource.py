@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Generic, Literal, TypeAlias, TypeVar, overload
+from typing import Literal, TypeVar, overload
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
@@ -31,11 +31,10 @@ from cfb_data.stats.models.pydantic.responses import (
     TeamStat,
 )
 
-_FrameT = TypeVar("_FrameT")
 _RequestT = TypeVar("_RequestT", bound=BaseModel)
 _RowT = TypeVar("_RowT", bound=BaseModel)
-_ClassificationArgument: TypeAlias = Classification | Literal["fbs", "fcs", "ii", "iii"]
-_SeasonTypeArgument: TypeAlias = (
+type _ClassificationArgument = Classification | Literal["fbs", "fcs", "ii", "iii"]
+type _SeasonTypeArgument = (
     SeasonType
     | Literal[
         "regular",
@@ -66,20 +65,20 @@ class _CategoriesRequest(BaseModel):
 _CATEGORIES_REQUEST = _CategoriesRequest()
 
 
-class StatsResource(Generic[_FrameT]):
+class StatsResource[FrameT]:
     """Provide validated Stats endpoints with backend-specific frame results."""
 
     def __init__(
         self,
         executor: _EndpointExecutor,
-        dataframe_adapter: _DataFrameAdapter[_FrameT],
+        dataframe_adapter: _DataFrameAdapter[FrameT],
     ) -> None:
         """Bind the namespace to shared execution and presentation services."""
         self._executor = executor
         self._dataframe_adapter = dataframe_adapter
 
     @overload
-    async def player_season(self, request: PlayerSeasonStatsRequest, /) -> _FrameT: ...
+    async def player_season(self, request: PlayerSeasonStatsRequest, /) -> FrameT: ...
 
     @overload
     async def player_season(
@@ -94,11 +93,11 @@ class StatsResource(Generic[_FrameT]):
         end_week: int | None = None,
         season_type: _SeasonTypeArgument | None = None,
         category: str | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def player_season(
         self, request: PlayerSeasonStatsRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return player statistics aggregated by season.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -119,7 +118,7 @@ class StatsResource(Generic[_FrameT]):
     @overload
     async def player_season_success(
         self, request: PlayerSeasonSuccessRequest, /
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     @overload
     async def player_season_success(
@@ -136,11 +135,11 @@ class StatsResource(Generic[_FrameT]):
         end_week: int | None = None,
         threshold: int | None = None,
         exclude_garbage_time: bool | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def player_season_success(
         self, request: PlayerSeasonSuccessRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return player passing and rushing success rates by season.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -161,7 +160,7 @@ class StatsResource(Generic[_FrameT]):
     @overload
     async def player_game_success(
         self, request: PlayerGameSuccessRequest, /
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     @overload
     async def player_game_success(
@@ -177,11 +176,11 @@ class StatsResource(Generic[_FrameT]):
         player_id: int | None = None,
         threshold: int | None = None,
         exclude_garbage_time: bool | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def player_game_success(
         self, request: PlayerGameSuccessRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return player passing and rushing success rates by game.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -200,7 +199,7 @@ class StatsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def team_season(self, request: TeamSeasonStatsRequest, /) -> _FrameT: ...
+    async def team_season(self, request: TeamSeasonStatsRequest, /) -> FrameT: ...
 
     @overload
     async def team_season(
@@ -214,11 +213,11 @@ class StatsResource(Generic[_FrameT]):
         start_week: int | None = None,
         end_week: int | None = None,
         classification: _ClassificationArgument | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def team_season(
         self, request: TeamSeasonStatsRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return team statistics aggregated by season.
 
         ``stat_value`` preserves upstream strings and numbers in an object-typed
@@ -239,7 +238,7 @@ class StatsResource(Generic[_FrameT]):
             row_model=TeamStat,
         )
 
-    async def categories(self) -> _FrameT:
+    async def categories(self) -> FrameT:
         """Return team-stat categories as a one-column selected frame.
 
         :return: Eager frame with one ``category`` column in upstream order.
@@ -260,7 +259,7 @@ class StatsResource(Generic[_FrameT]):
     @overload
     async def advanced_season(
         self, request: AdvancedSeasonStatsRequest, /
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     @overload
     async def advanced_season(
@@ -274,11 +273,11 @@ class StatsResource(Generic[_FrameT]):
         start_week: int | None = None,
         end_week: int | None = None,
         classification: _ClassificationArgument | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def advanced_season(
         self, request: AdvancedSeasonStatsRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return advanced team statistics aggregated by season.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -297,7 +296,7 @@ class StatsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def advanced_game(self, request: AdvancedGameStatsRequest, /) -> _FrameT: ...
+    async def advanced_game(self, request: AdvancedGameStatsRequest, /) -> FrameT: ...
 
     @overload
     async def advanced_game(
@@ -311,11 +310,11 @@ class StatsResource(Generic[_FrameT]):
         opponent: str | None = None,
         exclude_garbage_time: bool | None = None,
         season_type: _SeasonTypeArgument | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def advanced_game(
         self, request: AdvancedGameStatsRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return advanced team statistics by game.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -334,7 +333,7 @@ class StatsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def game_havoc(self, request: GameHavocRequest, /) -> _FrameT: ...
+    async def game_havoc(self, request: GameHavocRequest, /) -> FrameT: ...
 
     @overload
     async def game_havoc(
@@ -347,11 +346,11 @@ class StatsResource(Generic[_FrameT]):
         week: int | None = None,
         opponent: str | None = None,
         season_type: _SeasonTypeArgument | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def game_havoc(
         self, request: GameHavocRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return team havoc statistics by game.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -378,7 +377,7 @@ class StatsResource(Generic[_FrameT]):
         filters: Mapping[str, object],
         response_adapter: TypeAdapter[list[_RowT]],
         row_model: type[_RowT],
-    ) -> _FrameT:
+    ) -> FrameT:
         """Validate, fetch, and convert one Stats list route."""
         validated = _resolve_request(
             endpoint=endpoint,

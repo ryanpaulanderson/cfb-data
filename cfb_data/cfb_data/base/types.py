@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TypeAlias
 
-JSONScalar: TypeAlias = str | int | float | bool | None
-JSONValue: TypeAlias = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
-JSONObject: TypeAlias = dict[str, JSONValue]
-JSONResponse: TypeAlias = JSONObject | list[JSONObject]
-QueryValue: TypeAlias = str | int | float | bool
-QueryParameters: TypeAlias = dict[str, QueryValue]
+type JSONScalar = str | int | float | bool | None
+type JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
+type JSONObject = dict[str, JSONValue]
+type JSONResponse = JSONObject | list[JSONObject]
+type QueryValue = str | int | float | bool
+type QueryParameters = dict[str, QueryValue]
 
 
 def json_value(value: object) -> JSONValue:

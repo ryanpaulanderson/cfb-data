@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Generic, Literal, TypeAlias, TypeVar, overload
+from typing import Literal, overload
 
 from pydantic import TypeAdapter
 
@@ -26,8 +26,7 @@ from cfb_data.teams.models.pydantic.responses import (
     TeamTalent,
 )
 
-_FrameT = TypeVar("_FrameT")
-_ClassificationArgument: TypeAlias = Classification | Literal["fbs", "fcs", "ii", "iii"]
+type _ClassificationArgument = Classification | Literal["fbs", "fcs", "ii", "iii"]
 _TEAM_ROWS = TypeAdapter(list[Team])
 _MATCHUP = TypeAdapter(Matchup)
 _ATS_ROWS = TypeAdapter(list[TeamATS])
@@ -35,20 +34,20 @@ _ROSTER_ROWS = TypeAdapter(list[RosterPlayer])
 _TALENT_ROWS = TypeAdapter(list[TeamTalent])
 
 
-class TeamsResource(Generic[_FrameT]):
+class TeamsResource[FrameT]:
     """Provide validated Teams endpoints with backend-specific frame results."""
 
     def __init__(
         self,
         executor: _EndpointExecutor,
-        dataframe_adapter: _DataFrameAdapter[_FrameT],
+        dataframe_adapter: _DataFrameAdapter[FrameT],
     ) -> None:
         """Bind the namespace to shared execution and presentation services."""
         self._executor = executor
         self._dataframe_adapter = dataframe_adapter
 
     @overload
-    async def list(self, request: TeamsRequest, /) -> _FrameT: ...
+    async def list(self, request: TeamsRequest, /) -> FrameT: ...
 
     @overload
     async def list(
@@ -58,11 +57,11 @@ class TeamsResource(Generic[_FrameT]):
         *,
         conference: str | None = None,
         year: int | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def list(
         self, request: TeamsRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return teams as the selected DataFrame type.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -86,16 +85,16 @@ class TeamsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def fbs(self, request: FBSTeamsRequest, /) -> _FrameT: ...
+    async def fbs(self, request: FBSTeamsRequest, /) -> FrameT: ...
 
     @overload
     async def fbs(
         self, request: None = None, /, *, year: int | None = None
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def fbs(
         self, request: FBSTeamsRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return FBS teams as the selected DataFrame type.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -119,7 +118,7 @@ class TeamsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def matchup(self, request: TeamMatchupRequest, /) -> _FrameT: ...
+    async def matchup(self, request: TeamMatchupRequest, /) -> FrameT: ...
 
     @overload
     async def matchup(
@@ -131,11 +130,11 @@ class TeamsResource(Generic[_FrameT]):
         team2: str,
         min_year: int | None = None,
         max_year: int | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def matchup(
         self, request: TeamMatchupRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return one matchup summary with nested games as a selected frame.
 
         pandas stores ``games`` in an ``object`` column. Polars stores the same
@@ -162,7 +161,7 @@ class TeamsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def ats(self, request: TeamATSRequest, /) -> _FrameT: ...
+    async def ats(self, request: TeamATSRequest, /) -> FrameT: ...
 
     @overload
     async def ats(
@@ -173,11 +172,11 @@ class TeamsResource(Generic[_FrameT]):
         year: int,
         conference: str | None = None,
         team: str | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def ats(
         self, request: TeamATSRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return team against-the-spread records as the selected frame.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -201,7 +200,7 @@ class TeamsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def roster(self, request: RosterRequest, /) -> _FrameT: ...
+    async def roster(self, request: RosterRequest, /) -> FrameT: ...
 
     @overload
     async def roster(
@@ -212,11 +211,11 @@ class TeamsResource(Generic[_FrameT]):
         team: str | None = None,
         year: int | None = None,
         classification: _ClassificationArgument | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def roster(
         self, request: RosterRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return historical roster players as the selected frame.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -240,14 +239,14 @@ class TeamsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def talent(self, request: TalentRequest, /) -> _FrameT: ...
+    async def talent(self, request: TalentRequest, /) -> FrameT: ...
 
     @overload
-    async def talent(self, request: None = None, /, *, year: int) -> _FrameT: ...
+    async def talent(self, request: None = None, /, *, year: int) -> FrameT: ...
 
     async def talent(
         self, request: TalentRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return team talent ratings as the selected frame.
 
         :param request: Validated request model, mutually exclusive with filters.
