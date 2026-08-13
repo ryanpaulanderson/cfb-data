@@ -73,3 +73,24 @@ belong to `dev`.
 Use the branch names and detailed Conventional Commits defined in `AGENTS.md`.
 Do not commit directly to `main`, and do not merge unless the shared quality
 contract passes.
+
+## Releases
+
+To create a release, update `[project].version` in `pyproject.toml` to a
+strictly higher `MAJOR.MINOR.PATCH` version in a pull request. When that pull
+request is merged into `main`, the release workflow creates the matching
+`vMAJOR.MINOR.PATCH` tag and published GitHub release at the merge commit.
+GitHub generates the release notes from merged pull requests and groups them by
+their `enhancement`, `bug`, `documentation`, or `dependencies` labels, with an
+additional catch-all section.
+
+Release automation relies on and validates the repository's merge-commit-only
+policy so the merge commit's first parent identifies the exact pre-merge state
+of `main`. Update the version-comparison workflow before enabling another merge
+method.
+
+Pull requests that change `pyproject.toml` without increasing the project
+version do not create a release. A version decrease or a version outside the
+documented three-component form fails the release check. The workflow does not
+publish to PyPI; package publication will be added as a separate release step
+when that distribution contract is ready.

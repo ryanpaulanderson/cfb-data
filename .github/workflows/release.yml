@@ -1,0 +1,166 @@
+name: Release
+
+on:
+  pull_request_target:
+    branches: [main]
+    paths:
+      - pyproject.toml
+    types:
+      - closed
+
+concurrency:
+  group: release-${{ github.event.pull_request.merge_commit_sha }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Create GitHub release
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      # This workflow has a write token, so merged PR content is read only as
+      # data. Never check out or execute code from the pull request here.
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Detect merged version bump
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+
+          previous_sha="$(
+            gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/commits/${MERGE_SHA}" \
+              --jq '.parents | select(length == 2) | .[0].sha'
+          )"
+          if [[ -z "$previous_sha" ]]; then
+            echo "Expected merged PR commit $MERGE_SHA to have exactly two parents." >&2
+            echo "Release automation requires the merge-commit-only policy." >&2
+            exit 1
+          fi
+
+          previous_pyproject="$(mktemp)"
+          merged_pyproject="$(mktemp)"
+          trap 'rm -f "$previous_pyproject" "$merged_pyproject"' EXIT
+
+          gh api --method GET \
+            -H "Accept: application/vnd.github.raw+json" \
+            -f ref="$previous_sha" \
+            "repos/${GITHUB_REPOSITORY}/contents/pyproject.toml" \
+            >"$previous_pyproject"
+          gh api --method GET \
+            -H "Accept: application/vnd.github.raw+json" \
+            -f ref="$MERGE_SHA" \
+            "repos/${GITHUB_REPOSITORY}/contents/pyproject.toml" \
+            >"$merged_pyproject"
+
+          python - "$previous_pyproject" "$merged_pyproject" "$GITHUB_OUTPUT" <<'PY'
+          import re
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          VERSION_PATTERN = re.compile(
+              r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+          )
+
+
+          def read_version(path: Path) -> str:
+              with path.open("rb") as stream:
+                  document = tomllib.load(stream)
+
+              project = document.get("project")
+              if not isinstance(project, dict):
+                  raise SystemExit(f"{path} does not contain a [project] table")
+
+              version = project.get("version")
+              if not isinstance(version, str):
+                  raise SystemExit(f"{path} does not contain a string project.version")
+              if VERSION_PATTERN.fullmatch(version) is None:
+                  raise SystemExit(
+                      f"project.version {version!r} is not MAJOR.MINOR.PATCH"
+                  )
+              return version
+
+
+          previous_version = read_version(Path(sys.argv[1]))
+          merged_version = read_version(Path(sys.argv[2]))
+          output_path = Path(sys.argv[3])
+
+          previous_parts = tuple(int(part) for part in previous_version.split("."))
+          merged_parts = tuple(int(part) for part in merged_version.split("."))
+
+          if merged_parts < previous_parts:
+              raise SystemExit(
+                  f"project.version decreased from {previous_version} to {merged_version}"
+              )
+
+          should_release = merged_parts > previous_parts
+          with output_path.open("a", encoding="utf-8") as output:
+              print(f"should_release={str(should_release).lower()}", file=output)
+              if should_release:
+                  print(f"version={merged_version}", file=output)
+
+          if should_release:
+              print(f"Detected release version {previous_version} -> {merged_version}")
+          else:
+              print(f"project.version remains {merged_version}; no release will be created")
+          PY
+
+      - name: Create GitHub release
+        if: steps.version.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          TAG: v${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          tag_headers="$(mktemp)"
+          tag_error="$(mktemp)"
+          trap 'rm -f "$tag_headers" "$tag_error"' EXIT
+
+          tag_commit=""
+          if gh api --include --silent --method GET \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" \
+            >"$tag_headers" 2>"$tag_error"; then
+            tag_commit="$(
+              gh api --method GET \
+                "repos/${GITHUB_REPOSITORY}/commits/${TAG}" \
+                --jq .sha
+            )"
+          else
+            tag_status="$(
+              awk '$1 ~ /^HTTP\// { code = $2 } END { print code }' \
+                "$tag_headers"
+            )"
+            if [[ "$tag_status" != "404" ]]; then
+              cat "$tag_error" >&2
+              exit 1
+            fi
+          fi
+
+          if [[ -n "$tag_commit" && "$tag_commit" != "$MERGE_SHA" ]]; then
+            echo "Tag $TAG already points to $tag_commit, not $MERGE_SHA" >&2
+            exit 1
+          fi
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; nothing to do."
+            exit 0
+          fi
+
+          gh release create "$TAG" \
+            --generate-notes \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$MERGE_SHA" \
+            --title "$TAG"
