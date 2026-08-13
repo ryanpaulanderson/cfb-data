@@ -6,6 +6,10 @@ groups. It returns eager pandas DataFrames by default and can return the same
 logical tables as Polars DataFrames. Irreducibly nested analytical responses
 and operational account metadata return validated models instead.
 
+Read the complete [documentation](https://ryanpaulanderson.github.io/cfb-data/)
+for the getting-started guide, request rules and allowed values, namespace
+contracts, result schemas, and generated Python API reference.
+
 The request path is explicit:
 
 ```text
@@ -351,13 +355,16 @@ cd cfb-data
 make install
 make hooks
 make format
+make docs
 make check
 ```
 
 `make install` creates `.venv` and installs `.[dev,polars]`, giving
 contributors the complete Arrow/Parquet and two-backend test contract.
-`make check` runs Ruff, strict mypy, and pytest under the same contract as CI.
-Package metadata and all dependency groups live only in `pyproject.toml`.
+`make check` runs Ruff, strict mypy, a warning-free Sphinx build, and pytest
+under the same contract as CI. `make docs` writes the local HTML site to
+`docs/_build/html`. Package metadata and all dependency groups live only in
+`pyproject.toml`.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) and
 [`docs/project-status.md`](docs/project-status.md) for repository and release

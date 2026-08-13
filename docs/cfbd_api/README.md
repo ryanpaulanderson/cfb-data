@@ -21,6 +21,10 @@ official [`CFBD/cfb-api-v2`](https://github.com/CFBD/cfb-api-v2) source.
 | [Betting](betting_api.md) | 1 | `client.betting` |
 | [Recruiting](recruiting_api.md) | 3 | `client.recruiting` |
 | [Coaches](coaches_api.md) | 4 | `client.coaches` |
+| [Draft](draft_api.md) | 3 | `client.draft` |
+| [Playoffs](playoffs_api.md) | 3 | `client.playoffs` |
+| [Adjusted Metrics](adjusted_metrics_api.md) | 4 | `client.adjusted_metrics` |
+| [Info](info_api.md) | 2 | `client.info` |
 
 `CFBDClient` sends authenticated GET requests to the canonical API origin by
 default. Request fields use snake case in Python and serialize to upstream
@@ -36,5 +40,31 @@ frames with nested values. Advanced box score and live plays are returned as
 nested Pydantic models. Team season Stats preserve the upstream
 `string | number` value as pandas `object` or Polars `Object`.
 
-See the top-level [`README.md`](../../README.md) for lifecycle, authentication,
-retry, error, dtype, and installation contracts.
+See [Getting started](../getting-started.md), [Results and
+DataFrames](../guides/results.md), and [Errors and
+retries](../guides/errors-and-retries.md) for lifecycle, authentication, dtype,
+retry, error, and installation contracts.
+
+```{toctree}
+:hidden:
+:maxdepth: 1
+
+games_api
+drives_api
+plays_api
+venues_api
+conferences_api
+teams_api
+stats_api
+metrics_api
+ratings_api
+players_api
+rankings_api
+betting_api
+recruiting_api
+coaches_api
+draft_api
+playoffs_api
+adjusted_metrics_api
+info_api
+```
