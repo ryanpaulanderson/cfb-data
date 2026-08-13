@@ -21,7 +21,7 @@ import cfb_data
 def test_distribution_and_package_are_importable() -> None:
     """Verify an editable install exposes the package and its metadata."""
     assert cfb_data.__doc__
-    assert version("cfb-data") == "0.2.0"
+    assert version("cfb-data") == "0.3.0"
     assert resource_files(cfb_data).joinpath("py.typed").is_file()
 
 
@@ -38,7 +38,7 @@ def test_project_license_matches_distribution_metadata() -> None:
 
 
 def test_legacy_clients_and_generic_routing_are_not_exported() -> None:
-    """Keep the 0.2.0 package surface free of compatibility wrappers."""
+    """Keep the 0.3.0 package surface free of compatibility wrappers."""
     legacy_names = {
         "CFBDAPIBase",
         "CFBDValidationAPI",
