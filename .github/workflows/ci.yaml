@@ -54,8 +54,10 @@ jobs:
 
           from aiohttp import web
           import pandas
+          import pyarrow
           from cfb_data import CFBDClient, RetryPolicy
 
+          assert pyarrow.__version__
           has_polars = importlib.util.find_spec("polars") is not None
           assert has_polars is (os.environ["INSTALLATION"] == "polars")
 

@@ -14,7 +14,10 @@ connection-pooled `aiohttp.ClientSession` and exposes typed `games`, `drives`,
 boundary sequence:
 
 ```text
-HTTP → decoded JSON → Pydantic response validation → model or logical schema → DataFrame
+HTTP → Pydantic response validation → logical schema → canonical Arrow table
+                                                       ├── pandas DataFrame
+                                                       ├── Polars DataFrame
+                                                       └── versioned Parquet
 ```
 
 pandas is the default backend. Polars is available through the `polars` extra.
@@ -47,6 +50,18 @@ implements `/wepa/team/season`, `/wepa/players/passing`,
 Patreon Tier 1. Info implements `/info` and `/info/usage` as operational model
 responses.
 
+Apache Arrow is the canonical representation for tabular endpoint results.
+Its explicit recursive schema preserves ordered structs, typed lists,
+nullability, and UTC timestamps for populated, empty, and all-null responses.
+pandas still presents nested values as Python mappings and lists in `object`
+columns, while Polars presents native `Struct` and `List` columns.
+
+The library also has a private, versioned local-file Parquet codec for future
+library-owned caches. It uses the canonical Arrow schema, atomic replacement,
+strict compatibility metadata, and full Pydantic validation by default. This
+codec is the persistence compatibility contract; direct pandas and Polars
+Parquet methods are not.
+
 ## Reliability contract
 
 - Explicit or environment (`CFBD_API_KEY`) bearer authentication.
@@ -58,9 +73,13 @@ responses.
 - Safe public exception metadata without credentials, query strings, or
   response payloads.
 - Strict logical schemas and row/column assertions in both adapters.
+- One explicit Arrow schema for DataFrame materialization and nested Parquet
+  persistence, including empty and all-null tables.
+- Atomic internal Parquet writes and strict version, row-model, logical-schema,
+  physical-schema, and tagged-scalar validation on reads.
 - Black-box tests through the installed client and a local HTTP boundary.
-- CI installation checks for base pandas and the Polars extra on Python 3.11
-  and 3.13.
+- CI installation checks for base pandas and PyArrow and for the Polars extra
+  on Python 3.11 and 3.13.
 
 ## Removed 0.1.x surface
 
@@ -75,13 +94,22 @@ are not part of the supported client.
   player-passing PPA route.
 - Credentialed live-API tests; deterministic tests use a local HTTP server.
 - Polars `LazyFrame` results.
+- Public save/load methods and cache keys, locations, expiration, eviction,
+  request hashing, remote filesystems, and partitioned Parquet datasets.
+- Automatic flattening, exploding, or ML feature generation from nested
+  endpoint data.
 - Public dataset or workflow namespaces.
 
 Future datasets will compose validated endpoint results and validated
-subdatasets through joins into an authoritative tabular row model. Future
+subdatasets through joins into an authoritative tabular row model. They, and
+future ML feature layers, will perform explicit transformations at a declared
+row grain rather than changing source-faithful endpoint results. Future
 workflows will orchestrate endpoints and datasets with broader control flow and
-may return multiple artifacts. The accepted decision is recorded in
-[`architecture/0001-validated-models-before-dataframes.md`](architecture/0001-validated-models-before-dataframes.md).
+may return multiple artifacts. The layering and persistence decisions are
+recorded in
+[`architecture/0001-validated-models-before-dataframes.md`](architecture/0001-validated-models-before-dataframes.md)
+and
+[`architecture/0003-canonical-arrow-parquet.md`](architecture/0003-canonical-arrow-parquet.md).
 
 ## Development contract
 
@@ -93,9 +121,10 @@ make format
 make check
 ```
 
-`make install` installs the complete contributor environment, including both
-DataFrame backends. GitHub Actions runs the shared quality contract on Python
-3.11 and 3.13 and separately smoke-tests base and Polars installations.
+`make install` installs the complete contributor environment, including
+PyArrow and both DataFrame backends. GitHub Actions runs the shared quality
+contract on Python 3.11 and 3.13 and separately smoke-tests base and Polars
+installations.
 
 ## Historical material
 

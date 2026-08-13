@@ -40,9 +40,11 @@ GamesResource / DrivesResource / PlaysResource
              ▼
  annotation-derived logical schema
              │
-       ┌─────┴─────┐
-       ▼           ▼
-    pandas       Polars
+             ▼
+    canonical Arrow table
+       ┌─────┼─────┐
+       ▼     ▼     ▼
+    pandas Polars Parquet
 ```
 
 Pydantic response models are the sole authoritative external-data contract.
@@ -59,10 +61,13 @@ Stats scalar defined by
 explicit conversion failure; it never degrades to an unspecified object or
 `Any` column.
 
-Models are dumped in Python mode by field name. API row order, snake-case
-column order, nulls, and nesting are preserved. Conversion does not flatten,
-explode, add an ID index, or drop records. pandas represents structs/lists as
-objects; Polars represents them as native `Struct`/`List` values.
+Models are dumped in Python mode by field name and encoded through the
+canonical Arrow schema defined by
+[ADR 0003](0003-canonical-arrow-parquet.md). API row order, snake-case column
+order, nulls, and nesting are preserved. Conversion does not flatten, explode,
+add an ID index, or drop records. pandas represents structs/lists as objects;
+Polars represents them as native `Struct`/`List` values. Versioned Parquet uses
+the same Arrow representation rather than backend dtype inference.
 
 The transport owns authentication, one reusable session, finite per-attempt
 timeouts, HTTP handling, and bounded safe-GET retries. The client is a one-shot
@@ -117,6 +122,8 @@ only with real dataset and orchestration requirements.
 - Invalid external values fail before analytical objects exist.
 - Dataset builders can consume an internal validated-model interface without
   converting and re-validating intermediate DataFrames.
+- Both DataFrame backends and versioned Parquet exercise one canonical Arrow
+  schema, including for empty responses.
 - Adding a logical type requires deliberate support in both adapters.
 - Backend-native nested representation differs, while logical values and
   table shape remain invariant.
