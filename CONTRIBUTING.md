@@ -8,15 +8,18 @@ Python 3.12 and 3.13 are supported.
 make install
 make hooks
 make format
+make docs
 make check
 ```
 
 `make install` creates `.venv` and installs `.[dev,polars]` so the contributor
 environment exercises the canonical PyArrow layer, default pandas backend,
 and optional Polars backend. `make check` is the shared local and CI contract:
-Ruff lint/format checks, strict mypy, and the complete pytest suite. CI runs it
-on Python 3.12 and 3.13 and separately smoke-tests base and Polars
-installations.
+Ruff lint/format checks, strict mypy, a warning-free Sphinx HTML build, and the
+complete pytest suite. `make docs` writes the site to `docs/_build/html`. CI
+runs the shared contract on Python 3.12 and 3.13, separately smoke-tests base
+and Polars installations, and publishes the documentation from `main` through
+GitHub Pages.
 
 Follow [`AGENTS.md`](AGENTS.md), the authoritative repository engineering and
 Git guide. Run `make format` before `make check`; report every failure, skip,

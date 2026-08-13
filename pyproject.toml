@@ -31,16 +31,20 @@ polars = [
 ]
 dev = [
     "build>=1.5,<2",
+    "furo>=2025.12.19",
     "mypy>=2.3,<3",
+    "myst-parser>=5.1,<6",
     "pre-commit>=4.5,<5",
     "pyarrow-stubs>=20.0.0.20260625,<21",
     "pytest>=9,<10",
     "pytest-asyncio>=1.3,<2",
     "ruff>=0.15.22,<0.17",
+    "sphinx>=9.1,<10",
     "twine>=7,<8",
 ]
 
 [project.urls]
+Documentation = "https://ryanpaulanderson.github.io/cfb-data/"
 Repository = "https://github.com/ryanpaulanderson/cfb-data"
 Issues = "https://github.com/ryanpaulanderson/cfb-data/issues"
 

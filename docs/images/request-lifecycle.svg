@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" role="img" aria-labelledby="title description">
+  <title id="title">cfb-data request lifecycle</title>
+  <desc id="description">A request flows from user code through the client namespace, request validation, endpoint execution, HTTP transport, and the CollegeFootballData API. The JSON response is validated with Pydantic and becomes either a canonical Arrow-backed pandas or Polars DataFrame or a validated nested model.</desc>
+  <defs>
+    <style>
+      .background { fill: #f8fafc; }
+      .panel { fill: #ffffff; stroke: #475569; stroke-width: 2; }
+      .public { fill: #e0f2fe; stroke: #0369a1; }
+      .contract { fill: #ede9fe; stroke: #6d28d9; }
+      .transport { fill: #ffedd5; stroke: #c2410c; }
+      .external { fill: #fee2e2; stroke: #b91c1c; }
+      .canonical { fill: #dcfce7; stroke: #15803d; }
+      .result { fill: #ecfccb; stroke: #4d7c0f; }
+      .title { fill: #0f172a; font: 700 25px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .label { fill: #0f172a; font: 700 20px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .body { fill: #334155; font: 16px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .small { fill: #475569; font: 14px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .arrow { fill: none; stroke: #334155; stroke-width: 3; marker-end: url(#arrowhead); }
+      .branch { fill: none; stroke: #15803d; stroke-width: 3; marker-end: url(#green-arrowhead); }
+      .failure { fill: #fff7ed; stroke: #ea580c; stroke-width: 1.5; stroke-dasharray: 5 4; }
+      .failure-text { fill: #9a3412; font: 600 14px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      @media (prefers-color-scheme: dark) {
+        .background { fill: #0f172a; }
+        .panel { fill: #1e293b; stroke: #94a3b8; }
+        .public { fill: #0c4a6e; stroke: #38bdf8; }
+        .contract { fill: #4c1d95; stroke: #c4b5fd; }
+        .transport { fill: #7c2d12; stroke: #fdba74; }
+        .external { fill: #7f1d1d; stroke: #fca5a5; }
+        .canonical { fill: #14532d; stroke: #86efac; }
+        .result { fill: #365314; stroke: #bef264; }
+        .title, .label { fill: #f8fafc; }
+        .body, .small { fill: #e2e8f0; }
+        .arrow { stroke: #cbd5e1; }
+        .failure { fill: #431407; stroke: #fb923c; }
+        .failure-text { fill: #fed7aa; }
+      }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#334155"/>
+    </marker>
+    <marker id="green-arrowhead" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#15803d"/>
+    </marker>
+  </defs>
+
+  <rect class="background" width="1400" height="900" rx="16"/>
+  <text class="title" x="700" y="42" text-anchor="middle">From client call to validated result</text>
+
+  <rect class="panel public" x="50" y="80" width="235" height="125" rx="14"/>
+  <text class="label" x="168" y="116" text-anchor="middle">User application</text>
+  <text class="body" x="168" y="148" text-anchor="middle">await client.games.list(…)</text>
+  <text class="small" x="168" y="178" text-anchor="middle">inside async with CFBDClient()</text>
+
+  <rect class="panel public" x="335" y="80" width="235" height="125" rx="14"/>
+  <text class="label" x="453" y="116" text-anchor="middle">Public client layer</text>
+  <text class="body" x="453" y="148" text-anchor="middle">CFBDClient + namespace</text>
+  <text class="small" x="453" y="178" text-anchor="middle">lifecycle and backend selection</text>
+
+  <rect class="panel contract" x="620" y="80" width="235" height="125" rx="14"/>
+  <text class="label" x="738" y="116" text-anchor="middle">Request contract</text>
+  <text class="body" x="738" y="148" text-anchor="middle">Pydantic request model</text>
+  <text class="small" x="738" y="178" text-anchor="middle">filters, combinations, allowed values</text>
+
+  <rect class="panel transport" x="905" y="80" width="235" height="125" rx="14"/>
+  <text class="label" x="1023" y="116" text-anchor="middle">Execution layer</text>
+  <text class="body" x="1023" y="148" text-anchor="middle">serialize upstream aliases</text>
+  <text class="small" x="1023" y="178" text-anchor="middle">fixed endpoint + query parameters</text>
+
+  <rect class="panel transport" x="905" y="285" width="235" height="145" rx="14"/>
+  <text class="label" x="1023" y="321" text-anchor="middle">HTTP transport</text>
+  <text class="body" x="1023" y="353" text-anchor="middle">pooled aiohttp session</text>
+  <text class="small" x="1023" y="382" text-anchor="middle">auth · TLS · timeout · retries</text>
+  <text class="small" x="1023" y="407" text-anchor="middle">safe error metadata</text>
+
+  <rect class="panel external" x="1175" y="285" width="175" height="145" rx="14"/>
+  <text class="label" x="1263" y="321" text-anchor="middle">CFBD API</text>
+  <text class="body" x="1263" y="353" text-anchor="middle">HTTPS GET</text>
+  <text class="small" x="1263" y="382" text-anchor="middle">untrusted JSON</text>
+  <text class="small" x="1263" y="407" text-anchor="middle">response</text>
+
+  <rect class="panel contract" x="620" y="285" width="235" height="145" rx="14"/>
+  <text class="label" x="738" y="321" text-anchor="middle">Response contract</text>
+  <text class="body" x="738" y="353" text-anchor="middle">Pydantic response models</text>
+  <text class="small" x="738" y="382" text-anchor="middle">shape + value validation</text>
+  <text class="small" x="738" y="407" text-anchor="middle">API row order preserved</text>
+
+  <rect class="failure" x="620" y="225" width="235" height="38" rx="10"/>
+  <text class="failure-text" x="738" y="250" text-anchor="middle">invalid requests stop before HTTP</text>
+
+  <path class="arrow" d="M285 142 H327"/>
+  <path class="arrow" d="M570 142 H612"/>
+  <path class="arrow" d="M855 142 H897"/>
+  <path class="arrow" d="M1023 205 V277"/>
+  <path class="arrow" d="M1140 357 H1167"/>
+  <path class="arrow" d="M1175 405 C1110 475, 920 475, 855 405"/>
+
+  <text class="small" x="1015" y="470" text-anchor="middle">JSON response</text>
+
+  <rect class="panel canonical" x="80" y="535" width="270" height="125" rx="14"/>
+  <text class="label" x="215" y="571" text-anchor="middle">Logical schema</text>
+  <text class="body" x="215" y="603" text-anchor="middle">derived from row-model types</text>
+  <text class="small" x="215" y="632" text-anchor="middle">field order · nullability · nesting</text>
+
+  <rect class="panel canonical" x="405" y="535" width="270" height="125" rx="14"/>
+  <text class="label" x="540" y="571" text-anchor="middle">Canonical Arrow table</text>
+  <text class="body" x="540" y="603" text-anchor="middle">one backend-neutral table</text>
+  <text class="small" x="540" y="632" text-anchor="middle">exact recursive storage schema</text>
+
+  <rect class="panel result" x="730" y="535" width="270" height="125" rx="14"/>
+  <text class="label" x="865" y="571" text-anchor="middle">DataFrame adapter</text>
+  <text class="body" x="865" y="603" text-anchor="middle">selected at client creation</text>
+  <text class="small" x="865" y="632" text-anchor="middle">shape and row-count assertions</text>
+
+  <rect class="panel result" x="1055" y="535" width="295" height="125" rx="14"/>
+  <text class="label" x="1203" y="571" text-anchor="middle">Eager DataFrame result</text>
+  <text class="body" x="1203" y="603" text-anchor="middle">pandas (default) or Polars</text>
+  <text class="small" x="1203" y="632" text-anchor="middle">same columns, rows, and logical values</text>
+
+  <path class="branch" d="M700 430 C645 485, 300 480, 215 527"/>
+  <text class="small" x="430" y="505" text-anchor="middle">tabular endpoint</text>
+  <path class="branch" d="M350 598 H397"/>
+  <path class="branch" d="M675 598 H722"/>
+  <path class="branch" d="M1000 598 H1047"/>
+
+  <rect class="panel result" x="405" y="740" width="590" height="110" rx="14"/>
+  <text class="label" x="700" y="778" text-anchor="middle">Validated Pydantic model result</text>
+  <text class="body" x="700" y="811" text-anchor="middle">nested analytical response or operational account metadata</text>
+  <text class="small" x="700" y="836" text-anchor="middle">advanced box score · live plays · CFP bracket · info</text>
+
+  <path class="branch" d="M820 430 C850 475, 1025 475, 1025 527 V690 C1025 720, 1050 720, 1050 732"/>
+  <text class="small" x="1038" y="704" text-anchor="end">nested or operational endpoint</text>
+</svg>

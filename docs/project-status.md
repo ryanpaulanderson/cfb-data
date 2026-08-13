@@ -118,16 +118,21 @@ Package metadata and dependency groups live in `pyproject.toml`.
 ```sh
 make install
 make format
+make docs
 make check
 ```
 
 `make install` installs the complete contributor environment, including
-PyArrow and both DataFrame backends. GitHub Actions runs the shared quality
-contract on Python 3.12 and 3.13 and separately smoke-tests base and Polars
-installations.
+PyArrow and both DataFrame backends. `make docs` performs the same strict
+Sphinx HTML build used for publication. GitHub Actions runs the shared quality
+contract on Python 3.12 and 3.13, separately smoke-tests base and Polars
+installations, and deploys documentation from `main` to GitHub Pages. The
+published URL is part of the package's project metadata so PyPI displays it as
+the Documentation link.
 
 ## Historical material
 
-Earlier analyses and implementation plans remain under
-[`history/`](history/README.md). They explain superseded designs and are not a
-current roadmap or API reference.
+Earlier analyses and implementation plans remain in the repository's
+[`docs/history/`](https://github.com/ryanpaulanderson/cfb-data/tree/main/docs/history)
+directory. They explain superseded designs and are not a current roadmap or
+API reference.
