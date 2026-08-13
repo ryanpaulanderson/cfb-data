@@ -106,11 +106,10 @@ requests and groups them by their `enhancement`, `bug`, `documentation`, or
 
 PyPI does not authorize Trusted Publishing from GitHub's
 `pull_request_target` event. Keep release publishing on a `push` to `main`.
-If publishing fails after the GitHub release is created, manually dispatch the
-release workflow from `main` with that existing `vMAJOR.MINOR.PATCH` tag. The
-recovery path verifies that the tag exists, resolves its immutable commit, and
-requires its version to match the tagged `pyproject.toml` before rebuilding or
-publishing.
+If publishing fails transiently after the GitHub release is created, rerun the
+failed workflow jobs so they remain bound to the original trusted `main`
+commit. A source or workflow correction requires a new, higher version through
+the normal pull-request release process.
 
 The PyPI publisher is scoped to `.github/workflows/release.yml` and the
 protected `pypi` GitHub environment. The publishing job alone receives the

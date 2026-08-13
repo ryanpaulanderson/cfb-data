@@ -1,6 +1,6 @@
 # College Football Data Python Toolkit
 
-`cfb-data` 0.3.0 is an asynchronous, validated client for the public
+`cfb-data` 0.4.1 is an asynchronous, validated client for the public
 [CollegeFootballData API](https://collegefootballdata.com/) REST endpoint
 groups. It returns eager pandas DataFrames by default and can return the same
 logical tables as Polars DataFrames. Irreducibly nested analytical responses
@@ -32,7 +32,7 @@ python -m pip install "cfb-data[polars]"
 ```
 
 Python 3.11 through 3.13 is supported. DataFrames are eager; Polars
-`LazyFrame` results are not part of the 0.3.0 contract.
+`LazyFrame` results are not part of the 0.4.1 contract.
 
 ## Authentication and lifecycle
 
@@ -330,7 +330,7 @@ Use the typed namespace method and either its request model or keyword filters.
 
 ## Datasets and workflows
 
-Version 0.3.0 does not expose `client.datasets` or `client.workflows`. The
+Version 0.4.1 does not expose `client.datasets` or `client.workflows`. The
 accepted architecture reserves two higher layers:
 
 - datasets compose validated endpoint results and validated subdatasets

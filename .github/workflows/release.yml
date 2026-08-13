@@ -5,17 +5,11 @@ on:
     branches: [main]
     paths:
       - pyproject.toml
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing release tag to rebuild and publish
-        required: true
-        type: string
 
 permissions: {}
 
 concurrency:
-  group: release-${{ github.event_name }}-${{ inputs.tag || github.sha }}
+  group: release-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -24,7 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      release_sha: ${{ steps.version.outputs.release_sha }}
       should_release: ${{ steps.version.outputs.should_release }}
       version: ${{ steps.version.outputs.version }}
     permissions:
@@ -38,13 +31,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Resolve release version and commit
+      - name: Detect main version bump
         id: version
         env:
-          EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PUSH_SHA: ${{ github.sha }}
-          REQUESTED_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
 
@@ -57,52 +48,31 @@ jobs:
           previous_pyproject="$(mktemp)"
           trap 'rm -f "$release_pyproject" "$previous_pyproject"' EXIT
 
-          if [[ "$EVENT_NAME" == "push" ]]; then
-            release_sha="$PUSH_SHA"
-            previous_sha="$(
-              gh api --method GET \
-                "repos/${GITHUB_REPOSITORY}/commits/${release_sha}" \
-                --jq '.parents | select(length == 2) | .[0].sha'
-            )"
-            if [[ -z "$previous_sha" ]]; then
-              echo "Expected main commit $release_sha to have exactly two parents." >&2
-              echo "Release automation requires the merge-commit-only policy." >&2
-              exit 1
-            fi
-
+          previous_sha="$(
             gh api --method GET \
-              -H "Accept: application/vnd.github.raw+json" \
-              -f ref="$previous_sha" \
-              "repos/${GITHUB_REPOSITORY}/contents/pyproject.toml" \
-              >"$previous_pyproject"
-          elif [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            if [[ ! "$REQUESTED_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-              echo "Recovery tag $REQUESTED_TAG is not vMAJOR.MINOR.PATCH." >&2
-              exit 1
-            fi
-            gh release view "$REQUESTED_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
-            release_sha="$(
-              gh api --method GET \
-                "repos/${GITHUB_REPOSITORY}/commits/${REQUESTED_TAG}" \
-                --jq .sha
-            )"
-          else
-            echo "Unsupported release event $EVENT_NAME." >&2
+              "repos/${GITHUB_REPOSITORY}/commits/${PUSH_SHA}" \
+              --jq '.parents | select(length == 2) | .[0].sha'
+          )"
+          if [[ -z "$previous_sha" ]]; then
+            echo "Expected main commit $PUSH_SHA to have exactly two parents." >&2
+            echo "Release automation requires the merge-commit-only policy." >&2
             exit 1
           fi
 
           gh api --method GET \
             -H "Accept: application/vnd.github.raw+json" \
-            -f ref="$release_sha" \
+            -f ref="$previous_sha" \
+            "repos/${GITHUB_REPOSITORY}/contents/pyproject.toml" \
+            >"$previous_pyproject"
+          gh api --method GET \
+            -H "Accept: application/vnd.github.raw+json" \
+            -f ref="$PUSH_SHA" \
             "repos/${GITHUB_REPOSITORY}/contents/pyproject.toml" \
             >"$release_pyproject"
 
           python - \
-            "$EVENT_NAME" \
-            "$REQUESTED_TAG" \
             "$previous_pyproject" \
             "$release_pyproject" \
-            "$release_sha" \
             "$GITHUB_OUTPUT" <<'PY'
           import re
           import sys
@@ -132,49 +102,25 @@ jobs:
               return version
 
 
-          event_name = sys.argv[1]
-          requested_tag = sys.argv[2]
-          previous_path = Path(sys.argv[3])
-          release_version = read_version(Path(sys.argv[4]))
-          release_sha = sys.argv[5]
-          output_path = Path(sys.argv[6])
+          previous_version = read_version(Path(sys.argv[1]))
+          release_version = read_version(Path(sys.argv[2]))
+          output_path = Path(sys.argv[3])
+          previous_parts = tuple(int(part) for part in previous_version.split("."))
+          release_parts = tuple(int(part) for part in release_version.split("."))
 
-          if event_name == "push":
-              previous_version = read_version(previous_path)
-              previous_parts = tuple(
-                  int(part) for part in previous_version.split(".")
+          if release_parts < previous_parts:
+              raise SystemExit(
+                  "project.version decreased from "
+                  f"{previous_version} to {release_version}"
               )
-              release_parts = tuple(
-                  int(part) for part in release_version.split(".")
-              )
-
-              if release_parts < previous_parts:
-                  raise SystemExit(
-                      "project.version decreased from "
-                      f"{previous_version} to {release_version}"
-                  )
-              should_release = release_parts > previous_parts
-          elif event_name == "workflow_dispatch":
-              expected_tag = f"v{release_version}"
-              if requested_tag != expected_tag:
-                  raise SystemExit(
-                      f"requested tag {requested_tag!r} does not match "
-                      f"project.version tag {expected_tag!r}"
-                  )
-              should_release = True
-              previous_version = None
-          else:
-              raise SystemExit(f"unsupported release event {event_name!r}")
+          should_release = release_parts > previous_parts
 
           with output_path.open("a", encoding="utf-8") as output:
-              print(f"release_sha={release_sha}", file=output)
               print(f"should_release={str(should_release).lower()}", file=output)
               if should_release:
                   print(f"version={release_version}", file=output)
 
-          if event_name == "workflow_dispatch":
-              print(f"Selected existing release {requested_tag} at {release_sha}")
-          elif should_release:
+          if should_release:
               print(f"Detected release version {previous_version} -> {release_version}")
           else:
               print(
@@ -184,12 +130,10 @@ jobs:
           PY
 
       - name: Create GitHub release
-        if: >-
-          github.event_name == 'push' &&
-          steps.version.outputs.should_release == 'true'
+        if: steps.version.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_SHA: ${{ steps.version.outputs.release_sha }}
+          RELEASE_SHA: ${{ github.sha }}
           TAG: v${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
@@ -247,7 +191,7 @@ jobs:
       - name: Check out released commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
         with:
-          ref: ${{ needs.release.outputs.release_sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Set up Python
