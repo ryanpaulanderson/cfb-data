@@ -24,6 +24,8 @@ from cfb_data._transport import (
     _validate_base_url,
     _validate_timeout,
 )
+from cfb_data.betting.resource import BettingResource
+from cfb_data.coaches.resource import CoachesResource
 from cfb_data.conferences.resource import ConferencesResource
 from cfb_data.drives.resource import DrivesResource
 from cfb_data.errors import CFBDConfigurationError
@@ -31,7 +33,9 @@ from cfb_data.games.resource import GamesResource
 from cfb_data.metrics.resource import MetricsResource
 from cfb_data.players.resource import PlayersResource
 from cfb_data.plays.resource import PlaysResource
+from cfb_data.rankings.resource import RankingsResource
 from cfb_data.ratings.resource import RatingsResource
+from cfb_data.recruiting.resource import RecruitingResource
 from cfb_data.retry import RetryPolicy
 from cfb_data.stats.resource import StatsResource
 from cfb_data.teams.resource import TeamsResource
@@ -132,6 +136,10 @@ class CFBDClient(Generic[_FrameT]):
         self._metrics = MetricsResource(executor, adapter)
         self._ratings = RatingsResource(executor, adapter)
         self._players = PlayersResource(executor, adapter)
+        self._rankings = RankingsResource(executor, adapter)
+        self._betting = BettingResource(executor, adapter)
+        self._recruiting = RecruitingResource(executor, adapter)
+        self._coaches = CoachesResource(executor, adapter)
 
     @property
     def games(self) -> GamesResource[_FrameT]:
@@ -212,6 +220,38 @@ class CFBDClient(Generic[_FrameT]):
         :return: Resource bound to this client's session and DataFrame backend.
         """
         return self._players
+
+    @property
+    def rankings(self) -> RankingsResource[_FrameT]:
+        """Return the typed Rankings endpoint namespace.
+
+        :return: Resource bound to this client's session and DataFrame backend.
+        """
+        return self._rankings
+
+    @property
+    def betting(self) -> BettingResource[_FrameT]:
+        """Return the typed Betting endpoint namespace.
+
+        :return: Resource bound to this client's session and DataFrame backend.
+        """
+        return self._betting
+
+    @property
+    def recruiting(self) -> RecruitingResource[_FrameT]:
+        """Return the typed Recruiting endpoint namespace.
+
+        :return: Resource bound to this client's session and DataFrame backend.
+        """
+        return self._recruiting
+
+    @property
+    def coaches(self) -> CoachesResource[_FrameT]:
+        """Return the typed Coaches endpoint namespace.
+
+        :return: Resource bound to this client's session and DataFrame backend.
+        """
+        return self._coaches
 
     async def __aenter__(self) -> Self:
         await self._transport.open()

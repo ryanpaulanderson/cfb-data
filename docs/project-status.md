@@ -1,16 +1,17 @@
 # Project status
 
-> Status as of August 12, 2026: version 0.2.0 implements the supported Games,
-> Drives, Plays, Venues, Conferences, Teams, Stats, Metrics, Ratings, and
-> Players client surface. Broader endpoint, dataset, and workflow coverage
-> remains future work.
+> Status as of August 13, 2026: version 0.2.0 implements the supported Games,
+> Drives, Plays, Venues, Conferences, Teams, Stats, Metrics, Ratings, Players,
+> Rankings, Betting, Recruiting, and Coaches client surface. Broader endpoint,
+> dataset, and workflow coverage remains future work.
 
 ## Current product surface
 
 `CFBDClient` is the sole primary client. It owns one context-managed,
 connection-pooled `aiohttp.ClientSession` and exposes typed `games`, `drives`,
 `plays`, `venues`, `conferences`, `teams`, `stats`, `metrics`, `ratings`, and
-`players` namespaces. Every endpoint follows the same boundary sequence:
+`players`, `rankings`, `betting`, `recruiting`, and `coaches` namespaces. Every
+endpoint follows the same boundary sequence:
 
 ```text
 HTTP → decoded JSON → Pydantic response validation → logical schema → DataFrame
@@ -34,6 +35,10 @@ The Stats routes are `/stats/player/season`, `/stats/player/success`,
 Metrics implements eight PPA and probability routes, Ratings implements seven
 rating-system routes, and Players implements the five documented player
 routes. The hidden `/player/ppa/passing` route is not public client surface.
+Rankings implements `/rankings`, Betting implements `/lines`, Recruiting
+implements `/recruiting/players`, `/recruiting/teams`, and
+`/recruiting/groups`, and Coaches implements `/coaches`, `/coaches/profile`,
+`/coaches/seasons`, and `/coaches/tenures`.
 
 ## Reliability contract
 
@@ -60,7 +65,7 @@ are not part of the supported client.
 ## Deliberately not included in 0.2.0
 
 - Endpoint families beyond Games, Drives, Plays, Venues, Conferences, Teams,
-  Stats, Metrics, Ratings, and Players.
+  Stats, Metrics, Ratings, Players, Rankings, Betting, Recruiting, and Coaches.
 - Credentialed live-API tests; deterministic tests use a local HTTP server.
 - Polars `LazyFrame` results.
 - Public dataset or workflow namespaces.
