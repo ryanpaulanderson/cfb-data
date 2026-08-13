@@ -98,8 +98,7 @@ addition to the normal quality contract:
 ```sh
 make format
 make check
-.venv/bin/python -m build
-.venv/bin/python -m twine check --strict dist/*
+make build
 ```
 
 Release automation relies on and validates the repository's merge-commit-only
