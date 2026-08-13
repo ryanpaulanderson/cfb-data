@@ -79,10 +79,28 @@ contract passes.
 To create a release, update `[project].version` in `pyproject.toml` to a
 strictly higher `MAJOR.MINOR.PATCH` version in a pull request. When that pull
 request is merged into `main`, the release workflow creates the matching
-`vMAJOR.MINOR.PATCH` tag and published GitHub release at the merge commit.
-GitHub generates the release notes from merged pull requests and groups them by
-their `enhancement`, `bug`, `documentation`, or `dependencies` labels, with an
+`vMAJOR.MINOR.PATCH` tag and published GitHub release at the merge commit. It
+then builds and validates the wheel and source distribution from that exact
+commit before publishing them to PyPI through Trusted Publishing. GitHub
+generates the release notes from merged pull requests and groups them by their
+`enhancement`, `bug`, `documentation`, or `dependencies` labels, with an
 additional catch-all section.
+
+The PyPI publisher is scoped to `.github/workflows/release.yml` and the
+protected `pypi` GitHub environment. The publishing job alone receives the
+`id-token: write` permission; the build job cannot request PyPI credentials,
+and no long-lived PyPI token is stored in GitHub. Release actions are pinned to
+immutable commits.
+
+Before proposing a version bump, validate the distributions locally in
+addition to the normal quality contract:
+
+```sh
+make format
+make check
+.venv/bin/python -m build
+.venv/bin/python -m twine check --strict dist/*
+```
 
 Release automation relies on and validates the repository's merge-commit-only
 policy so the merge commit's first parent identifies the exact pre-merge state
@@ -91,6 +109,6 @@ method.
 
 Pull requests that change `pyproject.toml` without increasing the project
 version do not create a release. A version decrease or a version outside the
-documented three-component form fails the release check. The workflow does not
-publish to PyPI; package publication will be added as a separate release step
-when that distribution contract is ready.
+documented three-component form fails the release check. PyPI versions and
+distribution files are immutable, so never reuse a version after any artifact
+for it has been uploaded.
