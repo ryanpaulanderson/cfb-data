@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime, timedelta, timezone
 from enum import StrEnum
 from pathlib import Path
@@ -591,6 +592,49 @@ def test_atomic_write_preserves_existing_target_and_cleans_temporary_file(
     assert exc_info.value.__cause__ is not None
     assert str(exc_info.value.__cause__) == "RuntimeError"
     assert "sensitive" not in str(exc_info.value.__cause__)
+
+
+def test_failed_temporary_close_preserves_target_and_cleans_resources(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "close-failure.parquet"
+    original = b"existing-target"
+    path.write_bytes(original)
+    real_fdopen = os.fdopen
+    descriptor: int | None = None
+
+    class CloseFailure:
+        """Close the descriptor and then report a synthetic close failure."""
+
+        def __init__(self, candidate: int) -> None:
+            self._candidate = candidate
+            self._file = real_fdopen(candidate, "wb")
+
+        def __enter__(self) -> object:
+            return self._file
+
+        def __exit__(self, *args: object) -> None:
+            self._file.close()
+            raise OSError("close failure with unsafe paths")
+
+    def fail_close(candidate: int, mode: str) -> CloseFailure:
+        nonlocal descriptor
+        descriptor = candidate
+        assert mode == "wb"
+        return CloseFailure(candidate)
+
+    monkeypatch.setattr("cfb_data._parquet.os.fdopen", fail_close)
+    with pytest.raises(_ParquetCodecError) as exc_info:
+        _write_parquet(path, row_model=_StorageRow, table=_table())
+
+    assert descriptor is not None
+    with pytest.raises(OSError):
+        os.fstat(descriptor)
+    assert path.read_bytes() == original
+    assert not list(tmp_path.glob(f".{path.name}.*.tmp"))
+    assert exc_info.value.category == "io"
+    assert str(exc_info.value.__cause__) == "OSError"
 
 
 def test_failed_atomic_replacement_preserves_target_and_cleans_temporary_file(

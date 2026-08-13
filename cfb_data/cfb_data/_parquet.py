@@ -143,18 +143,18 @@ def _write_parquet_file(
         suffix=".tmp",
         dir=path.parent,
     )
-    os.close(descriptor)
     temporary_path = Path(temporary_name)
     try:
-        pq.write_table(
-            table,
-            temporary_path,
-            version=_PARQUET_VERSION,
-            compression=_PARQUET_COMPRESSION,
-            write_statistics=True,
-            use_compliant_nested_type=True,
-            store_schema=True,
-        )
+        with os.fdopen(descriptor, "wb") as temporary_file:
+            pq.write_table(
+                table,
+                temporary_file,
+                version=_PARQUET_VERSION,
+                compression=_PARQUET_COMPRESSION,
+                write_statistics=True,
+                use_compliant_nested_type=True,
+                store_schema=True,
+            )
         os.replace(temporary_path, path)
     finally:
         with suppress(FileNotFoundError):
