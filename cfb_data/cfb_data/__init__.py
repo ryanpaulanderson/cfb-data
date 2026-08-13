@@ -1,5 +1,11 @@
 """Access validated CollegeFootballData endpoints as pandas or Polars frames."""
 
+from .adjusted_metrics.models.pydantic.requests import (
+    AdjustedPlayerPassingRequest,
+    AdjustedPlayerRushingRequest,
+    AdjustedTeamMetricsRequest,
+    KickerPAARRequest,
+)
 from .betting.models.pydantic.requests import BettingLinesRequest
 from .client import CFBDClient, DataFrameBackend
 from .coaches.models.pydantic.requests import (
@@ -14,6 +20,7 @@ from .conferences.models.pydantic.requests import (
     ConferencesRequest,
 )
 from .conferences.models.pydantic.responses import ConferenceClassification
+from .draft.models.pydantic.requests import DraftPicksRequest
 from .drives.models.pydantic.requests import DrivesRequest
 from .enums import (
     Classification,
@@ -24,6 +31,7 @@ from .enums import (
     RecruitClassification,
     SeasonType,
     TransferEligibility,
+    UserUsageApi,
 )
 from .errors import (
     CFBDAuthenticationError,
@@ -55,6 +63,8 @@ from .games.models.pydantic.requests import (
     TeamGameStatsRequest,
 )
 from .games.models.pydantic.responses import AdvancedBoxScore
+from .info.models.pydantic.requests import InfoUsageRequest
+from .info.models.pydantic.responses import UserInfo, UserUsage
 from .metrics.models.pydantic.requests import (
     PlayerGamePPARequest,
     PlayerSeasonPPARequest,
@@ -71,6 +81,12 @@ from .players.models.pydantic.requests import (
     ReturningProductionRequest,
     TransferPortalRequest,
 )
+from .playoffs.models.pydantic.requests import (
+    CfpGamesRequest,
+    CfpParticipantsRequest,
+    CfpPlayoffRequest,
+)
+from .playoffs.models.pydantic.responses import CfpPlayoff
 from .plays.models.pydantic.requests import (
     LivePlaysRequest,
     PlaysRequest,
@@ -112,12 +128,19 @@ from .teams.models.pydantic.requests import (
 )
 
 __all__ = [
+    "AdjustedPlayerPassingRequest",
+    "AdjustedPlayerRushingRequest",
+    "AdjustedTeamMetricsRequest",
     "AdvancedBoxScoreRequest",
     "AdvancedBoxScore",
     "AdvancedGameStatsRequest",
     "AdvancedSeasonStatsRequest",
     "BettingLinesRequest",
     "CalendarRequest",
+    "CfpGamesRequest",
+    "CfpParticipantsRequest",
+    "CfpPlayoff",
+    "CfpPlayoffRequest",
     "CFBDAuthenticationError",
     "CFBDAuthorizationError",
     "CFBDClient",
@@ -147,6 +170,7 @@ __all__ = [
     "ConferenceSPRatingsRequest",
     "CoreRatingsRequest",
     "DataFrameBackend",
+    "DraftPicksRequest",
     "DrivesRequest",
     "EloRatingsRequest",
     "ExpandedSRSRatingsRequest",
@@ -157,6 +181,8 @@ __all__ = [
     "GameHavocRequest",
     "FBSTeamsRequest",
     "HomeAway",
+    "InfoUsageRequest",
+    "KickerPAARRequest",
     "LiveGame",
     "LivePlaysRequest",
     "MediaType",
@@ -200,6 +226,9 @@ __all__ = [
     "TeamsRequest",
     "TransferPortalRequest",
     "TransferEligibility",
+    "UserInfo",
+    "UserUsage",
+    "UserUsageApi",
     "WinProbabilityRequest",
     "DownType",
 ]

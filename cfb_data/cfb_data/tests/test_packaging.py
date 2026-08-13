@@ -3,9 +3,13 @@
 from importlib.metadata import version
 from importlib.resources import files
 
+import cfb_data.adjusted_metrics
 import cfb_data.conferences
+import cfb_data.draft
 import cfb_data.drives
 import cfb_data.games
+import cfb_data.info
+import cfb_data.playoffs
 import cfb_data.plays
 import cfb_data.teams
 import cfb_data.venues
@@ -45,4 +49,8 @@ def test_legacy_clients_and_generic_routing_are_not_exported() -> None:
     assert legacy_names.isdisjoint(vars(cfb_data.venues))
     assert legacy_names.isdisjoint(vars(cfb_data.conferences))
     assert legacy_names.isdisjoint(vars(cfb_data.teams))
+    assert legacy_names.isdisjoint(vars(cfb_data.draft))
+    assert legacy_names.isdisjoint(vars(cfb_data.playoffs))
+    assert legacy_names.isdisjoint(vars(cfb_data.adjusted_metrics))
+    assert legacy_names.isdisjoint(vars(cfb_data.info))
     assert not hasattr(cfb_data.CFBDClient("key"), "make_request")

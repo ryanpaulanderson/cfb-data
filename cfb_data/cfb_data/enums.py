@@ -62,6 +62,14 @@ class PlayoffRound(StrEnum):
     championship = "championship"
 
 
+class UserUsageApi(StrEnum):
+    """Identify which product contributes to an account usage summary."""
+
+    all = "all"
+    cfb = "cfb"
+    cbb = "cbb"
+
+
 class TransferEligibility(StrEnum):
     """Identify a transfer player's recorded eligibility status."""
 
@@ -81,4 +89,5 @@ __all__ = [
     "RecruitClassification",
     "SeasonType",
     "TransferEligibility",
+    "UserUsageApi",
 ]

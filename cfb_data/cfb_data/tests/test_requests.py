@@ -8,9 +8,15 @@ from cfb_data.games.models.pydantic.responses import CalendarWeek, Game
 from pydantic import ValidationError
 
 from cfb_data import (
+    AdjustedPlayerPassingRequest,
+    AdjustedPlayerRushingRequest,
+    AdjustedTeamMetricsRequest,
     AdvancedBoxScoreRequest,
     BettingLinesRequest,
     CalendarRequest,
+    CfpGamesRequest,
+    CfpParticipantsRequest,
+    CfpPlayoffRequest,
     Classification,
     CoachesRequest,
     CoachProfileRequest,
@@ -18,6 +24,7 @@ from cfb_data import (
     CoachTenuresRequest,
     ConferenceSPRatingsRequest,
     CoreRatingsRequest,
+    DraftPicksRequest,
     DrivesRequest,
     EloRatingsRequest,
     ExpandedSRSRatingsRequest,
@@ -25,6 +32,8 @@ from cfb_data import (
     GameMediaRequest,
     GamesRequest,
     GameWeatherRequest,
+    InfoUsageRequest,
+    KickerPAARRequest,
     LivePlaysRequest,
     MediaType,
     PlayerGamePPARequest,
@@ -129,6 +138,15 @@ def test_request_models_are_exported_and_serialize_upstream_aliases() -> None:
         (CoachProfileRequest, {"coach_id": 1}),
         (CoachSeasonsRequest, {}),
         (CoachTenuresRequest, {}),
+        (DraftPicksRequest, {}),
+        (CfpPlayoffRequest, {"year": 2024}),
+        (CfpParticipantsRequest, {"year": 2024}),
+        (CfpGamesRequest, {"year": 2024}),
+        (AdjustedTeamMetricsRequest, {}),
+        (AdjustedPlayerPassingRequest, {}),
+        (AdjustedPlayerRushingRequest, {}),
+        (KickerPAARRequest, {}),
+        (InfoUsageRequest, {}),
     ],
 )
 def test_new_request_models_are_public_and_accept_documented_minimums(

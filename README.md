@@ -1,10 +1,10 @@
 # College Football Data Python Toolkit
 
-`cfb-data` 0.2.0 is an asynchronous, validated client for implemented
-[CollegeFootballData API](https://collegefootballdata.com/) game, play, stats,
-metrics, ratings, player, rankings, betting, recruiting, coaches, and
-reference-data endpoints. It returns eager pandas DataFrames by default and
-can return the same logical tables as Polars DataFrames.
+`cfb-data` 0.2.0 is an asynchronous, validated client for the public
+[CollegeFootballData API](https://collegefootballdata.com/) REST endpoint
+groups. It returns eager pandas DataFrames by default and can return the same
+logical tables as Polars DataFrames. Irreducibly nested analytical responses
+and operational account metadata return validated models instead.
 
 The request path is explicit:
 
@@ -61,6 +61,12 @@ async def main() -> None:
             search_term="Edwards", year=2024, team="Michigan"
         )
         teams = await client.teams.fbs(year=2024)
+        draft_picks = await client.draft.picks(year=2024, school="Michigan")
+        playoff = await client.playoffs.cfp(year=2024)
+        adjusted = await client.adjusted_metrics.team_season(
+            year=2024, team="Michigan"
+        )
+        account = await client.info.account()
 
     print(games.head())
     print(drives.head())
@@ -69,6 +75,10 @@ async def main() -> None:
     print(ratings.head())
     print(players.head())
     print(teams.head())
+    print(draft_picks.head())
+    print(playoff.champion)
+    print(adjusted.head())
+    print(account.tier_name)
 
 
 asyncio.run(main())
@@ -174,15 +184,29 @@ name is always `game_id`; request serialization maps it to upstream `id` or
 | `client.coaches.profile` | `CoachProfileRequest` | one `CoachProfile` row as selected frame |
 | `client.coaches.seasons` | `CoachSeasonsRequest` | `DetailedCoachSeason` rows as selected frame |
 | `client.coaches.tenures` | `CoachTenuresRequest` | `CoachTenure` rows as selected frame |
+| `client.draft.teams` | None | `DraftTeam` rows as selected frame |
+| `client.draft.positions` | None | `DraftPosition` rows as selected frame |
+| `client.draft.picks` | `DraftPicksRequest` | `DraftPick` rows as selected frame |
+| `client.playoffs.cfp` | `CfpPlayoffRequest` | `CfpPlayoff` model |
+| `client.playoffs.participants` | `CfpParticipantsRequest` | `PlayoffParticipant` rows as selected frame |
+| `client.playoffs.games` | `CfpGamesRequest` | `PlayoffMatchup` rows as selected frame |
+| `client.adjusted_metrics.team_season` | `AdjustedTeamMetricsRequest` | `AdjustedTeamMetrics` rows as selected frame |
+| `client.adjusted_metrics.player_passing` | `AdjustedPlayerPassingRequest` | `PlayerWeightedEPA` rows as selected frame |
+| `client.adjusted_metrics.player_rushing` | `AdjustedPlayerRushingRequest` | `PlayerWeightedEPA` rows as selected frame |
+| `client.adjusted_metrics.kicker_paar` | `KickerPAARRequest` | `KickerPAAR` rows as selected frame |
+| `client.info.account` | None | `UserInfo` model |
+| `client.info.usage` | `InfoUsageRequest` | `UserUsage` model |
 
 Request models and shared `StrEnum` values are exported from `cfb_data` and
 their supported domain namespaces. Enum fields also accept their documented
 string values.
 
 Raw JSON and general validated-model return modes are intentionally excluded.
-Advanced box score and live plays return models because their nested sections
-do not form one natural table. The upstream live-plays route requires Patreon
-Tier 2 access.
+Advanced box score, live plays, and the complete CFP bracket return models
+because their nested sections do not form one natural table. Info returns
+models because account and usage metadata are operational objects rather than
+analytical tables. The upstream live-plays route requires Patreon Tier 2
+access; all Adjusted Metrics routes require Patreon Tier 1 access.
 
 Team matchup, player season overview, and coach profile are one-row frames
 containing nested columns. Rankings preserve polls and ranks, betting preserves
