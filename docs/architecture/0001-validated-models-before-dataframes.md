@@ -71,9 +71,11 @@ async context manager so session ownership and cleanup are deterministic.
 ## Public return modes
 
 Tabular endpoint responses return the selected eager DataFrame type. Raw JSON
-and general validated-model modes are excluded. Advanced box score and live
-plays are the exceptions because their nested sections lack one natural table.
-Team matchup remains tabular as one summary row with nested games.
+and general validated-model modes are excluded. Advanced box score, live
+plays, and the complete CFP bracket are the analytical exceptions because
+their nested sections lack one natural table. Info account and usage responses
+also remain models because they are operational metadata, not analytical
+tables. Team matchup remains tabular as one summary row with nested games.
 
 The former client hierarchy, route decorator, generic
 `make_request(path, params)` entry point, Pandera schemas, and Pandera runtime

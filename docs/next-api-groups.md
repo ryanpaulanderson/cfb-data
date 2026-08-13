@@ -1,31 +1,38 @@
-# Next CFBD API groups
+# CFBD API group coverage
 
-> Discovery status as of August 13, 2026. This recommendation is based on the
-> official CFBD API v5.24.0 controllers and response types. It is a planning
-> document, not a supported endpoint contract.
+> Coverage status as of August 13, 2026. This record is based on the official
+> CFBD API v5.24.0 controllers and response types.
 
-## Recommendation
+## Status
 
-Venues, Conferences, Teams, Stats, Metrics, Ratings, Players, Rankings,
-Betting, Recruiting, and Coaches are now implemented. The next deliverable
-should be **Draft**.
+There is no remaining public v5.24.0 REST endpoint group to schedule. Draft,
+Playoffs, Adjusted Metrics, and Info complete the controller coverage that was
+previously recommended here.
 
-The completed Rankings and Betting tables preserve their upstream nested poll
-and provider collections. Recruiting exposes its three distinct grains, and
-Coaches exposes the historical summary, profile, season, and tenure routes.
+| Completed tranche | Routes | Public result contract | Main design decision |
+| --- | ---: | --- | --- |
+| Draft | 3 | Separate team, position, and pick DataFrames | Preserve each upstream grain instead of joining identities into picks. |
+| Playoffs | 3 | Participant and matchup DataFrames; complete bracket model | Keep the nested bracket, rounds, slots, linked games, and advancement graph together. |
+| Adjusted Metrics | 4 | Team, passing, rushing, and kicking DataFrames | Keep player WEPA and kicker PAAR as distinct measures; all routes require Patreon Tier 1. |
+| Info | 2 | Account and usage models | Keep operational metadata outside the analytical DataFrame product. |
 
-## Recommended sequence
+The package now covers the public controllers for Games, Drives, Plays, Live,
+Teams, Stats, Metrics, Ratings, Players, Rankings, Betting, Recruiting,
+Coaches, Draft, Playoffs, Adjusted Metrics, and Info. The source-level
+`boxScores` controller is exposed through the Games advanced-box-score route;
+the Teams controller also owns Venues and Conferences routes in the public API.
 
-| Priority | Group or tranche | Routes | Rationale | Main complication |
-| ---: | --- | ---: | --- | --- |
-| 1 | Draft | 3 | Adds player outcome data that now composes naturally with the implemented player and recruiting identities. | Picks, team aggregates, and position aggregates form separate grains. |
-| 2 | Playoffs | 3 | Supports the new CFP-specific competition model. | New nested bracket and advancement models are specialized and still evolving. |
-| 3 | Adjusted Metrics | 4 | Adds opponent-adjusted WEPA and player value measures. | All routes require Patreon Tier 1 and depend conceptually on Plays/Metrics. |
-| 4 | Info | 2 | Exposes account and usage metadata. | Operational metadata is separate from the analytical DataFrame product. |
+## Deliberate exclusions
 
-The route count reflects the current v5.24.0 source, not the legacy Swagger
-grouping. Implemented Players coverage excludes the controller's deliberately
-hidden rolling passing-PPA route.
+- `auth` contains server authentication machinery rather than a public data
+  endpoint group.
+- The controller's hidden rolling player passing-PPA route remains outside the
+  supported client surface.
+- Raw JSON and a public generic route router remain intentionally unsupported.
+
+With public REST group coverage complete, future roadmap work belongs in
+validated datasets, workflows, deeper cross-endpoint identity composition, or
+new upstream API versions—not another v5.24.0 endpoint tranche.
 
 ## Resolved Stats scalar decision
 
@@ -40,9 +47,7 @@ recorded in
 - [Current CFBD API reference](https://api.collegefootballdata.com/api)
 - [CFBD API v5.24.0 source](https://github.com/CFBD/cfb-api-v2/tree/v5.24.0/src/app)
 - [Endpoint access rules](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/config/auth.ts)
-- [Teams, Conferences, and Venues controller](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/teams/controller.ts)
-- [Stats response types](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/stats/types.ts)
-- [Rankings response types](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/rankings/types.ts)
-- [Betting response types](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/lines/types.ts)
-- [Recruiting response types](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/recruiting/types.ts)
-- [Coaches response types](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/coaches/types.ts)
+- [Draft controller and response types](https://github.com/CFBD/cfb-api-v2/tree/v5.24.0/src/app/draft)
+- [Playoffs controller and response types](https://github.com/CFBD/cfb-api-v2/tree/v5.24.0/src/app/playoffs)
+- [Adjusted Metrics controller and response types](https://github.com/CFBD/cfb-api-v2/tree/v5.24.0/src/app/wepa)
+- [Info controller and response types](https://github.com/CFBD/cfb-api-v2/tree/v5.24.0/src/app/info)

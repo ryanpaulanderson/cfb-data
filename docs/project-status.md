@@ -1,27 +1,28 @@
 # Project status
 
-> Status as of August 13, 2026: version 0.2.0 implements the supported Games,
-> Drives, Plays, Venues, Conferences, Teams, Stats, Metrics, Ratings, Players,
-> Rankings, Betting, Recruiting, and Coaches client surface. Broader endpoint,
-> dataset, and workflow coverage remains future work.
+> Status as of August 13, 2026: version 0.2.0 implements the supported public
+> CFBD v5.24.0 REST endpoint surface. Dataset and workflow coverage remains
+> future work.
 
 ## Current product surface
 
 `CFBDClient` is the sole primary client. It owns one context-managed,
 connection-pooled `aiohttp.ClientSession` and exposes typed `games`, `drives`,
-`plays`, `venues`, `conferences`, `teams`, `stats`, `metrics`, `ratings`, and
-`players`, `rankings`, `betting`, `recruiting`, and `coaches` namespaces. Every
-endpoint follows the same boundary sequence:
+`plays`, `venues`, `conferences`, `teams`, `stats`, `metrics`, `ratings`,
+`players`, `rankings`, `betting`, `recruiting`, `coaches`, `draft`, `playoffs`,
+`adjusted_metrics`, and `info` namespaces. Every endpoint follows the same
+boundary sequence:
 
 ```text
-HTTP → decoded JSON → Pydantic response validation → logical schema → DataFrame
+HTTP → decoded JSON → Pydantic response validation → model or logical schema → DataFrame
 ```
 
 pandas is the default backend. Polars is available through the `polars` extra.
 Both return eager frames with the same endpoint methods, request validation,
 column names/order, API row order, nulls, and logical values. Advanced box
-score and live plays intentionally return validated models because their
-nested sections do not form one natural table.
+score, live plays, and the complete CFP bracket intentionally return validated
+models because their nested sections do not form one natural table. Info
+account and usage endpoints return validated operational models.
 
 The implemented routes are `/games`, `/records`, `/calendar`, `/scoreboard`,
 `/games/media`, `/games/weather`, `/games/players`, `/games/teams`,
@@ -38,7 +39,13 @@ routes. The hidden `/player/ppa/passing` route is not public client surface.
 Rankings implements `/rankings`, Betting implements `/lines`, Recruiting
 implements `/recruiting/players`, `/recruiting/teams`, and
 `/recruiting/groups`, and Coaches implements `/coaches`, `/coaches/profile`,
-`/coaches/seasons`, and `/coaches/tenures`.
+`/coaches/seasons`, and `/coaches/tenures`. Draft implements `/draft/teams`,
+`/draft/positions`, and `/draft/picks`. Playoffs implements `/playoffs/cfp`,
+`/playoffs/cfp/participants`, and `/playoffs/cfp/games`. Adjusted Metrics
+implements `/wepa/team/season`, `/wepa/players/passing`,
+`/wepa/players/rushing`, and `/wepa/players/kicking`; these routes require
+Patreon Tier 1. Info implements `/info` and `/info/usage` as operational model
+responses.
 
 ## Reliability contract
 
@@ -64,8 +71,8 @@ are not part of the supported client.
 
 ## Deliberately not included in 0.2.0
 
-- Endpoint families beyond Games, Drives, Plays, Venues, Conferences, Teams,
-  Stats, Metrics, Ratings, Players, Rankings, Betting, Recruiting, and Coaches.
+- Internal authentication routes and the deliberately hidden rolling
+  player-passing PPA route.
 - Credentialed live-API tests; deterministic tests use a local HTTP server.
 - Polars `LazyFrame` results.
 - Public dataset or workflow namespaces.
