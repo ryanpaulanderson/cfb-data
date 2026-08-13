@@ -351,7 +351,7 @@ def _arrow_type(logical_type: _LogicalType) -> pa.DataType:
             [
                 pa.field("kind", pa.string(), nullable=False),
                 pa.field("string_value", pa.string(), nullable=True),
-                pa.field("integer_value", pa.int64(), nullable=True),
+                pa.field("integer_value", pa.binary(), nullable=True),
                 pa.field("float_value", pa.float64(), nullable=True),
             ]
         )
@@ -478,6 +478,7 @@ def _encode_scalar(value: object) -> dict[str, object]:
     elif isinstance(value, int) and not isinstance(value, bool):
         kind = "integer"
         selected_field = "integer_value"
+        value = _encode_integer(value)
     elif isinstance(value, float):
         kind = "float"
         selected_field = "float_value"
@@ -492,6 +493,19 @@ def _encode_scalar(value: object) -> dict[str, object]:
     }
     encoded[selected_field] = value
     return encoded
+
+
+def _encode_integer(value: int) -> bytes:
+    """Encode an arbitrary integer as canonical signed big-endian bytes.
+
+    :param value: Integer to preserve without a fixed-width bound.
+    :return: Minimal two's-complement byte representation.
+    """
+    if value >= 0:
+        byte_count = max(1, (value.bit_length() + 8) // 8)
+    else:
+        byte_count = max(1, ((~value).bit_length() + 8) // 8)
+    return value.to_bytes(byte_count, byteorder="big", signed=True)
 
 
 def _decode_storage_struct(
@@ -551,12 +565,11 @@ def _decode_scalar(value: object) -> str | int | float:
     selected_value = mapping[selected_field]
     if kind == "string" and isinstance(selected_value, str):
         return selected_value
-    if (
-        kind == "integer"
-        and isinstance(selected_value, int)
-        and not isinstance(selected_value, bool)
-    ):
-        return selected_value
+    if kind == "integer" and isinstance(selected_value, bytes):
+        integer_value = int.from_bytes(selected_value, byteorder="big", signed=True)
+        if _encode_integer(integer_value) == selected_value:
+            return integer_value
+        raise _ScalarEncodingError("Tagged scalar integer is not canonical")
     if kind == "float" and isinstance(selected_value, float):
         return selected_value
     raise _ScalarEncodingError("Tagged scalar value type does not match its kind")
@@ -633,7 +646,7 @@ def _logical_type_payload(logical_type: _LogicalType) -> dict[str, object]:
                 },
                 {
                     "name": "integer_value",
-                    "kind": "integer",
+                    "kind": "binary",
                     "nullable": True,
                 },
                 {

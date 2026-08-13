@@ -246,7 +246,7 @@ def test_tagged_scalars_preserve_exact_python_types() -> None:
         {
             "kind": "integer",
             "string_value": None,
-            "integer_value": 1,
+            "integer_value": b"\x01",
             "float_value": None,
         },
         {
@@ -264,6 +264,47 @@ def test_tagged_scalars_preserve_exact_python_types() -> None:
     ]
     assert [type(model.stat_value) for model in restored] == [int, float, str]
     assert [model.stat_value for model in restored] == [1, 1.0, "1"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        -(2**1024),
+        -(2**63) - 1,
+        -(2**63),
+        -129,
+        -128,
+        -1,
+        0,
+        1,
+        127,
+        128,
+        2**63 - 1,
+        2**63,
+        2**1024,
+    ],
+)
+def test_tagged_scalar_preserves_arbitrary_integers(
+    tmp_path: Path,
+    value: int,
+) -> None:
+    model = _models()[0].model_copy(update={"stat_value": value})
+    table = _arrow_table_from_models(row_model=_StorageRow, models=[model])
+    path = tmp_path / "arbitrary-integer.parquet"
+    _write_parquet(path, row_model=_StorageRow, table=table)
+    table = _read_parquet(
+        path,
+        row_model=_StorageRow,
+        response_adapter=_ROWS,
+    )
+    restored = _models_from_arrow_table(
+        row_model=_StorageRow,
+        response_adapter=_ROWS,
+        table=table,
+    )
+
+    assert restored[0].stat_value == value
+    assert type(restored[0].stat_value) is int
 
 
 def test_model_to_arrow_rejects_boolean_heterogeneous_scalars() -> None:
@@ -417,7 +458,13 @@ def test_full_validation_rejects_invalid_enum_while_trusted_accepts(
         {
             "kind": "integer",
             "string_value": "1",
-            "integer_value": 1,
+            "integer_value": b"\x01",
+            "float_value": None,
+        },
+        {
+            "kind": "integer",
+            "string_value": None,
+            "integer_value": b"\x00\x01",
             "float_value": None,
         },
     ],

@@ -52,14 +52,16 @@ encoding:
 struct<
   kind: string not null,
   string_value: string,
-  integer_value: int64,
+  integer_value: binary,
   float_value: double
 > not null
 ```
 
 Exactly one value slot is populated and it must match `kind`. Adapters decode
 the struct back to the original Python scalar, preserving `1`, `1.0`, and
-`"1"` distinctly.
+`"1"` distinctly. The integer slot uses the minimal signed big-endian two's
+complement representation, preserving arbitrary Python integers and rejecting
+non-canonical byte sequences during validation.
 
 The internal local-file codec writes Parquet format 1.0 with Snappy
 compression, statistics, compliant nested-list encoding, and the stored Arrow
