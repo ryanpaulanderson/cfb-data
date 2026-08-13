@@ -1,6 +1,6 @@
 # Project status
 
-> Status as of August 13, 2026: version 0.2.0 implements the supported public
+> Status as of August 13, 2026: version 0.3.0 implements the supported public
 > CFBD v5.24.0 REST endpoint surface. Dataset and workflow coverage remains
 > future work.
 
@@ -88,7 +88,7 @@ generic route decorator, public path router, Pandera schemas, and Pandera
 dependency have been removed. Raw JSON and general response-model return modes
 are not part of the supported client.
 
-## Deliberately not included in 0.2.0
+## Deliberately not included in 0.3.0
 
 - Internal authentication routes and the deliberately hidden rolling
   player-passing PPA route.

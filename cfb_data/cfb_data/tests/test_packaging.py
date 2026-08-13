@@ -1,7 +1,8 @@
 """Tests for the installable package boundary."""
 
-from importlib.metadata import version
-from importlib.resources import files
+from importlib.metadata import metadata, version
+from importlib.resources import files as resource_files
+from pathlib import Path
 
 import cfb_data.adjusted_metrics
 import cfb_data.conferences
@@ -20,12 +21,24 @@ import cfb_data
 def test_distribution_and_package_are_importable() -> None:
     """Verify an editable install exposes the package and its metadata."""
     assert cfb_data.__doc__
-    assert version("cfb-data") == "0.2.0"
-    assert files(cfb_data).joinpath("py.typed").is_file()
+    assert version("cfb-data") == "0.3.0"
+    assert resource_files(cfb_data).joinpath("py.typed").is_file()
+
+
+def test_project_license_matches_distribution_metadata() -> None:
+    """Verify package metadata and the project license agree on MIT."""
+    distribution_metadata = metadata("cfb-data")
+    project_license = Path(__file__).resolve().parents[3] / "LICENSE"
+
+    assert distribution_metadata["License-Expression"] == "MIT"
+    assert distribution_metadata.get_all("License-File") == ["LICENSE"]
+    assert project_license.read_text(encoding="utf-8").startswith(
+        "MIT License\n\nCopyright (c) 2025-2026 Ryan Anderson\n"
+    )
 
 
 def test_legacy_clients_and_generic_routing_are_not_exported() -> None:
-    """Keep the 0.2.0 package surface free of compatibility wrappers."""
+    """Keep the 0.3.0 package surface free of compatibility wrappers."""
     legacy_names = {
         "CFBDAPIBase",
         "CFBDValidationAPI",
