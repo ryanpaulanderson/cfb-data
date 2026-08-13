@@ -9,16 +9,17 @@ and operational account metadata return validated models instead.
 The request path is explicit:
 
 ```text
-HTTP transport → Pydantic validation → validated models → logical schema → DataFrame
+HTTP → Pydantic models → logical schema → canonical Arrow table → DataFrame
 ```
 
 Malformed upstream data never reaches a DataFrame. Choosing Polars changes the
 concrete return type and native nested representation, not endpoint names,
-validation, retry behavior, columns, row order, or logical values.
+validation, retry behavior, columns, row order, logical values, or the
+canonical storage schema.
 
 ## Installation
 
-pandas is included in the default installation:
+pandas and PyArrow are included in the default installation:
 
 ```sh
 python -m pip install cfb-data
@@ -240,6 +241,27 @@ integer, or float without coercion and is `object`/`Object` in both backends.
 All response timestamps must include a timezone. Validation normalizes them to
 UTC before conversion.
 
+## Arrow and Parquet contract
+
+Every tabular response is represented as one explicit Arrow table before
+pandas or Polars materialization. The Arrow schema is derived from the same
+Pydantic annotations and retains ordered struct fields, typed list elements,
+nullability, and UTC timestamps even for empty or all-null responses.
+
+The internal versioned Parquet codec uses that schema directly. It stores
+standard nested Parquet values plus cfb-data storage version, row-model
+identity, logical-schema digest, and writer-version metadata. The heterogeneous
+Stats scalar is stored losslessly as a tagged struct and decoded back to its
+original string, integer, or float value for DataFrames.
+
+Direct pandas and Polars Parquet methods are not the cfb-data persistence
+compatibility contract: pandas object inference and Polars `Object` columns do
+not provide identical empty- and mixed-value behavior. Version 0.2.0 keeps the
+codec internal so future caching can use it without prematurely committing to
+a public save/load API. See
+[`ADR 0003`](docs/architecture/0003-canonical-arrow-parquet.md) for the format,
+validation, and compatibility decisions.
+
 ## Retries and errors
 
 The default immutable `RetryPolicy` makes at most three total safe GET
@@ -247,7 +269,7 @@ attempts. It retries connection failures, timeouts, truncated payloads, and
 HTTP `408`, `429`, `500`, `502`, `503`, and `504` with capped exponential
 full-jitter backoff. Set `RetryPolicy(max_attempts=1)` to disable retries.
 
-Valid numeric and HTTP-date `Retry-After` values are honored up to 30 seconds.
+Valid numeric and HTTP-date `Retry-After` values are honored up to 90 seconds.
 A longer requested delay fails immediately and remains available as
 `retry_after_seconds` on the HTTP error. Redirects are disabled, TLS
 verification remains enabled, every attempt has a finite timeout, and
@@ -333,9 +355,9 @@ make check
 ```
 
 `make install` creates `.venv` and installs `.[dev,polars]`, giving
-contributors the complete two-backend test contract. `make check` runs Ruff,
-strict mypy, and pytest under the same contract as CI. Package metadata and all
-dependency groups live only in `pyproject.toml`.
+contributors the complete Arrow/Parquet and two-backend test contract.
+`make check` runs Ruff, strict mypy, and pytest under the same contract as CI.
+Package metadata and all dependency groups live only in `pyproject.toml`.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) and
 [`docs/project-status.md`](docs/project-status.md) for repository and release

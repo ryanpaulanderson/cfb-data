@@ -199,6 +199,13 @@ def _payloads() -> dict[str, object]:
                 "statName": "timeOfPossession",
                 "statValue": "22041",
             },
+            {
+                "season": 2024,
+                "team": "Michigan",
+                "conference": "Big Ten",
+                "statName": "arbitraryInteger",
+                "statValue": 2**63,
+            },
         ],
         "/stats/categories": ["completionAttempts", "firstDowns"],
         "/stats/season/advanced": [
@@ -351,12 +358,12 @@ async def test_stats_routes_preserve_public_dataframe_contract(
     categories = frames[4][0]
     season_advanced = frames[5][0]
     if backend == "pandas":
-        assert list(team_stats["stat_value"]) == [210, "22041"]
+        assert list(team_stats["stat_value"]) == [210, "22041", 2**63]
         assert team_stats["stat_value"].dtype == object
         assert list(categories["category"]) == ["completionAttempts", "firstDowns"]
         assert season_advanced.loc[0, "defense"]["passing_downs"]["total_ppa"] == 12.5
     else:
-        assert team_stats["stat_value"].to_list() == [210, "22041"]
+        assert team_stats["stat_value"].to_list() == [210, "22041", 2**63]
         assert team_stats.schema["stat_value"] == pl.Object
         assert categories["category"].to_list() == [
             "completionAttempts",

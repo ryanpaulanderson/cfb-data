@@ -276,6 +276,33 @@ async def test_retry_after_numeric_and_http_date_are_honored(
 
 
 @pytest.mark.asyncio
+async def test_retry_after_at_default_cap_is_honored(
+    api_server: ServerFactory,
+) -> None:
+    attempts = 0
+    delays: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return web.Response(status=429, headers={"Retry-After": "90"})
+        return web.json_response([])
+
+    async with api_server(handler) as base_url:
+        client = CFBDClient("key", base_url=base_url)
+        client._transport._sleep = fake_sleep
+        async with client:
+            await client.games.calendar(year=2024)
+
+    assert attempts == 2
+    assert delays == [90.0]
+
+
+@pytest.mark.asyncio
 async def test_retry_after_above_cap_fails_without_waiting(
     api_server: ServerFactory,
 ) -> None:
@@ -284,7 +311,7 @@ async def test_retry_after_above_cap_fails_without_waiting(
     async def handler(request: web.Request) -> web.Response:
         nonlocal attempts
         attempts += 1
-        return web.Response(status=429, headers={"Retry-After": "31"})
+        return web.Response(status=429, headers={"Retry-After": "91"})
 
     async with api_server(handler) as base_url:
         async with CFBDClient("key", base_url=base_url) as client:
@@ -292,7 +319,7 @@ async def test_retry_after_above_cap_fails_without_waiting(
                 await client.games.calendar(year=2024)
 
     assert attempts == 1
-    assert exc_info.value.retry_after_seconds == 31
+    assert exc_info.value.retry_after_seconds == 91
 
 
 @pytest.mark.asyncio

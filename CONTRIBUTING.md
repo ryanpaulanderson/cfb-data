@@ -12,10 +12,11 @@ make check
 ```
 
 `make install` creates `.venv` and installs `.[dev,polars]` so the contributor
-environment exercises the default pandas backend and optional Polars backend.
-`make check` is the shared local and CI contract: Ruff lint/format checks,
-strict mypy, and the complete pytest suite. CI runs it on Python 3.11 and 3.13
-and separately smoke-tests base and Polars installations.
+environment exercises the canonical PyArrow layer, default pandas backend,
+and optional Polars backend. `make check` is the shared local and CI contract:
+Ruff lint/format checks, strict mypy, and the complete pytest suite. CI runs it
+on Python 3.11 and 3.13 and separately smoke-tests base and Polars
+installations.
 
 Follow [`AGENTS.md`](AGENTS.md), the authoritative repository engineering and
 Git guide. Run `make format` before `make check`; report every failure, skip,
@@ -25,16 +26,24 @@ warning, or environment limitation during handoff.
 
 Read
 [`docs/architecture/0001-validated-models-before-dataframes.md`](docs/architecture/0001-validated-models-before-dataframes.md)
-before changing endpoint, validation, DataFrame, dataset, or workflow code.
+and
+[`docs/architecture/0003-canonical-arrow-parquet.md`](docs/architecture/0003-canonical-arrow-parquet.md)
+before changing endpoint, validation, Arrow, DataFrame, Parquet, dataset, or
+workflow code.
 
 - Pydantic models own external request and response contracts.
 - The transport owns HTTP resources and retries; domain resources do not.
 - The endpoint executor returns validated models without depending on a
   DataFrame backend.
-- Logical schemas are derived from model annotations and must map explicitly
-  in both adapters.
+- Logical schemas are derived from model annotations and map explicitly to one
+  canonical Arrow schema before either DataFrame adapter runs.
 - Public endpoint behavior must remain backend-neutral apart from concrete
   frame type and native nested representation.
+- pandas and Polars preserve their established public dtypes. Their native
+  Parquet methods are not the cfb-data persistence contract; library-owned
+  persistence must use the versioned internal codec.
+- Preserve nested source data. Flattening and exploding belong in a dataset or
+  feature layer with a declared row grain, not endpoint conversion.
 - Future datasets validate their final joined row model before conversion;
   workflows orchestrate endpoints and datasets above that layer.
 
@@ -47,11 +56,15 @@ Black-box tests through the installed `CFBDClient` are the primary acceptance
 evidence. Use a local `aiohttp` server or fake the HTTP transport boundary; do
 not make live credentialed calls in the default suite.
 
-For tabular behavior, cover pandas and Polars and assert concrete type, exact
-column/row order, nullable and UTC dtypes, typed empty frames, nested values,
-and no row loss. Request tests must prove invalid input stops before HTTP.
-Transport tests must be deterministic and must not expose credentials, query
-parameters, or response payloads in failure text.
+For tabular behavior, cover the canonical Arrow table, pandas, and Polars and
+assert concrete type, exact field/column/row order, recursive nullability,
+nullable and UTC dtypes, typed empty and all-null frames, nested values, and no
+row loss. Parquet tests must cover populated and empty round trips, versioned
+metadata, physical-schema compatibility, strict validation, tagged mixed
+scalars, atomic replacement, sanitized failures, and the checked-in v1
+compatibility fixture. Request tests must prove invalid input stops before
+HTTP. Transport tests must be deterministic and must not expose credentials,
+query parameters, or response payloads in failure text.
 
 ## Static type checking
 
@@ -66,9 +79,9 @@ Localize and explain any unavoidable third-party boundary.
 
 ## Dependencies and Git
 
-`pyproject.toml` is the only dependency and package-metadata source. pandas is
-a core dependency; Polars belongs only to the `polars` extra; development tools
-belong to `dev`.
+`pyproject.toml` is the only dependency and package-metadata source. pandas and
+PyArrow are core dependencies; Polars belongs only to the `polars` extra;
+development tools and third-party typing stubs belong to `dev`.
 
 Use the branch names and detailed Conventional Commits defined in `AGENTS.md`.
 Do not commit directly to `main`, and do not merge unless the shared quality

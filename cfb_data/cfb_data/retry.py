@@ -21,7 +21,7 @@ class RetryPolicy:
     max_attempts: int = 3
     base_delay_seconds: float = 0.5
     max_backoff_seconds: float = 8.0
-    max_retry_after_seconds: float = 30.0
+    max_retry_after_seconds: float = 90.0
 
     def __post_init__(self) -> None:
         """Validate retry-policy invariants."""

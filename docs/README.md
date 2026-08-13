@@ -10,6 +10,11 @@
   — accepted validation, DataFrame, dataset, and workflow layering decision.
 - [`architecture/0002-heterogeneous-stat-scalars.md`](architecture/0002-heterogeneous-stat-scalars.md)
   — accepted representation for the Stats string-or-number value contract.
+- [`architecture/0003-canonical-arrow-parquet.md`](architecture/0003-canonical-arrow-parquet.md)
+  — accepted canonical Arrow table and versioned Parquet persistence contract.
+- [`notices-of-decision/`](notices-of-decision/README.md) — decision notices
+  explaining the evidence, alternatives, and reasoning behind consequential
+  project choices.
 - [`cfbd_api/`](cfbd_api/) — implemented endpoint contracts by public namespace.
 - [`next-api-groups.md`](next-api-groups.md) — source-backed prioritization of
   the remaining official API groups.

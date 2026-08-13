@@ -23,6 +23,12 @@ Validation rejects booleans and all other values. Conversion preserves each
 validated Python value without coercion and maps the column to pandas `object`
 and Polars `Object`, including empty frames.
 
+The canonical Arrow and Parquet representation from
+[ADR 0003](0003-canonical-arrow-parquet.md) stores this logical scalar as a
+tagged struct containing a kind plus nullable string, integer, and float slots.
+Exactly one slot must match the kind. DataFrame adapters decode that
+storage-only struct back to the original scalar.
+
 This is not a general union fallback. Other unions remain conversion errors and
 new heterogeneous contracts require a deliberate schema decision.
 
@@ -30,5 +36,7 @@ new heterogeneous contracts require a deliberate schema decision.
 
 - Team season statistics preserve the official response semantics.
 - Both backends expose the same logical values and an explicit object dtype.
+- Versioned Parquet preserves the exact scalar type without using an
+  unsupported Arrow union or coercing all values to text.
 - Consumers must narrow individual `stat_value` values before numeric work.
 - Unsupported unions cannot silently degrade to object columns.
