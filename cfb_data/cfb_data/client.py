@@ -24,14 +24,18 @@ from cfb_data._transport import (
     _validate_base_url,
     _validate_timeout,
 )
+from cfb_data.adjusted_metrics.resource import AdjustedMetricsResource
 from cfb_data.betting.resource import BettingResource
 from cfb_data.coaches.resource import CoachesResource
 from cfb_data.conferences.resource import ConferencesResource
+from cfb_data.draft.resource import DraftResource
 from cfb_data.drives.resource import DrivesResource
 from cfb_data.errors import CFBDConfigurationError
 from cfb_data.games.resource import GamesResource
+from cfb_data.info.resource import InfoResource
 from cfb_data.metrics.resource import MetricsResource
 from cfb_data.players.resource import PlayersResource
+from cfb_data.playoffs.resource import PlayoffsResource
 from cfb_data.plays.resource import PlaysResource
 from cfb_data.rankings.resource import RankingsResource
 from cfb_data.ratings.resource import RatingsResource
@@ -140,6 +144,10 @@ class CFBDClient(Generic[_FrameT]):
         self._betting = BettingResource(executor, adapter)
         self._recruiting = RecruitingResource(executor, adapter)
         self._coaches = CoachesResource(executor, adapter)
+        self._draft = DraftResource(executor, adapter)
+        self._playoffs = PlayoffsResource(executor, adapter)
+        self._adjusted_metrics = AdjustedMetricsResource(executor, adapter)
+        self._info = InfoResource(executor)
 
     @property
     def games(self) -> GamesResource[_FrameT]:
@@ -252,6 +260,38 @@ class CFBDClient(Generic[_FrameT]):
         :return: Resource bound to this client's session and DataFrame backend.
         """
         return self._coaches
+
+    @property
+    def draft(self) -> DraftResource[_FrameT]:
+        """Return the typed Draft endpoint namespace.
+
+        :return: Resource bound to this client's session and DataFrame backend.
+        """
+        return self._draft
+
+    @property
+    def playoffs(self) -> PlayoffsResource[_FrameT]:
+        """Return the typed Playoffs endpoint namespace.
+
+        :return: Resource bound to this client's session and DataFrame backend.
+        """
+        return self._playoffs
+
+    @property
+    def adjusted_metrics(self) -> AdjustedMetricsResource[_FrameT]:
+        """Return the typed Adjusted Metrics endpoint namespace.
+
+        :return: Resource bound to this client's session and DataFrame backend.
+        """
+        return self._adjusted_metrics
+
+    @property
+    def info(self) -> InfoResource:
+        """Return the typed operational Info endpoint namespace.
+
+        :return: Resource bound to this client's session.
+        """
+        return self._info
 
     async def __aenter__(self) -> Self:
         await self._transport.open()
