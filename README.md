@@ -269,7 +269,7 @@ attempts. It retries connection failures, timeouts, truncated payloads, and
 HTTP `408`, `429`, `500`, `502`, `503`, and `504` with capped exponential
 full-jitter backoff. Set `RetryPolicy(max_attempts=1)` to disable retries.
 
-Valid numeric and HTTP-date `Retry-After` values are honored up to 30 seconds.
+Valid numeric and HTTP-date `Retry-After` values are honored up to 90 seconds.
 A longer requested delay fails immediately and remains available as
 `retry_after_seconds` on the HTTP error. Redirects are disabled, TLS
 verification remains enabled, every attempt has a finite timeout, and
