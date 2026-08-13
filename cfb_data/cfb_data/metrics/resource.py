@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Generic, Literal, TypeAlias, TypeVar, overload
+from typing import Literal, TypeVar, overload
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
@@ -31,11 +31,10 @@ from cfb_data.metrics.models.pydantic.responses import (
     TeamSeasonPredictedPointsAdded,
 )
 
-_FrameT = TypeVar("_FrameT")
 _RequestT = TypeVar("_RequestT", bound=BaseModel)
 _RowT = TypeVar("_RowT", bound=BaseModel)
-_ClassificationArgument: TypeAlias = Classification | Literal["fbs", "fcs", "ii", "iii"]
-_SeasonTypeArgument: TypeAlias = (
+type _ClassificationArgument = Classification | Literal["fbs", "fcs", "ii", "iii"]
+type _SeasonTypeArgument = (
     SeasonType
     | Literal[
         "regular",
@@ -66,29 +65,29 @@ class _FieldGoalEPRequest(BaseModel):
 _FIELD_GOAL_EP_REQUEST = _FieldGoalEPRequest()
 
 
-class MetricsResource(Generic[_FrameT]):
+class MetricsResource[FrameT]:
     """Provide validated Metrics endpoints with selected frame results."""
 
     def __init__(
         self,
         executor: _EndpointExecutor,
-        dataframe_adapter: _DataFrameAdapter[_FrameT],
+        dataframe_adapter: _DataFrameAdapter[FrameT],
     ) -> None:
         """Bind the namespace to shared execution and presentation services."""
         self._executor = executor
         self._dataframe_adapter = dataframe_adapter
 
     @overload
-    async def predicted_points(self, request: PredictedPointsRequest, /) -> _FrameT: ...
+    async def predicted_points(self, request: PredictedPointsRequest, /) -> FrameT: ...
 
     @overload
     async def predicted_points(
         self, request: None = None, /, *, down: int, distance: int
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def predicted_points(
         self, request: PredictedPointsRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return predicted points by yard line for a down and distance.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -107,7 +106,7 @@ class MetricsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def team_season_ppa(self, request: TeamSeasonPPARequest, /) -> _FrameT: ...
+    async def team_season_ppa(self, request: TeamSeasonPPARequest, /) -> FrameT: ...
 
     @overload
     async def team_season_ppa(
@@ -120,11 +119,11 @@ class MetricsResource(Generic[_FrameT]):
         conference: str | None = None,
         exclude_garbage_time: bool | None = None,
         classification: _ClassificationArgument | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def team_season_ppa(
         self, request: TeamSeasonPPARequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return team predicted-points-added metrics by season.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -143,7 +142,7 @@ class MetricsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def team_game_ppa(self, request: TeamGamePPARequest, /) -> _FrameT: ...
+    async def team_game_ppa(self, request: TeamGamePPARequest, /) -> FrameT: ...
 
     @overload
     async def team_game_ppa(
@@ -158,11 +157,11 @@ class MetricsResource(Generic[_FrameT]):
         conference: str | None = None,
         exclude_garbage_time: bool | None = None,
         classification: _ClassificationArgument | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def team_game_ppa(
         self, request: TeamGamePPARequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return team predicted-points-added metrics by game.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -181,7 +180,7 @@ class MetricsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def player_game_ppa(self, request: PlayerGamePPARequest, /) -> _FrameT: ...
+    async def player_game_ppa(self, request: PlayerGamePPARequest, /) -> FrameT: ...
 
     @overload
     async def player_game_ppa(
@@ -197,11 +196,11 @@ class MetricsResource(Generic[_FrameT]):
         player_id: int | None = None,
         threshold: int | None = None,
         exclude_garbage_time: bool | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def player_game_ppa(
         self, request: PlayerGamePPARequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return player predicted-points-added metrics by game.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -220,9 +219,7 @@ class MetricsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def player_season_ppa(
-        self, request: PlayerSeasonPPARequest, /
-    ) -> _FrameT: ...
+    async def player_season_ppa(self, request: PlayerSeasonPPARequest, /) -> FrameT: ...
 
     @overload
     async def player_season_ppa(
@@ -237,11 +234,11 @@ class MetricsResource(Generic[_FrameT]):
         player_id: int | None = None,
         threshold: int | None = None,
         exclude_garbage_time: bool | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def player_season_ppa(
         self, request: PlayerSeasonPPARequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return player predicted-points-added metrics by season.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -260,16 +257,16 @@ class MetricsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def win_probability(self, request: WinProbabilityRequest, /) -> _FrameT: ...
+    async def win_probability(self, request: WinProbabilityRequest, /) -> FrameT: ...
 
     @overload
     async def win_probability(
         self, request: None = None, /, *, game_id: int
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def win_probability(
         self, request: WinProbabilityRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return play-by-play win probabilities for one game.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -290,7 +287,7 @@ class MetricsResource(Generic[_FrameT]):
     @overload
     async def pregame_win_probability(
         self, request: PregameWinProbabilityRequest, /
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     @overload
     async def pregame_win_probability(
@@ -302,14 +299,14 @@ class MetricsResource(Generic[_FrameT]):
         week: int | None = None,
         season_type: _SeasonTypeArgument | None = None,
         team: str | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def pregame_win_probability(
         self,
         request: PregameWinProbabilityRequest | None = None,
         /,
         **filters: object,
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return modeled pregame win probabilities.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -327,7 +324,7 @@ class MetricsResource(Generic[_FrameT]):
             row_model=PregameWinProbability,
         )
 
-    async def field_goal_expected_points(self) -> _FrameT:
+    async def field_goal_expected_points(self) -> FrameT:
         """Return field-goal expected points by distance.
 
         :return: Eager frame containing validated field-goal EP rows.
@@ -353,7 +350,7 @@ class MetricsResource(Generic[_FrameT]):
         filters: Mapping[str, object],
         response_adapter: TypeAdapter[list[_RowT]],
         row_model: type[_RowT],
-    ) -> _FrameT:
+    ) -> FrameT:
         """Resolve, validate, fetch, and tabularize one list endpoint."""
         validated = _resolve_request(
             endpoint=endpoint,

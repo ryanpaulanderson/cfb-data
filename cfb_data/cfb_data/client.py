@@ -5,11 +5,8 @@ from __future__ import annotations
 from types import TracebackType
 from typing import (
     TYPE_CHECKING,
-    Generic,
     Literal,
     Self,
-    TypeAlias,
-    TypeVar,
     cast,
     overload,
 )
@@ -48,11 +45,10 @@ from cfb_data.venues.resource import VenuesResource
 if TYPE_CHECKING:
     import polars as pl
 
-DataFrameBackend: TypeAlias = Literal["pandas", "polars"]
-_FrameT = TypeVar("_FrameT")
+type DataFrameBackend = Literal["pandas", "polars"]
 
 
-class CFBDClient(Generic[_FrameT]):
+class CFBDClient[FrameT]:
     """Access validated CFBD endpoint namespaces through one pooled session.
 
     The client is one-shot and must be used with ``async with``. Endpoint calls
@@ -126,8 +122,8 @@ class CFBDClient(Generic[_FrameT]):
         concrete_adapter = (
             _PandasAdapter() if dataframe_backend == "pandas" else _PolarsAdapter()
         )
-        # The constructor overload ties this runtime literal branch to _FrameT.
-        adapter = cast(_DataFrameAdapter[_FrameT], concrete_adapter)
+        # The constructor overload ties this runtime literal branch to FrameT.
+        adapter = cast(_DataFrameAdapter[FrameT], concrete_adapter)
 
         self._transport = transport
         self._games = GamesResource(executor, adapter)
@@ -150,7 +146,7 @@ class CFBDClient(Generic[_FrameT]):
         self._info = InfoResource(executor)
 
     @property
-    def games(self) -> GamesResource[_FrameT]:
+    def games(self) -> GamesResource[FrameT]:
         """Return the typed Games endpoint namespace.
 
         :return: Resource bound to this client's session and DataFrame backend.
@@ -158,7 +154,7 @@ class CFBDClient(Generic[_FrameT]):
         return self._games
 
     @property
-    def drives(self) -> DrivesResource[_FrameT]:
+    def drives(self) -> DrivesResource[FrameT]:
         """Return the typed Drives endpoint namespace.
 
         :return: Resource bound to this client's session and DataFrame backend.
@@ -166,7 +162,7 @@ class CFBDClient(Generic[_FrameT]):
         return self._drives
 
     @property
-    def plays(self) -> PlaysResource[_FrameT]:
+    def plays(self) -> PlaysResource[FrameT]:
         """Return the typed Plays endpoint namespace.
 
         :return: Resource bound to this client's session and DataFrame backend.
@@ -174,7 +170,7 @@ class CFBDClient(Generic[_FrameT]):
         return self._plays
 
     @property
-    def venues(self) -> VenuesResource[_FrameT]:
+    def venues(self) -> VenuesResource[FrameT]:
         """Return the typed Venues endpoint namespace.
 
         :return: Resource bound to this client's session and DataFrame backend.
@@ -182,7 +178,7 @@ class CFBDClient(Generic[_FrameT]):
         return self._venues
 
     @property
-    def conferences(self) -> ConferencesResource[_FrameT]:
+    def conferences(self) -> ConferencesResource[FrameT]:
         """Return the typed Conferences endpoint namespace.
 
         :return: Resource bound to this client's session and DataFrame backend.
@@ -190,7 +186,7 @@ class CFBDClient(Generic[_FrameT]):
         return self._conferences
 
     @property
-    def teams(self) -> TeamsResource[_FrameT]:
+    def teams(self) -> TeamsResource[FrameT]:
         """Return the typed Teams endpoint namespace.
 
         :return: Resource bound to this client's session and DataFrame backend.
@@ -198,7 +194,7 @@ class CFBDClient(Generic[_FrameT]):
         return self._teams
 
     @property
-    def stats(self) -> StatsResource[_FrameT]:
+    def stats(self) -> StatsResource[FrameT]:
         """Return the typed Stats endpoint namespace.
 
         :return: Resource bound to this client's session and DataFrame backend.
@@ -206,7 +202,7 @@ class CFBDClient(Generic[_FrameT]):
         return self._stats
 
     @property
-    def metrics(self) -> MetricsResource[_FrameT]:
+    def metrics(self) -> MetricsResource[FrameT]:
         """Return the typed Metrics endpoint namespace.
 
         :return: Resource bound to this client's session and DataFrame backend.
@@ -214,7 +210,7 @@ class CFBDClient(Generic[_FrameT]):
         return self._metrics
 
     @property
-    def ratings(self) -> RatingsResource[_FrameT]:
+    def ratings(self) -> RatingsResource[FrameT]:
         """Return the typed Ratings endpoint namespace.
 
         :return: Resource bound to this client's session and DataFrame backend.
@@ -222,7 +218,7 @@ class CFBDClient(Generic[_FrameT]):
         return self._ratings
 
     @property
-    def players(self) -> PlayersResource[_FrameT]:
+    def players(self) -> PlayersResource[FrameT]:
         """Return the typed Players endpoint namespace.
 
         :return: Resource bound to this client's session and DataFrame backend.
@@ -230,7 +226,7 @@ class CFBDClient(Generic[_FrameT]):
         return self._players
 
     @property
-    def rankings(self) -> RankingsResource[_FrameT]:
+    def rankings(self) -> RankingsResource[FrameT]:
         """Return the typed Rankings endpoint namespace.
 
         :return: Resource bound to this client's session and DataFrame backend.
@@ -238,7 +234,7 @@ class CFBDClient(Generic[_FrameT]):
         return self._rankings
 
     @property
-    def betting(self) -> BettingResource[_FrameT]:
+    def betting(self) -> BettingResource[FrameT]:
         """Return the typed Betting endpoint namespace.
 
         :return: Resource bound to this client's session and DataFrame backend.
@@ -246,7 +242,7 @@ class CFBDClient(Generic[_FrameT]):
         return self._betting
 
     @property
-    def recruiting(self) -> RecruitingResource[_FrameT]:
+    def recruiting(self) -> RecruitingResource[FrameT]:
         """Return the typed Recruiting endpoint namespace.
 
         :return: Resource bound to this client's session and DataFrame backend.
@@ -254,7 +250,7 @@ class CFBDClient(Generic[_FrameT]):
         return self._recruiting
 
     @property
-    def coaches(self) -> CoachesResource[_FrameT]:
+    def coaches(self) -> CoachesResource[FrameT]:
         """Return the typed Coaches endpoint namespace.
 
         :return: Resource bound to this client's session and DataFrame backend.
@@ -262,7 +258,7 @@ class CFBDClient(Generic[_FrameT]):
         return self._coaches
 
     @property
-    def draft(self) -> DraftResource[_FrameT]:
+    def draft(self) -> DraftResource[FrameT]:
         """Return the typed Draft endpoint namespace.
 
         :return: Resource bound to this client's session and DataFrame backend.
@@ -270,7 +266,7 @@ class CFBDClient(Generic[_FrameT]):
         return self._draft
 
     @property
-    def playoffs(self) -> PlayoffsResource[_FrameT]:
+    def playoffs(self) -> PlayoffsResource[FrameT]:
         """Return the typed Playoffs endpoint namespace.
 
         :return: Resource bound to this client's session and DataFrame backend.
@@ -278,7 +274,7 @@ class CFBDClient(Generic[_FrameT]):
         return self._playoffs
 
     @property
-    def adjusted_metrics(self) -> AdjustedMetricsResource[_FrameT]:
+    def adjusted_metrics(self) -> AdjustedMetricsResource[FrameT]:
         """Return the typed Adjusted Metrics endpoint namespace.
 
         :return: Resource bound to this client's session and DataFrame backend.

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Generic, TypeVar, overload
+from typing import TypeVar, overload
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -22,7 +22,6 @@ from cfb_data.adjusted_metrics.models.pydantic.responses import (
     PlayerWeightedEPA,
 )
 
-_FrameT = TypeVar("_FrameT")
 _RequestT = TypeVar("_RequestT", bound=BaseModel)
 _RowT = TypeVar("_RowT", bound=BaseModel)
 
@@ -31,20 +30,20 @@ _PLAYER_WEIGHTED_EPA_ROWS = TypeAdapter(list[PlayerWeightedEPA])
 _KICKER_PAAR_ROWS = TypeAdapter(list[KickerPAAR])
 
 
-class AdjustedMetricsResource(Generic[_FrameT]):
+class AdjustedMetricsResource[FrameT]:
     """Provide validated opponent-adjusted metrics as selected frames."""
 
     def __init__(
         self,
         executor: _EndpointExecutor,
-        dataframe_adapter: _DataFrameAdapter[_FrameT],
+        dataframe_adapter: _DataFrameAdapter[FrameT],
     ) -> None:
         """Bind the namespace to shared execution and presentation services."""
         self._executor = executor
         self._dataframe_adapter = dataframe_adapter
 
     @overload
-    async def team_season(self, request: AdjustedTeamMetricsRequest, /) -> _FrameT: ...
+    async def team_season(self, request: AdjustedTeamMetricsRequest, /) -> FrameT: ...
 
     @overload
     async def team_season(
@@ -55,11 +54,11 @@ class AdjustedMetricsResource(Generic[_FrameT]):
         year: int | None = None,
         team: str | None = None,
         conference: str | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def team_season(
         self, request: AdjustedTeamMetricsRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return opponent-adjusted team metrics by season.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -80,7 +79,7 @@ class AdjustedMetricsResource(Generic[_FrameT]):
     @overload
     async def player_passing(
         self, request: AdjustedPlayerPassingRequest, /
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     @overload
     async def player_passing(
@@ -92,14 +91,14 @@ class AdjustedMetricsResource(Generic[_FrameT]):
         team: str | None = None,
         conference: str | None = None,
         position: str | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def player_passing(
         self,
         request: AdjustedPlayerPassingRequest | None = None,
         /,
         **filters: object,
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return opponent-adjusted player passing EPA.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -120,7 +119,7 @@ class AdjustedMetricsResource(Generic[_FrameT]):
     @overload
     async def player_rushing(
         self, request: AdjustedPlayerRushingRequest, /
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     @overload
     async def player_rushing(
@@ -132,14 +131,14 @@ class AdjustedMetricsResource(Generic[_FrameT]):
         team: str | None = None,
         conference: str | None = None,
         position: str | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def player_rushing(
         self,
         request: AdjustedPlayerRushingRequest | None = None,
         /,
         **filters: object,
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return opponent-adjusted player rushing EPA.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -158,7 +157,7 @@ class AdjustedMetricsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def kicker_paar(self, request: KickerPAARRequest, /) -> _FrameT: ...
+    async def kicker_paar(self, request: KickerPAARRequest, /) -> FrameT: ...
 
     @overload
     async def kicker_paar(
@@ -169,11 +168,11 @@ class AdjustedMetricsResource(Generic[_FrameT]):
         year: int | None = None,
         team: str | None = None,
         conference: str | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def kicker_paar(
         self, request: KickerPAARRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return Points Added Above Replacement ratings for kickers.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -200,7 +199,7 @@ class AdjustedMetricsResource(Generic[_FrameT]):
         filters: Mapping[str, object],
         response_adapter: TypeAdapter[list[_RowT]],
         row_model: type[_RowT],
-    ) -> _FrameT:
+    ) -> FrameT:
         """Resolve, validate, fetch, and tabularize one list endpoint."""
         validated = _resolve_request(
             endpoint=endpoint,

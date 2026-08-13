@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Generic, TypeVar
-
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
 from cfb_data.venues.models.pydantic.responses import Venue
 
-_FrameT = TypeVar("_FrameT")
 _VENUE_ROWS = TypeAdapter(list[Venue])
 
 
@@ -23,19 +20,19 @@ class _VenuesRequest(BaseModel):
 _VENUES_REQUEST = _VenuesRequest()
 
 
-class VenuesResource(Generic[_FrameT]):
+class VenuesResource[FrameT]:
     """Provide validated Venues endpoints with backend-specific frame results."""
 
     def __init__(
         self,
         executor: _EndpointExecutor,
-        dataframe_adapter: _DataFrameAdapter[_FrameT],
+        dataframe_adapter: _DataFrameAdapter[FrameT],
     ) -> None:
         """Bind the namespace to shared execution and presentation services."""
         self._executor = executor
         self._dataframe_adapter = dataframe_adapter
 
-    async def list(self) -> _FrameT:
+    async def list(self) -> FrameT:
         """Return venues in upstream order as the selected DataFrame type.
 
         :return: Eager frame containing validated ``Venue`` rows.

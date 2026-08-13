@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Generic, Literal, TypeAlias, TypeVar, overload
+from typing import Literal, overload
 
 from pydantic import TypeAdapter
 
@@ -13,8 +13,7 @@ from cfb_data.betting.models.pydantic.requests import BettingLinesRequest
 from cfb_data.betting.models.pydantic.responses import BettingGame
 from cfb_data.enums import SeasonType
 
-_FrameT = TypeVar("_FrameT")
-_SeasonTypeArgument: TypeAlias = (
+type _SeasonTypeArgument = (
     SeasonType
     | Literal[
         "regular",
@@ -29,20 +28,20 @@ _SeasonTypeArgument: TypeAlias = (
 _BETTING_GAME_ROWS = TypeAdapter(list[BettingGame])
 
 
-class BettingResource(Generic[_FrameT]):
+class BettingResource[FrameT]:
     """Provide validated Betting endpoints with selected frame results."""
 
     def __init__(
         self,
         executor: _EndpointExecutor,
-        dataframe_adapter: _DataFrameAdapter[_FrameT],
+        dataframe_adapter: _DataFrameAdapter[FrameT],
     ) -> None:
         """Bind the namespace to shared execution and presentation services."""
         self._executor = executor
         self._dataframe_adapter = dataframe_adapter
 
     @overload
-    async def lines(self, request: BettingLinesRequest, /) -> _FrameT: ...
+    async def lines(self, request: BettingLinesRequest, /) -> FrameT: ...
 
     @overload
     async def lines(
@@ -59,11 +58,11 @@ class BettingResource(Generic[_FrameT]):
         away: str | None = None,
         conference: str | None = None,
         provider: str | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def lines(
         self, request: BettingLinesRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return games with nested historical provider lines.
 
         :param request: Validated request model, mutually exclusive with filters.

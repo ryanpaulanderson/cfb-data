@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, TypeAlias, overload
+from typing import Literal, overload
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
@@ -12,7 +12,7 @@ from cfb_data.enums import UserUsageApi
 from cfb_data.info.models.pydantic.requests import InfoUsageRequest
 from cfb_data.info.models.pydantic.responses import UserInfo, UserUsage
 
-_UserUsageApiArgument: TypeAlias = UserUsageApi | Literal["all", "cfb", "cbb"]
+type _UserUsageApiArgument = UserUsageApi | Literal["all", "cfb", "cbb"]
 
 _USER_INFO = TypeAdapter(UserInfo)
 _USER_USAGE = TypeAdapter(UserUsage)

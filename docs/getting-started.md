@@ -5,7 +5,7 @@ you learn the entire API first.
 
 ## Requirements
 
-- Python 3.11 through 3.13.
+- Python 3.12 or 3.13.
 - A [CollegeFootballData API key](https://collegefootballdata.com/).
 - An async entry point. A complete script can use `asyncio.run()` as shown
   below; applications that already run an event loop can await the client

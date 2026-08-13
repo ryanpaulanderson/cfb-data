@@ -2,7 +2,7 @@
 
 ## Development setup
 
-Python 3.11 through 3.13 is supported.
+Python 3.12 and 3.13 are supported.
 
 ```sh
 make install
@@ -15,10 +15,11 @@ make check
 `make install` creates `.venv` and installs `.[dev,polars]` so the contributor
 environment exercises the canonical PyArrow layer, default pandas backend,
 and optional Polars backend. `make check` is the shared local and CI contract:
-strict mypy, a warning-free Sphinx HTML build, and the complete pytest suite.
-`make docs` writes the site to `docs/_build/html`. CI runs the shared contract
-on Python 3.11 and 3.13, separately smoke-tests base and Polars installations,
-and publishes the documentation from `main` through GitHub Pages.
+Ruff lint/format checks, strict mypy, a warning-free Sphinx HTML build, and the
+complete pytest suite. `make docs` writes the site to `docs/_build/html`. CI
+runs the shared contract on Python 3.12 and 3.13, separately smoke-tests base
+and Polars installations, and publishes the documentation from `main` through
+GitHub Pages.
 
 Follow [`AGENTS.md`](AGENTS.md), the authoritative repository engineering and
 Git guide. Run `make format` before `make check`; report every failure, skip,

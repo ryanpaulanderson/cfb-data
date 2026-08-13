@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Generic, Literal, TypeAlias, TypeVar, overload
+from typing import Literal, overload
 
 from pydantic import TypeAdapter
 
@@ -21,8 +21,7 @@ from cfb_data.playoffs.models.pydantic.responses import (
     PlayoffParticipant,
 )
 
-_FrameT = TypeVar("_FrameT")
-_PlayoffRoundArgument: TypeAlias = (
+type _PlayoffRoundArgument = (
     PlayoffRound | Literal["first_round", "quarterfinal", "semifinal", "championship"]
 )
 
@@ -31,13 +30,13 @@ _CFP_PARTICIPANT_ROWS = TypeAdapter(list[PlayoffParticipant])
 _CFP_GAME_ROWS = TypeAdapter(list[PlayoffMatchup])
 
 
-class PlayoffsResource(Generic[_FrameT]):
+class PlayoffsResource[FrameT]:
     """Provide validated CFP endpoints with model and frame results."""
 
     def __init__(
         self,
         executor: _EndpointExecutor,
-        dataframe_adapter: _DataFrameAdapter[_FrameT],
+        dataframe_adapter: _DataFrameAdapter[FrameT],
     ) -> None:
         """Bind the namespace to shared execution and presentation services."""
         self._executor = executor
@@ -74,14 +73,14 @@ class PlayoffsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def participants(self, request: CfpParticipantsRequest, /) -> _FrameT: ...
+    async def participants(self, request: CfpParticipantsRequest, /) -> FrameT: ...
 
     @overload
-    async def participants(self, request: None = None, /, *, year: int) -> _FrameT: ...
+    async def participants(self, request: None = None, /, *, year: int) -> FrameT: ...
 
     async def participants(
         self, request: CfpParticipantsRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return College Football Playoff participants for one season.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -107,7 +106,7 @@ class PlayoffsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def games(self, request: CfpGamesRequest, /) -> _FrameT: ...
+    async def games(self, request: CfpGamesRequest, /) -> FrameT: ...
 
     @overload
     async def games(
@@ -117,11 +116,11 @@ class PlayoffsResource(Generic[_FrameT]):
         *,
         year: int,
         round: _PlayoffRoundArgument | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def games(
         self, request: CfpGamesRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return College Football Playoff matchups for one season.
 
         :param request: Validated request model, mutually exclusive with filters.
