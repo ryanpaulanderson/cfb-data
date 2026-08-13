@@ -3,22 +3,19 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
 from cfb_data.errors import CFBDRequestValidationError, _sanitized_cause
 
-_RequestT = TypeVar("_RequestT", bound=BaseModel)
 
-
-def _resolve_request(
+def _resolve_request[RequestT: BaseModel](
     *,
     endpoint: str,
-    request_type: type[_RequestT],
+    request_type: type[RequestT],
     request: BaseModel | None,
     filters: Mapping[str, object],
-) -> _RequestT:
+) -> RequestT:
     """Return a supplied request or validate explicit keyword filters."""
     if request is not None:
         if filters:

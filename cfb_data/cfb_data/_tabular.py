@@ -14,7 +14,6 @@ from typing import (
     Annotated,
     Final,
     Literal,
-    TypeVar,
     Union,
     cast,
     get_args,
@@ -89,9 +88,6 @@ class _CanonicalTableSchemaError(ValueError):
 
 class _ScalarEncodingError(ValueError):
     """Report a heterogeneous scalar that violates its tagged encoding."""
-
-
-_ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 
 def _logical_schema(row_model: type[BaseModel]) -> _LogicalSchema:
@@ -194,10 +190,10 @@ def _logical_type(
     )
 
 
-def _arrow_table_from_models(
+def _arrow_table_from_models[ModelT: BaseModel](
     *,
-    row_model: type[_ModelT],
-    models: Sequence[_ModelT],
+    row_model: type[ModelT],
+    models: Sequence[ModelT],
 ) -> pa.Table:
     """Return the canonical Arrow table for validated model rows.
 
@@ -218,12 +214,12 @@ def _arrow_table_from_models(
     )
 
 
-def _models_from_arrow_table(
+def _models_from_arrow_table[ModelT: BaseModel](
     *,
-    row_model: type[_ModelT],
-    response_adapter: TypeAdapter[list[_ModelT]],
+    row_model: type[ModelT],
+    response_adapter: TypeAdapter[list[ModelT]],
     table: pa.Table,
-) -> list[_ModelT]:
+) -> list[ModelT]:
     """Validate and return models decoded from a canonical Arrow table.
 
     :param row_model: Expected authoritative row model.
@@ -368,9 +364,9 @@ def _arrow_type(logical_type: _LogicalType) -> pa.DataType:
     raise AssertionError(f"Unreachable logical kind: {logical_type.kind}")
 
 
-def _records_from_models(
-    models: Sequence[_ModelT],
-    row_model: type[_ModelT],
+def _records_from_models[ModelT: BaseModel](
+    models: Sequence[ModelT],
+    row_model: type[ModelT],
     schema: _LogicalSchema,
 ) -> list[dict[str, object]]:
     """Dump validated models in Python mode and normalize logical values."""

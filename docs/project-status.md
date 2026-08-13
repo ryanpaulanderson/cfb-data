@@ -1,6 +1,6 @@
 # Project status
 
-> Status as of August 13, 2026: version 0.3.0 implements the supported public
+> Status as of August 13, 2026: version 0.4.0 implements the supported public
 > CFBD v5.24.0 REST endpoint surface. Dataset and workflow coverage remains
 > future work.
 
@@ -79,7 +79,7 @@ Parquet methods are not.
   physical-schema, and tagged-scalar validation on reads.
 - Black-box tests through the installed client and a local HTTP boundary.
 - CI installation checks for base pandas and PyArrow and for the Polars extra
-  on Python 3.11 and 3.13.
+  on Python 3.12 and 3.13.
 
 ## Removed 0.1.x surface
 
@@ -88,7 +88,7 @@ generic route decorator, public path router, Pandera schemas, and Pandera
 dependency have been removed. Raw JSON and general response-model return modes
 are not part of the supported client.
 
-## Deliberately not included in 0.3.0
+## Deliberately not included in 0.4.0
 
 - Internal authentication routes and the deliberately hidden rolling
   player-passing PPA route.
@@ -123,7 +123,7 @@ make check
 
 `make install` installs the complete contributor environment, including
 PyArrow and both DataFrame backends. GitHub Actions runs the shared quality
-contract on Python 3.11 and 3.13 and separately smoke-tests base and Polars
+contract on Python 3.12 and 3.13 and separately smoke-tests base and Polars
 installations.
 
 ## Historical material

@@ -2,7 +2,7 @@
 
 ## Development setup
 
-Python 3.11 through 3.13 is supported.
+Python 3.12 and 3.13 are supported.
 
 ```sh
 make install
@@ -15,7 +15,7 @@ make check
 environment exercises the canonical PyArrow layer, default pandas backend,
 and optional Polars backend. `make check` is the shared local and CI contract:
 Ruff lint/format checks, strict mypy, and the complete pytest suite. CI runs it
-on Python 3.11 and 3.13 and separately smoke-tests base and Polars
+on Python 3.12 and 3.13 and separately smoke-tests base and Polars
 installations.
 
 Follow [`AGENTS.md`](AGENTS.md), the authoritative repository engineering and

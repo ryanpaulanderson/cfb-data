@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import builtins
 from collections.abc import Mapping
-from typing import Generic, TypeVar, overload
+from typing import TypeVar, overload
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -24,7 +24,6 @@ from cfb_data.coaches.models.pydantic.responses import (
     DetailedCoachSeason,
 )
 
-_FrameT = TypeVar("_FrameT")
 _RequestT = TypeVar("_RequestT", bound=BaseModel)
 _RowT = TypeVar("_RowT", bound=BaseModel)
 
@@ -34,20 +33,20 @@ _COACH_SEASON_ROWS = TypeAdapter(list[DetailedCoachSeason])
 _COACH_TENURE_ROWS = TypeAdapter(list[CoachTenure])
 
 
-class CoachesResource(Generic[_FrameT]):
+class CoachesResource[FrameT]:
     """Provide validated Coaches endpoints with selected frame results."""
 
     def __init__(
         self,
         executor: _EndpointExecutor,
-        dataframe_adapter: _DataFrameAdapter[_FrameT],
+        dataframe_adapter: _DataFrameAdapter[FrameT],
     ) -> None:
         """Bind the namespace to shared execution and presentation services."""
         self._executor = executor
         self._dataframe_adapter = dataframe_adapter
 
     @overload
-    async def list(self, request: CoachesRequest, /) -> _FrameT: ...
+    async def list(self, request: CoachesRequest, /) -> FrameT: ...
 
     @overload
     async def list(
@@ -61,11 +60,11 @@ class CoachesResource(Generic[_FrameT]):
         year: int | None = None,
         min_year: int | None = None,
         max_year: int | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def list(
         self, request: CoachesRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return historical head coaches with nested season summaries.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -84,14 +83,14 @@ class CoachesResource(Generic[_FrameT]):
         )
 
     @overload
-    async def profile(self, request: CoachProfileRequest, /) -> _FrameT: ...
+    async def profile(self, request: CoachProfileRequest, /) -> FrameT: ...
 
     @overload
-    async def profile(self, request: None = None, /, *, coach_id: int) -> _FrameT: ...
+    async def profile(self, request: None = None, /, *, coach_id: int) -> FrameT: ...
 
     async def profile(
         self, request: CoachProfileRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return one canonical coach profile as a one-row frame.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -117,7 +116,7 @@ class CoachesResource(Generic[_FrameT]):
         )
 
     @overload
-    async def seasons(self, request: CoachSeasonsRequest, /) -> _FrameT: ...
+    async def seasons(self, request: CoachSeasonsRequest, /) -> FrameT: ...
 
     @overload
     async def seasons(
@@ -130,11 +129,11 @@ class CoachesResource(Generic[_FrameT]):
         year: int | None = None,
         min_year: int | None = None,
         max_year: int | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def seasons(
         self, request: CoachSeasonsRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return coach-season records with attributed results and context.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -153,7 +152,7 @@ class CoachesResource(Generic[_FrameT]):
         )
 
     @overload
-    async def tenures(self, request: CoachTenuresRequest, /) -> _FrameT: ...
+    async def tenures(self, request: CoachTenuresRequest, /) -> FrameT: ...
 
     @overload
     async def tenures(
@@ -165,11 +164,11 @@ class CoachesResource(Generic[_FrameT]):
         team: str | None = None,
         year: int | None = None,
         active: bool | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def tenures(
         self, request: CoachTenuresRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return continuous head-coaching tenures and attributed records.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -196,7 +195,7 @@ class CoachesResource(Generic[_FrameT]):
         filters: Mapping[str, object],
         response_adapter: TypeAdapter[builtins.list[_RowT]],
         row_model: type[_RowT],
-    ) -> _FrameT:
+    ) -> FrameT:
         """Resolve, validate, fetch, and tabularize one list endpoint."""
         validated = _resolve_request(
             endpoint=endpoint,

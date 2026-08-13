@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Generic, Literal, TypeAlias, TypeVar, overload
+from typing import Literal, TypeVar, overload
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -30,11 +30,10 @@ from cfb_data.ratings.models.pydantic.responses import (
     TeamSRS,
 )
 
-_FrameT = TypeVar("_FrameT")
 _RequestT = TypeVar("_RequestT", bound=BaseModel)
 _RowT = TypeVar("_RowT", bound=BaseModel)
-_ClassificationArgument: TypeAlias = Classification | Literal["fbs", "fcs", "ii", "iii"]
-_SeasonTypeArgument: TypeAlias = (
+type _ClassificationArgument = Classification | Literal["fbs", "fcs", "ii", "iii"]
+type _SeasonTypeArgument = (
     SeasonType
     | Literal[
         "regular",
@@ -55,20 +54,20 @@ _ELO_ROWS = TypeAdapter(list[TeamElo])
 _FPI_ROWS = TypeAdapter(list[TeamFPI])
 
 
-class RatingsResource(Generic[_FrameT]):
+class RatingsResource[FrameT]:
     """Provide validated Ratings endpoints with selected frame results."""
 
     def __init__(
         self,
         executor: _EndpointExecutor,
-        dataframe_adapter: _DataFrameAdapter[_FrameT],
+        dataframe_adapter: _DataFrameAdapter[FrameT],
     ) -> None:
         """Bind the namespace to shared execution and presentation services."""
         self._executor = executor
         self._dataframe_adapter = dataframe_adapter
 
     @overload
-    async def core(self, request: CoreRatingsRequest, /) -> _FrameT: ...
+    async def core(self, request: CoreRatingsRequest, /) -> FrameT: ...
 
     @overload
     async def core(
@@ -79,11 +78,11 @@ class RatingsResource(Generic[_FrameT]):
         year: int | None = None,
         team: str | None = None,
         conference: str | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def core(
         self, request: CoreRatingsRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return Context and Opponent-Relative Efficiency ratings.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -102,7 +101,7 @@ class RatingsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def sp(self, request: SPRatingsRequest, /) -> _FrameT: ...
+    async def sp(self, request: SPRatingsRequest, /) -> FrameT: ...
 
     @overload
     async def sp(
@@ -112,11 +111,11 @@ class RatingsResource(Generic[_FrameT]):
         *,
         year: int | None = None,
         team: str | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def sp(
         self, request: SPRatingsRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return team SP+ ratings by season.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -135,9 +134,7 @@ class RatingsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def conference_sp(
-        self, request: ConferenceSPRatingsRequest, /
-    ) -> _FrameT: ...
+    async def conference_sp(self, request: ConferenceSPRatingsRequest, /) -> FrameT: ...
 
     @overload
     async def conference_sp(
@@ -148,14 +145,14 @@ class RatingsResource(Generic[_FrameT]):
         year: int | None = None,
         conference: str | None = None,
         classification: _ClassificationArgument | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def conference_sp(
         self,
         request: ConferenceSPRatingsRequest | None = None,
         /,
         **filters: object,
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return conference-level SP+ ratings by season.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -174,7 +171,7 @@ class RatingsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def srs(self, request: SRSRatingsRequest, /) -> _FrameT: ...
+    async def srs(self, request: SRSRatingsRequest, /) -> FrameT: ...
 
     @overload
     async def srs(
@@ -185,11 +182,11 @@ class RatingsResource(Generic[_FrameT]):
         year: int | None = None,
         team: str | None = None,
         conference: str | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def srs(
         self, request: SRSRatingsRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return Simple Rating System ratings by team and season.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -208,7 +205,7 @@ class RatingsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def expanded_srs(self, request: ExpandedSRSRatingsRequest, /) -> _FrameT: ...
+    async def expanded_srs(self, request: ExpandedSRSRatingsRequest, /) -> FrameT: ...
 
     @overload
     async def expanded_srs(
@@ -220,14 +217,14 @@ class RatingsResource(Generic[_FrameT]):
         team: str | None = None,
         conference: str | None = None,
         classification: _ClassificationArgument | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def expanded_srs(
         self,
         request: ExpandedSRSRatingsRequest | None = None,
         /,
         **filters: object,
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return expanded SRS ratings including lower classifications.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -246,7 +243,7 @@ class RatingsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def elo(self, request: EloRatingsRequest, /) -> _FrameT: ...
+    async def elo(self, request: EloRatingsRequest, /) -> FrameT: ...
 
     @overload
     async def elo(
@@ -259,11 +256,11 @@ class RatingsResource(Generic[_FrameT]):
         season_type: _SeasonTypeArgument | None = None,
         team: str | None = None,
         conference: str | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def elo(
         self, request: EloRatingsRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return historical Elo ratings for the selected period.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -282,7 +279,7 @@ class RatingsResource(Generic[_FrameT]):
         )
 
     @overload
-    async def fpi(self, request: FPIRatingsRequest, /) -> _FrameT: ...
+    async def fpi(self, request: FPIRatingsRequest, /) -> FrameT: ...
 
     @overload
     async def fpi(
@@ -293,11 +290,11 @@ class RatingsResource(Generic[_FrameT]):
         year: int | None = None,
         team: str | None = None,
         conference: str | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def fpi(
         self, request: FPIRatingsRequest | None = None, /, **filters: object
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return Football Power Index ratings by team and season.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -324,7 +321,7 @@ class RatingsResource(Generic[_FrameT]):
         filters: Mapping[str, object],
         response_adapter: TypeAdapter[list[_RowT]],
         row_model: type[_RowT],
-    ) -> _FrameT:
+    ) -> FrameT:
         """Resolve, validate, fetch, and tabularize one list endpoint."""
         validated = _resolve_request(
             endpoint=endpoint,
