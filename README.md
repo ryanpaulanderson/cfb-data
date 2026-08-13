@@ -2,9 +2,9 @@
 
 `cfb-data` 0.2.0 is an asynchronous, validated client for implemented
 [CollegeFootballData API](https://collegefootballdata.com/) game, play, stats,
-metrics, ratings, player, and reference-data endpoints. It returns eager pandas
-DataFrames by default and can return the same logical tables as Polars
-DataFrames.
+metrics, ratings, player, rankings, betting, recruiting, coaches, and
+reference-data endpoints. It returns eager pandas DataFrames by default and
+can return the same logical tables as Polars DataFrames.
 
 The request path is explicit:
 
@@ -165,6 +165,15 @@ name is always `game_id`; request serialization maps it to upstream `id` or
 | `client.players.season_overview` | `PlayerSeasonOverviewRequest` | one `PlayerSeasonOverview` row as selected frame |
 | `client.players.returning_production` | `ReturningProductionRequest` | `ReturningProduction` rows as selected frame |
 | `client.players.transfer_portal` | `TransferPortalRequest` | `PlayerTransfer` rows as selected frame |
+| `client.rankings.list` | `RankingsRequest` | `PollWeek` rows as selected frame |
+| `client.betting.lines` | `BettingLinesRequest` | `BettingGame` rows as selected frame |
+| `client.recruiting.players` | `RecruitingPlayersRequest` | `Recruit` rows as selected frame |
+| `client.recruiting.teams` | `RecruitingTeamsRequest` | `TeamRecruitingRanking` rows as selected frame |
+| `client.recruiting.groups` | `RecruitingGroupsRequest` | `AggregatedTeamRecruiting` rows as selected frame |
+| `client.coaches.list` | `CoachesRequest` | `Coach` rows as selected frame |
+| `client.coaches.profile` | `CoachProfileRequest` | one `CoachProfile` row as selected frame |
+| `client.coaches.seasons` | `CoachSeasonsRequest` | `DetailedCoachSeason` rows as selected frame |
+| `client.coaches.tenures` | `CoachTenuresRequest` | `CoachTenure` rows as selected frame |
 
 Request models and shared `StrEnum` values are exported from `cfb_data` and
 their supported domain namespaces. Enum fields also accept their documented
@@ -175,9 +184,11 @@ Advanced box score and live plays return models because their nested sections
 do not form one natural table. The upstream live-plays route requires Patreon
 Tier 2 access.
 
-Team matchup and player season overview are one-row frames containing nested
-columns. pandas represents nested values as `object`; Polars represents them
-as native `Struct` and `List[Struct]` values.
+Team matchup, player season overview, and coach profile are one-row frames
+containing nested columns. Rankings preserve polls and ranks, betting preserves
+provider lines, and coach summaries preserve seasons as nested values. pandas
+represents nested values as `object`; Polars represents them as native `Struct`
+and `List[Struct]` values.
 
 ## DataFrame contract
 

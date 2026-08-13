@@ -1,6 +1,13 @@
 """Access validated CollegeFootballData endpoints as pandas or Polars frames."""
 
+from .betting.models.pydantic.requests import BettingLinesRequest
 from .client import CFBDClient, DataFrameBackend
+from .coaches.models.pydantic.requests import (
+    CoachesRequest,
+    CoachProfileRequest,
+    CoachSeasonsRequest,
+    CoachTenuresRequest,
+)
 from .conferences.models.pydantic.requests import (
     ConferenceAffiliationsRequest,
     ConferenceChangesRequest,
@@ -13,6 +20,8 @@ from .enums import (
     MediaType,
     PlayoffCompetition,
     PlayoffRound,
+    RankingPoll,
+    RecruitClassification,
     SeasonType,
     TransferEligibility,
 )
@@ -68,6 +77,7 @@ from .plays.models.pydantic.requests import (
     PlayStatsRequest,
 )
 from .plays.models.pydantic.responses import DownType, HomeAway, LiveGame, RushPass
+from .rankings.models.pydantic.requests import RankingsRequest
 from .ratings.models.pydantic.requests import (
     ConferenceSPRatingsRequest,
     CoreRatingsRequest,
@@ -76,6 +86,11 @@ from .ratings.models.pydantic.requests import (
     FPIRatingsRequest,
     SPRatingsRequest,
     SRSRatingsRequest,
+)
+from .recruiting.models.pydantic.requests import (
+    RecruitingGroupsRequest,
+    RecruitingPlayersRequest,
+    RecruitingTeamsRequest,
 )
 from .retry import RetryPolicy
 from .stats.models.pydantic.requests import (
@@ -101,6 +116,7 @@ __all__ = [
     "AdvancedBoxScore",
     "AdvancedGameStatsRequest",
     "AdvancedSeasonStatsRequest",
+    "BettingLinesRequest",
     "CalendarRequest",
     "CFBDAuthenticationError",
     "CFBDAuthorizationError",
@@ -120,6 +136,10 @@ __all__ = [
     "CFBDTLSError",
     "CFBDTransportError",
     "Classification",
+    "CoachesRequest",
+    "CoachProfileRequest",
+    "CoachSeasonsRequest",
+    "CoachTenuresRequest",
     "ConferenceAffiliationsRequest",
     "ConferenceChangesRequest",
     "ConferenceClassification",
@@ -156,6 +176,12 @@ __all__ = [
     "PredictedPointsRequest",
     "PregameWinProbabilityRequest",
     "RecordsRequest",
+    "RankingPoll",
+    "RankingsRequest",
+    "RecruitClassification",
+    "RecruitingGroupsRequest",
+    "RecruitingPlayersRequest",
+    "RecruitingTeamsRequest",
     "RetryPolicy",
     "RosterRequest",
     "ReturningProductionRequest",

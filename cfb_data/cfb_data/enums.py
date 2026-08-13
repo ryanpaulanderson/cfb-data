@@ -23,6 +23,20 @@ class Classification(StrEnum):
     iii = "iii"
 
 
+class RankingPoll(StrEnum):
+    """Identify a supported rankings poll selector."""
+
+    cfp = "cfp"
+
+
+class RecruitClassification(StrEnum):
+    """Identify the source classification of a recruit."""
+
+    juco = "JUCO"
+    prep_school = "PrepSchool"
+    high_school = "HighSchool"
+
+
 class MediaType(StrEnum):
     """Identify a game broadcast medium."""
 
@@ -63,6 +77,8 @@ __all__ = [
     "MediaType",
     "PlayoffCompetition",
     "PlayoffRound",
+    "RankingPoll",
+    "RecruitClassification",
     "SeasonType",
     "TransferEligibility",
 ]

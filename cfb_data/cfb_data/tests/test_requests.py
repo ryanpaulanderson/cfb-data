@@ -9,8 +9,13 @@ from pydantic import ValidationError
 
 from cfb_data import (
     AdvancedBoxScoreRequest,
+    BettingLinesRequest,
     CalendarRequest,
     Classification,
+    CoachesRequest,
+    CoachProfileRequest,
+    CoachSeasonsRequest,
+    CoachTenuresRequest,
     ConferenceSPRatingsRequest,
     CoreRatingsRequest,
     DrivesRequest,
@@ -34,7 +39,11 @@ from cfb_data import (
     PlayStatsRequest,
     PredictedPointsRequest,
     PregameWinProbabilityRequest,
+    RankingsRequest,
     RecordsRequest,
+    RecruitingGroupsRequest,
+    RecruitingPlayersRequest,
+    RecruitingTeamsRequest,
     RetryPolicy,
     ReturningProductionRequest,
     ScoreboardRequest,
@@ -67,6 +76,22 @@ def test_request_models_are_exported_and_serialize_upstream_aliases() -> None:
             PlayerUsageRequest(year=2024, player_id=20, exclude_garbage_time=True),
             {"year": 2024, "playerId": 20, "excludeGarbageTime": True},
         ),
+        (BettingLinesRequest(game_id=21), {"gameId": 21}),
+        (
+            RecruitingGroupsRequest(
+                recruit_type="HighSchool", start_year=2020, end_year=2024
+            ),
+            {
+                "recruitType": "HighSchool",
+                "startYear": 2020,
+                "endYear": 2024,
+            },
+        ),
+        (
+            CoachesRequest(first_name="Sherrone", min_year=2024, max_year=2025),
+            {"firstName": "Sherrone", "minYear": 2024, "maxYear": 2025},
+        ),
+        (CoachProfileRequest(coach_id=22), {"coachId": 22}),
     ]
 
     for request, expected in requests:
@@ -95,6 +120,15 @@ def test_request_models_are_exported_and_serialize_upstream_aliases() -> None:
         (PlayerSeasonOverviewRequest, {"year": 2024, "player_id": 1}),
         (ReturningProductionRequest, {"year": 2024}),
         (TransferPortalRequest, {"year": 2024}),
+        (RankingsRequest, {"year": 2024}),
+        (BettingLinesRequest, {"year": 2024}),
+        (RecruitingPlayersRequest, {"year": 2024}),
+        (RecruitingTeamsRequest, {}),
+        (RecruitingGroupsRequest, {}),
+        (CoachesRequest, {}),
+        (CoachProfileRequest, {"coach_id": 1}),
+        (CoachSeasonsRequest, {}),
+        (CoachTenuresRequest, {}),
     ],
 )
 def test_new_request_models_are_public_and_accept_documented_minimums(

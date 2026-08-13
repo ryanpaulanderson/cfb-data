@@ -1,26 +1,27 @@
 # Next CFBD API groups
 
-> Discovery status as of August 12, 2026. This recommendation is based on the
+> Discovery status as of August 13, 2026. This recommendation is based on the
 > official CFBD API v5.24.0 controllers and response types. It is a planning
 > document, not a supported endpoint contract.
 
 ## Recommendation
 
-Venues, Conferences, Teams, Stats, Metrics, Ratings, and Players are now
-implemented. The next deliverable should be **Rankings**.
+Venues, Conferences, Teams, Stats, Metrics, Ratings, Players, Rankings,
+Betting, Recruiting, and Coaches are now implemented. The next deliverable
+should be **Draft**.
+
+The completed Rankings and Betting tables preserve their upstream nested poll
+and provider collections. Recruiting exposes its three distinct grains, and
+Coaches exposes the historical summary, profile, season, and tenure routes.
 
 ## Recommended sequence
 
 | Priority | Group or tranche | Routes | Rationale | Main complication |
 | ---: | --- | ---: | --- | --- |
-| 1 | Rankings | 1 | Small, recognizable feature and useful historical context. | A poll week contains nested polls and ranks rather than one obvious table. |
-| 2 | Betting | 1 | Directly complements Games and the existing scoreboard betting summary. | A game contains a provider list; the public table shape needs an explicit decision. |
-| 3 | Recruiting | 3 | Enables roster-building and talent-pipeline analysis. | Recruit identity, commitments, and aggregated position groups form separate grains. |
-| 4 | Coaches | 4 | Useful historical team context. | Profiles, seasons, and tenures were recently split into separate routes. |
-| 5 | Draft | 3 | Useful outcome data for player and program analysis. | Lower compositional value until player identity coverage exists. |
-| 6 | Playoffs | 3 | Supports the new CFP-specific competition model. | New nested bracket and advancement models are specialized and still evolving. |
-| 7 | Adjusted Metrics | 4 | Adds opponent-adjusted WEPA and player value measures. | All routes require Patreon Tier 1 and depend conceptually on Plays/Metrics. |
-| 8 | Info | 2 | Exposes account and usage metadata. | Operational metadata is separate from the analytical DataFrame product. |
+| 1 | Draft | 3 | Adds player outcome data that now composes naturally with the implemented player and recruiting identities. | Picks, team aggregates, and position aggregates form separate grains. |
+| 2 | Playoffs | 3 | Supports the new CFP-specific competition model. | New nested bracket and advancement models are specialized and still evolving. |
+| 3 | Adjusted Metrics | 4 | Adds opponent-adjusted WEPA and player value measures. | All routes require Patreon Tier 1 and depend conceptually on Plays/Metrics. |
+| 4 | Info | 2 | Exposes account and usage metadata. | Operational metadata is separate from the analytical DataFrame product. |
 
 The route count reflects the current v5.24.0 source, not the legacy Swagger
 grouping. Implemented Players coverage excludes the controller's deliberately
@@ -41,3 +42,7 @@ recorded in
 - [Endpoint access rules](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/config/auth.ts)
 - [Teams, Conferences, and Venues controller](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/teams/controller.ts)
 - [Stats response types](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/stats/types.ts)
+- [Rankings response types](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/rankings/types.ts)
+- [Betting response types](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/lines/types.ts)
+- [Recruiting response types](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/recruiting/types.ts)
+- [Coaches response types](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/coaches/types.ts)
