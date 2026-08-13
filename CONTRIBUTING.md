@@ -84,6 +84,11 @@ GitHub generates the release notes from merged pull requests and groups them by
 their `enhancement`, `bug`, `documentation`, or `dependencies` labels, with an
 additional catch-all section.
 
+Release automation relies on and validates the repository's merge-commit-only
+policy so the merge commit's first parent identifies the exact pre-merge state
+of `main`. Update the version-comparison workflow before enabling another merge
+method.
+
 Pull requests that change `pyproject.toml` without increasing the project
 version do not create a release. A version decrease or a version outside the
 documented three-component form fails the release check. The workflow does not

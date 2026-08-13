@@ -40,10 +40,11 @@ jobs:
           previous_sha="$(
             gh api --method GET \
               "repos/${GITHUB_REPOSITORY}/commits/${MERGE_SHA}" \
-              --jq '.parents[0].sha // empty'
+              --jq '.parents | select(length == 2) | .[0].sha'
           )"
           if [[ -z "$previous_sha" ]]; then
-            echo "Merge commit $MERGE_SHA has no first parent" >&2
+            echo "Expected merged PR commit $MERGE_SHA to have exactly two parents." >&2
+            echo "Release automation requires the merge-commit-only policy." >&2
             exit 1
           fi
 
