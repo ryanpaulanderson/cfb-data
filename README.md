@@ -31,7 +31,7 @@ Install the optional Polars backend with:
 python -m pip install "cfb-data[polars]"
 ```
 
-Python 3.11 through 3.13 is supported. DataFrames are eager; Polars
+Python 3.12 and 3.13 are supported. DataFrames are eager; Polars
 `LazyFrame` results are not part of the 0.4.1 contract.
 
 ## Authentication and lifecycle

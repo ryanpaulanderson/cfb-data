@@ -25,6 +25,18 @@ def test_distribution_and_package_are_importable() -> None:
     assert resource_files(cfb_data).joinpath("py.typed").is_file()
 
 
+def test_distribution_requires_supported_python_versions() -> None:
+    """Verify package metadata advertises the supported Python versions."""
+    distribution_metadata = metadata("cfb-data")
+    classifiers = distribution_metadata.get_all("Classifier")
+
+    assert distribution_metadata["Requires-Python"] == ">=3.12"
+    assert classifiers is not None
+    assert "Programming Language :: Python :: 3.11" not in classifiers
+    assert "Programming Language :: Python :: 3.12" in classifiers
+    assert "Programming Language :: Python :: 3.13" in classifiers
+
+
 def test_project_license_matches_distribution_metadata() -> None:
     """Verify package metadata and the project license agree on MIT."""
     distribution_metadata = metadata("cfb-data")

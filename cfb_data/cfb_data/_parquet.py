@@ -6,7 +6,7 @@ import os
 import tempfile
 from contextlib import suppress
 from pathlib import Path
-from typing import Final, Literal, TypeVar
+from typing import Final, Literal
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -60,9 +60,6 @@ class _ParquetCodecError(CFBDError):
         super().__init__(f"Parquet {operation} failed ({category})")
 
 
-_ModelT = TypeVar("_ModelT", bound=BaseModel)
-
-
 def _write_parquet(
     path: str | os.PathLike[str],
     *,
@@ -88,11 +85,11 @@ def _write_parquet(
     raise _ParquetCodecError(operation="write", category=category) from safe_cause
 
 
-def _read_parquet(
+def _read_parquet[ModelT: BaseModel](
     path: str | os.PathLike[str],
     *,
-    row_model: type[_ModelT],
-    response_adapter: TypeAdapter[list[_ModelT]],
+    row_model: type[ModelT],
+    response_adapter: TypeAdapter[list[ModelT]],
     validation: _ParquetValidation = "full",
 ) -> pa.Table:
     """Read and verify one versioned cfb-data Parquet file.
@@ -161,11 +158,11 @@ def _write_parquet_file(
             temporary_path.unlink()
 
 
-def _read_parquet_file(
+def _read_parquet_file[ModelT: BaseModel](
     path: Path,
     *,
-    row_model: type[_ModelT],
-    response_adapter: TypeAdapter[list[_ModelT]],
+    row_model: type[ModelT],
+    response_adapter: TypeAdapter[list[ModelT]],
     validation: _ParquetValidation,
 ) -> pa.Table:
     """Read a table and apply the selected internal validation policy."""

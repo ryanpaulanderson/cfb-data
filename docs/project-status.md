@@ -79,7 +79,7 @@ Parquet methods are not.
   physical-schema, and tagged-scalar validation on reads.
 - Black-box tests through the installed client and a local HTTP boundary.
 - CI installation checks for base pandas and PyArrow and for the Polars extra
-  on Python 3.11 and 3.13.
+  on Python 3.12 and 3.13.
 
 ## Removed 0.1.x surface
 
@@ -123,7 +123,7 @@ make check
 
 `make install` installs the complete contributor environment, including
 PyArrow and both DataFrame backends. GitHub Actions runs the shared quality
-contract on Python 3.11 and 3.13 and separately smoke-tests base and Polars
+contract on Python 3.12 and 3.13 and separately smoke-tests base and Polars
 installations.
 
 ## Historical material

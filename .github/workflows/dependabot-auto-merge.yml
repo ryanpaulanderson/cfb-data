@@ -91,7 +91,7 @@ jobs:
             check_count="$(jq 'length' <<<"$normalized_checks")"
             incomplete_count="$(jq '[.[] | select(.bucket != "pass" and .bucket != "skipping")] | length' <<<"$normalized_checks")"
             failed_count="$(jq '[.[] | select(.bucket == "fail")] | length' <<<"$normalized_checks")"
-            python_311_count="$(jq '[.[] | select(.workflow == "CI" and .name == "Python 3.11" and .bucket == "pass")] | length' <<<"$normalized_checks")"
+            python_312_count="$(jq '[.[] | select(.workflow == "CI" and .name == "Python 3.12" and .bucket == "pass")] | length' <<<"$normalized_checks")"
             python_313_count="$(jq '[.[] | select(.workflow == "CI" and .name == "Python 3.13" and .bucket == "pass")] | length' <<<"$normalized_checks")"
 
             if (( failed_count > 0 )); then
@@ -99,7 +99,7 @@ jobs:
               exit 1
             fi
 
-            if (( python_311_count == 1 && python_313_count == 1 && check_count > 0 && incomplete_count == 0 )); then
+            if (( python_312_count == 1 && python_313_count == 1 && check_count > 0 && incomplete_count == 0 )); then
               check_signature="$(jq -c 'sort_by([.workflow, .name, .bucket])' <<<"$normalized_checks")"
               if [[ "$check_signature" == "$previous_signature" ]]; then
                 settled_polls=$((settled_polls + 1))

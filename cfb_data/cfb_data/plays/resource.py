@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Generic, Literal, TypeAlias, TypeVar, overload
+from typing import Literal, overload
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
@@ -23,8 +23,7 @@ from cfb_data.plays.models.pydantic.responses import (
     PlayType,
 )
 
-_FrameT = TypeVar("_FrameT")
-_SeasonTypeArgument: TypeAlias = (
+type _SeasonTypeArgument = (
     SeasonType
     | Literal[
         "regular",
@@ -35,7 +34,7 @@ _SeasonTypeArgument: TypeAlias = (
         "spring_postseason",
     ]
 )
-_ClassificationArgument: TypeAlias = Classification | Literal["fbs", "fcs", "ii", "iii"]
+type _ClassificationArgument = Classification | Literal["fbs", "fcs", "ii", "iii"]
 
 _PLAY_ROWS = TypeAdapter(list[Play])
 _PLAY_TYPE_ROWS = TypeAdapter(list[PlayType])
@@ -53,20 +52,20 @@ class _EmptyRequest(BaseModel):
 _EMPTY_REQUEST = _EmptyRequest()
 
 
-class PlaysResource(Generic[_FrameT]):
+class PlaysResource[FrameT]:
     """Provide validated Plays endpoints with backend-specific frame results."""
 
     def __init__(
         self,
         executor: _EndpointExecutor,
-        dataframe_adapter: _DataFrameAdapter[_FrameT],
+        dataframe_adapter: _DataFrameAdapter[FrameT],
     ) -> None:
         """Bind the namespace to shared execution and presentation services."""
         self._executor = executor
         self._dataframe_adapter = dataframe_adapter
 
     @overload
-    async def list(self, request: PlaysRequest, /) -> _FrameT: ...
+    async def list(self, request: PlaysRequest, /) -> FrameT: ...
 
     @overload
     async def list(
@@ -85,14 +84,14 @@ class PlaysResource(Generic[_FrameT]):
         play_type: str | None = None,
         season_type: _SeasonTypeArgument | None = None,
         classification: _ClassificationArgument | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def list(
         self,
         request: PlaysRequest | None = None,
         /,
         **filters: object,
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return historical plays as the selected DataFrame type.
 
         :param request: Validated request model, mutually exclusive with filters.
@@ -119,7 +118,7 @@ class PlaysResource(Generic[_FrameT]):
             models=rows,
         )
 
-    async def types(self) -> _FrameT:
+    async def types(self) -> FrameT:
         """Return available play types as the selected DataFrame type.
 
         :return: Eager frame containing validated ``PlayType`` rows.
@@ -138,7 +137,7 @@ class PlaysResource(Generic[_FrameT]):
         )
 
     @overload
-    async def stats(self, request: PlayStatsRequest, /) -> _FrameT: ...
+    async def stats(self, request: PlayStatsRequest, /) -> FrameT: ...
 
     @overload
     async def stats(
@@ -154,14 +153,14 @@ class PlaysResource(Generic[_FrameT]):
         stat_type_id: int | None = None,
         season_type: _SeasonTypeArgument | None = None,
         conference: str | None = None,
-    ) -> _FrameT: ...
+    ) -> FrameT: ...
 
     async def stats(
         self,
         request: PlayStatsRequest | None = None,
         /,
         **filters: object,
-    ) -> _FrameT:
+    ) -> FrameT:
         """Return athlete play statistics as the selected DataFrame type.
 
         The upstream endpoint limits responses to 2,000 rows.
@@ -190,7 +189,7 @@ class PlaysResource(Generic[_FrameT]):
             models=rows,
         )
 
-    async def stat_types(self) -> _FrameT:
+    async def stat_types(self) -> FrameT:
         """Return athlete play-stat types as the selected DataFrame type.
 
         :return: Eager frame containing validated ``PlayStatType`` rows.

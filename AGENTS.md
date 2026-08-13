@@ -19,8 +19,8 @@ may add stricter, local rules for its subtree.
 
 ## Repository contract
 
-- Support Python 3.11 through 3.13. Do not use syntax or APIs introduced after
-  3.11 unless the supported versions are deliberately changed together.
+- Support Python 3.12 and 3.13. Do not use syntax or APIs introduced after
+  3.12 unless the supported versions are deliberately changed together.
 - `pyproject.toml` is the single source of truth for packaging, supported
   Python versions, dependencies, and tool configuration. Keep runtime packages
   in `project.dependencies` and development tools in
@@ -73,7 +73,7 @@ def games_for_year(year: int) -> list[Game]:
   parameter and return value (including `-> None`), callbacks, module state,
   class and instance attributes, empty containers, and local variables whose
   type or domain meaning is not immediately stable from inference.
-- Prefer Python 3.11 forms such as `list[str]`, `dict[str, int]`, and
+- Prefer Python 3.12 forms such as `list[str]`, `dict[str, int]`, and
   `Result | None`. Accept the narrowest useful abstract interface from
   `collections.abc`; return the concrete type actually promised.
 - Use `Final`, `Literal`, `NewType`, `TypedDict`, dataclasses, generics,
