@@ -37,6 +37,20 @@ def test_project_license_matches_distribution_metadata() -> None:
     )
 
 
+def test_release_workflow_uses_pypi_supported_events() -> None:
+    """Keep Trusted Publishing off the rejected pull-request-target event."""
+    repository_root = Path(__file__).resolve().parents[3]
+    workflow = (repository_root / ".github/workflows/release.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "\n  pull_request_target:" not in workflow
+    assert "\n  push:\n    branches: [main]\n" in workflow
+    assert "\n  workflow_dispatch:\n" in workflow
+    assert "ref: ${{ needs.release.outputs.release_sha }}" in workflow
+    assert workflow.count("id-token: write") == 1
+
+
 def test_legacy_clients_and_generic_routing_are_not_exported() -> None:
     """Keep the 0.3.0 package surface free of compatibility wrappers."""
     legacy_names = {
