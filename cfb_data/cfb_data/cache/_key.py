@@ -5,17 +5,37 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
+from typing import Final
 from urllib.parse import urlsplit, urlunsplit
 
 from cfb_data.base.types import QueryValue
 
 _CACHE_KEY_VERSION = 1
+_CREDENTIAL_SCOPE_SALT: Final = b"cfb-data:credential-scope:v2"
+_SCRYPT_COST: Final = 2**14
+_SCRYPT_BLOCK_SIZE: Final = 8
+_SCRYPT_PARALLELISM: Final = 1
 
 
 def credential_scope_digest(api_key: str) -> str:
-    """Return an irreversible account-scope discriminator for a bearer token."""
-    material = b"cfb-data:credential-scope:v1\0" + api_key.encode("utf-8")
-    return hashlib.sha256(material).hexdigest()
+    """Return a deterministic hardened scope discriminator for a bearer token.
+
+    A stable domain-specific salt is required because separate clients and
+    processes using the same configured backend must derive the same cache
+    namespace. Scrypt prevents the stored discriminator from becoming a cheap
+    offline verifier if a credential has unexpectedly low entropy.
+
+    :param api_key: Bearer credential whose raw value must not enter cache keys.
+    :return: Lowercase hexadecimal account-scope discriminator.
+    """
+    return hashlib.scrypt(
+        api_key.encode("utf-8"),
+        salt=_CREDENTIAL_SCOPE_SALT,
+        n=_SCRYPT_COST,
+        r=_SCRYPT_BLOCK_SIZE,
+        p=_SCRYPT_PARALLELISM,
+        dklen=32,
+    ).hex()
 
 
 def response_cache_key(

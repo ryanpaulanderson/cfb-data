@@ -147,7 +147,9 @@ class CFBDClient[FrameT]:
             transport=transport,
             backend=cache_backend,
             enabled=cache is not None,
-            credential_scope=credential_scope_digest(resolved_api_key),
+            credential_scope=(
+                credential_scope_digest(resolved_api_key) if cache is not None else ""
+            ),
             policy=cache_policy or CachePolicyConfig(),
             io_timeout_seconds=cache_timeout,
         )

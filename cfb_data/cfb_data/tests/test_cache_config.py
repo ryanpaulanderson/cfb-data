@@ -59,6 +59,10 @@ def test_redis_configuration_repr_redacts_credentials() -> None:
 def test_cache_key_is_stable_typed_scoped_and_secret_free() -> None:
     token = "secret-bearer-value"
     scope = credential_scope_digest(token)
+    assert scope == credential_scope_digest(token)
+    assert scope != credential_scope_digest("different-secret-bearer-value")
+    assert token not in scope
+    assert len(scope) == 64
     common = {
         "base_url": "HTTPS://API.Example.Test:443/v1/",
         "endpoint": "/games",
