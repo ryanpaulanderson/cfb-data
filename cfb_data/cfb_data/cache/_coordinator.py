@@ -494,8 +494,18 @@ class CacheCoordinator:
             ):
                 return value
             if asyncio.get_running_loop().time() >= deadline:
-                raise CFBDCacheBackendError(
-                    f"Timed out waiting for cache refresh for endpoint {endpoint}"
+                _LOGGER.warning(
+                    "CFBD cache distributed lease timeout endpoint=%s", endpoint
+                )
+                return await self._refresh(
+                    key=key,
+                    endpoint=endpoint,
+                    parameters=parameters,
+                    response_contract=response_contract,
+                    profile=profile,
+                    validate=validate,
+                    stale_record=stale_record,
+                    stale_value=stale_value,
                 )
             delay = 0.05 + self._random_source() * 0.15
             await asyncio.sleep(delay)

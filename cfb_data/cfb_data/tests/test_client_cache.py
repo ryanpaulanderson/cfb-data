@@ -286,6 +286,46 @@ async def test_distributed_refresh_follower_waits_for_new_record(
 
 
 @pytest.mark.asyncio
+async def test_distributed_lease_timeout_fails_open_to_http(
+    api_server: ServerFactory,
+    calendar_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Refresh directly when a distributed lease outlives the wait budget."""
+    calls = 0
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        return web.json_response([calendar_response])
+
+    path = tmp_path / "cache.sqlite3"
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            timeout_seconds=0.05,
+            retry_policy=RetryPolicy(max_attempts=1),
+            cache=_sqlite(path),
+            cache_policy=_immediately_stale(),
+        ) as client:
+            await client.games.calendar(year=2024)
+            with sqlite3.connect(path) as connection:
+                row = connection.execute("SELECT key FROM response_records").fetchone()
+                assert row is not None
+                connection.execute(
+                    "INSERT INTO refresh_leases"
+                    "(key, owner_token, acquired_at, expires_at) VALUES (?, ?, ?, ?)",
+                    (row[0], "other-worker", "2026-01-01", "9999-12-31"),
+                )
+
+            refreshed = await client.games.calendar(year=2024)
+
+    assert len(refreshed) == 1
+    assert calls == 2
+
+
+@pytest.mark.asyncio
 async def test_local_only_rejects_disabled_and_operational_caching(
     api_server: ServerFactory,
     tmp_path: Path,
