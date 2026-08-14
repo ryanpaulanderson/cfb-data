@@ -38,6 +38,9 @@ deployment.
   — accepted representation for the Stats string-or-number value contract.
 - [`architecture/0003-canonical-arrow-parquet.md`](architecture/0003-canonical-arrow-parquet.md)
   — accepted canonical Arrow table and versioned Parquet persistence contract.
+- [`architecture/0004-api-cache-identity-catalog.md`](architecture/0004-api-cache-identity-catalog.md)
+  — accepted API response-cache, identity-catalog, coverage, hydration, and
+  identity-routing architecture.
 - [`notices-of-decision/`](notices-of-decision/README.md) — decision notices
   explaining the evidence, alternatives, and reasoning behind consequential
   project choices.
