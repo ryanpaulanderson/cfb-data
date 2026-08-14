@@ -546,7 +546,7 @@ class _ProjectionBuilder:
         status = _optional_string(data.get("status"))
         if class_name == "Game" and status is None:
             completed = data.get("completed")
-            status = "completed" if completed is True else "scheduled"
+            status = "completed" if completed is True else None
         raw_start_date = data.get("start_date") or data.get("start_time")
         start_date = raw_start_date if isinstance(raw_start_date, datetime) else None
         self.games[game_id] = GameFact(

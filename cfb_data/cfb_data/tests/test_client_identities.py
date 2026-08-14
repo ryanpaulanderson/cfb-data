@@ -215,6 +215,34 @@ async def test_game_identity_find_uses_exact_team_abbreviation_with_fresh_covera
 
 
 @pytest.mark.asyncio
+async def test_incomplete_game_does_not_claim_a_scheduled_status(
+    api_server: ServerFactory,
+    game_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Leave status unknown when the games endpoint only proves incompleteness."""
+    game = dict(game_response)
+    game["completed"] = False
+
+    async def handler(request: web.Request) -> web.Response:
+        return web.json_response([game])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            cache=SQLiteCacheConfig(path=tmp_path / "cache.sqlite3"),
+        ) as client:
+            await client.games.list(year=2024)
+            identity = await client.identities.games.resolve(
+                game_id=401628347,
+                freshness=FreshnessMode.local_only,
+            )
+
+    assert identity.status is None
+
+
+@pytest.mark.asyncio
 async def test_identity_resolution_works_in_memory_without_persistence(
     api_server: ServerFactory,
 ) -> None:
