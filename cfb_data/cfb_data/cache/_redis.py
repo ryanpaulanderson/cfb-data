@@ -302,26 +302,24 @@ class RedisCacheBackend:
         return [
             identity
             for identity in identities
-            if normalized_query
-            in {
-                _normalize(identity.school),
-                *(
-                    [_normalize(identity.abbreviation)]
-                    if identity.abbreviation is not None
-                    else []
-                ),
-                *(_normalize(alias) for alias in identity.alternate_names),
-            }
+            if _matches_normalized(
+                normalized_query,
+                identity.school,
+                identity.abbreviation,
+                *identity.alternate_names,
+            )
         ]
 
     async def find_conferences(self, query: str | int) -> list[ConferenceIdentity]:
         """Return exact provider-ID, name, or abbreviation matches."""
         if isinstance(query, int):
             ids = {str(query)}
+            normalized_query = None
         else:
-            ids = await self._index_members("conference", _normalize(query))
+            normalized_query = _normalize(query)
+            ids = await self._index_members("conference", normalized_query)
         records = await self._hash_records("conference", ids)
-        return [
+        identities = [
             ConferenceIdentity(
                 id=_required_int(record, "id"),
                 name=_required_text(record, "name"),
@@ -330,15 +328,26 @@ class RedisCacheBackend:
             )
             for record in records
         ]
+        if normalized_query is None:
+            return identities
+        return [
+            identity
+            for identity in identities
+            if _matches_normalized(
+                normalized_query, identity.name, identity.abbreviation
+            )
+        ]
 
     async def find_venues(self, query: str | int) -> list[VenueIdentity]:
         """Return exact provider-ID or name matches."""
         if isinstance(query, int):
             ids = {str(query)}
+            normalized_query = None
         else:
-            ids = await self._index_members("venue", _normalize(query))
+            normalized_query = _normalize(query)
+            ids = await self._index_members("venue", normalized_query)
         records = await self._hash_records("venue", ids)
-        return [
+        identities = [
             VenueIdentity(
                 id=_required_int(record, "id"),
                 name=_required_text(record, "name"),
@@ -346,6 +355,13 @@ class RedisCacheBackend:
                 state=_optional_text(record, "state"),
             )
             for record in records
+        ]
+        if normalized_query is None:
+            return identities
+        return [
+            identity
+            for identity in identities
+            if _matches_normalized(normalized_query, identity.name)
         ]
 
     async def find_game(self, game_id: int) -> GameIdentity | None:
@@ -390,10 +406,14 @@ class RedisCacheBackend:
         self, *, name: str, team: str | None, season: int | None
     ) -> list[AthleteIdentity]:
         """Return exact athlete matches within optional team-season scope."""
-        athlete_ids = await self._index_members("athlete", _normalize(name))
+        normalized_name = _normalize(name)
+        athlete_ids = await self._index_members("athlete", normalized_name)
         records = await self._hash_records("athlete", athlete_ids)
         results: list[AthleteIdentity] = []
         for record in records:
+            athlete_name = _required_text(record, "name")
+            if not _matches_normalized(normalized_name, athlete_name):
+                continue
             athlete_id = _required_text(record, "id")
             membership_keys = await _redis_result(
                 self._active_client().smembers(
@@ -421,7 +441,7 @@ class RedisCacheBackend:
                 results.append(
                     AthleteIdentity(
                         id=athlete_id,
-                        name=_required_text(record, "name"),
+                        name=athlete_name,
                         position=_optional_text(record, "position"),
                     )
                 )
@@ -429,7 +449,7 @@ class RedisCacheBackend:
                 results.extend(
                     AthleteIdentity(
                         id=athlete_id,
-                        name=_required_text(record, "name"),
+                        name=athlete_name,
                         position=_optional_text(record, "position"),
                         team=_json_required_text(membership, "team"),
                         season=_json_required_int(membership, "season"),
@@ -983,6 +1003,11 @@ def _string_list(value: object) -> list[str]:
     ):
         raise CFBDCacheBackendError("Redis catalog string list is corrupt")
     return cast(list[str], parsed)
+
+
+def _matches_normalized(query: str, *values: str | None) -> bool:
+    """Return whether a normalized query matches any current identity value."""
+    return any(value is not None and _normalize(value) == query for value in values)
 
 
 def _json_required_text(record: Mapping[str, JSONValue], name: str) -> str:

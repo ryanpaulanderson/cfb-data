@@ -11,6 +11,7 @@ import pytest
 import pytest_asyncio
 from aiohttp import web
 from cfb_data.cache._catalog import (
+    AthleteFact,
     CatalogProjection,
     CoachFact,
     CoachTeamSeasonFact,
@@ -217,6 +218,52 @@ async def test_redis_authoritative_alias_removal_updates_lookup_index(
     )
 
     assert await backend.find_teams("Wolverines") == []
+    await backend.close()
+
+
+@pytest.mark.redis
+@pytest.mark.asyncio
+async def test_redis_renamed_identities_reject_stale_index_members(
+    redis_config: RedisCacheConfig,
+) -> None:
+    """Reject old exact names after authoritative identity renames."""
+    now = datetime.now(UTC)
+    record = ResponseRecord(
+        key="8" * 64,
+        endpoint="/catalog-test",
+        response_contract="CatalogTest:list:v1",
+        body=b"[]",
+        fetched_at=now,
+        fresh_until=now + timedelta(seconds=10),
+        retained_until=now + timedelta(seconds=30),
+        etag=None,
+        last_modified=None,
+        row_count=0,
+    )
+    backend = await RedisCacheBackend(redis_config).open()
+    await backend.commit_response(
+        record,
+        CatalogProjection(
+            conferences=(ConferenceFact(5, "Western Conference", "WEST", "fbs"),),
+            venues=(VenueFact(365, "Old Stadium", "Ann Arbor", "MI"),),
+            athletes=(AthleteFact("42", "Old Name", "QB"),),
+        ),
+    )
+    await backend.commit_response(
+        record,
+        CatalogProjection(
+            conferences=(ConferenceFact(5, "Eastern Conference", "EAST", "fbs"),),
+            venues=(VenueFact(365, "New Stadium", "Ann Arbor", "MI"),),
+            athletes=(AthleteFact("42", "New Name", "QB"),),
+        ),
+    )
+
+    stale_matches = {
+        "conference": await backend.find_conferences("Western Conference"),
+        "venue": await backend.find_venues("Old Stadium"),
+        "athlete": await backend.find_athletes(name="Old Name", team=None, season=None),
+    }
+    assert stale_matches == {"conference": [], "venue": [], "athlete": []}
     await backend.close()
 
 
