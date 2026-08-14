@@ -50,6 +50,29 @@ if redis.call('GET', KEYS[1]) == ARGV[1] then
 end
 return 0
 """
+_COACH_TEAM_SEASON_SCRIPT = """
+redis.call('HSETNX', KEYS[1], 'first_seen_at', ARGV[1])
+redis.call(
+  'HSET', KEYS[1],
+  'coach_id', ARGV[2],
+  'team_id', ARGV[3],
+  'start_year', ARGV[4],
+  'last_seen_at', ARGV[1],
+  'source_version', '1',
+  'schema_version', '1'
+)
+if ARGV[6] ~= '' then
+  if ARGV[5] == '' then
+    redis.call('HDEL', KEYS[1], 'end_year')
+  else
+    redis.call('HSET', KEYS[1], 'end_year', ARGV[5])
+  end
+  redis.call('HSET', KEYS[1], 'tenure_id', ARGV[6])
+elseif redis.call('HEXISTS', KEYS[1], 'tenure_id') == 0 and ARGV[5] ~= '' then
+  redis.call('HSET', KEYS[1], 'end_year', ARGV[5])
+end
+return 1
+"""
 
 
 class RedisCacheBackend:
@@ -596,7 +619,6 @@ class RedisCacheBackend:
         groups: tuple[tuple[str, Iterable[object]], ...] = (
             ("recruit", projection.recruits),
             ("coach", projection.coaches),
-            ("coach-team-season", projection.coach_team_seasons),
             ("drive", projection.drives),
             ("play", projection.plays),
             ("vocabulary", projection.vocabularies),
@@ -619,6 +641,27 @@ class RedisCacheBackend:
                         if value is not None
                     },
                 )
+        self._project_coach_team_seasons(pipe, projection, observed_at)
+
+    def _project_coach_team_seasons(
+        self, pipe: Redis, projection: CatalogProjection, observed_at: str
+    ) -> None:
+        """Queue coach relationships without narrowing authoritative tenures."""
+        for fact in projection.coach_team_seasons:
+            payload = _dataclass_json(fact)
+            identity = _fact_identity("coach-team-season", payload)
+            key = self._key("catalog", "coach-team-season", identity)
+            pipe.eval(
+                _COACH_TEAM_SEASON_SCRIPT,
+                1,
+                key,
+                observed_at,
+                fact.coach_id,
+                fact.team_id,
+                fact.start_year,
+                "" if fact.end_year is None else fact.end_year,
+                "" if fact.tenure_id is None else fact.tenure_id,
+            )
 
     def _project_coverage(self, pipeline: object, coverage: CoverageRecord) -> None:
         """Queue one permanent capability-aware coverage ledger record."""

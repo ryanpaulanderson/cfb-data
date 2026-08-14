@@ -12,6 +12,7 @@ from aiohttp import web
 from cfb_data.cache._catalog import (
     CatalogProjection,
     CoachFact,
+    CoachTeamSeasonFact,
     ConferenceFact,
     CoverageRecord,
     CoverageStatus,
@@ -181,6 +182,65 @@ async def test_redis_partial_facts_preserve_richer_catalog_fields(
     assert (conference.abbreviation, conference.classification) == ("B1G", "fbs")
     assert (venue.city, venue.state) == ("Ann Arbor", "MI")
 
+    await backend.close()
+
+
+@pytest.mark.redis
+@pytest.mark.asyncio
+async def test_redis_season_facts_preserve_coach_tenure_ranges(
+    redis_config: RedisCacheConfig,
+) -> None:
+    """Keep authoritative tenure intervals across per-season projections."""
+    now = datetime.now(UTC)
+    record = ResponseRecord(
+        key="f" * 64,
+        endpoint="/coaches/tenures",
+        response_contract="CoachTenure:list:v1",
+        body=b"[]",
+        fetched_at=now,
+        fresh_until=now + timedelta(seconds=10),
+        retained_until=now + timedelta(seconds=30),
+        etag=None,
+        last_modified=None,
+        row_count=0,
+    )
+    backend = await RedisCacheBackend(redis_config).open()
+    await backend.commit_response(
+        record,
+        CatalogProjection(
+            coach_team_seasons=(
+                CoachTeamSeasonFact(1, 130, 2020, 2024, 44),
+                CoachTeamSeasonFact(2, 333, 2022, None, 45),
+            )
+        ),
+    )
+    await backend.commit_response(
+        record,
+        CatalogProjection(
+            coach_team_seasons=(
+                CoachTeamSeasonFact(1, 130, 2020, 2020),
+                CoachTeamSeasonFact(2, 333, 2022, 2022),
+            )
+        ),
+    )
+
+    client = Redis.from_url(redis_config.url, decode_responses=True)
+    keys = sorted(
+        [
+            key
+            async for key in client.scan_iter(
+                match=f"{redis_config.key_prefix}:v1:catalog:coach-team-season:*"
+            )
+        ]
+    )
+    rows = [await client.hgetall(key) for key in keys]
+    by_coach = {row["coach_id"]: row for row in rows}
+    assert by_coach["1"]["end_year"] == "2024"
+    assert by_coach["1"]["tenure_id"] == "44"
+    assert "end_year" not in by_coach["2"]
+    assert by_coach["2"]["tenure_id"] == "45"
+
+    await client.aclose()
     await backend.close()
 
 

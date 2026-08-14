@@ -970,7 +970,9 @@ class SQLiteCacheBackend:
         await connection.executemany(
             "INSERT INTO coach_team_seasons VALUES (?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(coach_id, team_id, start_year) DO UPDATE SET "
-            "end_year=excluded.end_year, "
+            "end_year=CASE WHEN excluded.tenure_id IS NULL "
+            "AND coach_team_seasons.tenure_id IS NOT NULL "
+            "THEN coach_team_seasons.end_year ELSE excluded.end_year END, "
             "tenure_id=COALESCE(excluded.tenure_id, coach_team_seasons.tenure_id), "
             "last_seen_at=excluded.last_seen_at",
             [

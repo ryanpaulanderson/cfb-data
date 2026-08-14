@@ -11,6 +11,7 @@ from cfb_data.cache._catalog import (
     AthleteFact,
     AthleteTeamSeasonFact,
     CatalogProjection,
+    CoachTeamSeasonFact,
     ConferenceFact,
     CoverageRecord,
     CoverageStatus,
@@ -155,6 +156,42 @@ async def test_sqlite_partial_facts_preserve_richer_catalog_fields(
     assert (venue.city, venue.state) == ("Ann Arbor", "MI")
 
     await backend.close()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_season_facts_preserve_coach_tenure_ranges(
+    tmp_path: Path,
+) -> None:
+    """Keep authoritative tenure intervals across per-season projections."""
+    now = datetime(2026, 8, 13, tzinfo=UTC)
+    path = tmp_path / "cache.sqlite3"
+    backend = await SQLiteCacheBackend(SQLiteCacheConfig(path=path)).open()
+    await backend.commit_response(
+        _record(now),
+        CatalogProjection(
+            coach_team_seasons=(
+                CoachTeamSeasonFact(1, 130, 2020, 2024, 44),
+                CoachTeamSeasonFact(2, 333, 2022, None, 45),
+            )
+        ),
+    )
+    await backend.commit_response(
+        _record(now + timedelta(minutes=1)),
+        CatalogProjection(
+            coach_team_seasons=(
+                CoachTeamSeasonFact(1, 130, 2020, 2020),
+                CoachTeamSeasonFact(2, 333, 2022, 2022),
+            )
+        ),
+    )
+    await backend.close()
+
+    with sqlite3.connect(path) as connection:
+        rows = connection.execute(
+            "SELECT coach_id, end_year, tenure_id FROM coach_team_seasons "
+            "ORDER BY coach_id"
+        ).fetchall()
+    assert rows == [(1, 2024, 44), (2, None, 45)]
 
 
 @pytest.mark.asyncio
