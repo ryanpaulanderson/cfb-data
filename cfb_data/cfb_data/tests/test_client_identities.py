@@ -358,6 +358,36 @@ async def test_zero_team_placeholder_is_not_persisted_as_an_identity(
 
 
 @pytest.mark.asyncio
+async def test_ensure_fresh_fails_open_after_catalog_read_corruption(
+    api_server: ServerFactory,
+    tmp_path: Path,
+) -> None:
+    """Use a retained validated response when the catalog cannot answer."""
+    path = tmp_path / "cache.sqlite3"
+    calls = 0
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        return web.json_response([_team()])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key", base_url=base_url, cache=SQLiteCacheConfig(path=path)
+        ) as client:
+            await client.teams.list()
+            with sqlite3.connect(path) as connection:
+                connection.execute(
+                    "UPDATE teams SET alternate_names_json = 'not-json' WHERE id = 130"
+                )
+
+            identity = await client.identities.teams.resolve(130)
+
+    assert identity.id == 130
+    assert calls == 1
+
+
+@pytest.mark.asyncio
 async def test_identity_resolution_works_in_memory_without_persistence(
     api_server: ServerFactory,
 ) -> None:

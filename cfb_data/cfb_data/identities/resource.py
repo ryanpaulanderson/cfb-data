@@ -112,15 +112,24 @@ class TeamIdentities:
         :raises CFBDIdentityNotFoundError: If no exact team can be resolved.
         :raises CFBDIdentityAmbiguityError: If multiple teams match exactly.
         """
-        strict = freshness is FreshnessMode.local_only
-        matches = await _team_matches(self._coordinator, query, strict=strict)
+        matches, catalog_read_failed = await _initial_catalog_lookup(
+            _team_matches(
+                self._coordinator,
+                query,
+                strict=freshness is not FreshnessMode.allow_stale,
+            ),
+            freshness=freshness,
+            empty=[],
+        )
         if freshness is not FreshnessMode.ensure_fresh:
             return _one("Team", matches)
-        coverage_fresh = await self._coordinator.has_fresh_coverage(
-            endpoint="/teams",
-            canonical_filters="",
-            capability="team.core_identity",
-        )
+        coverage_fresh = False
+        if not catalog_read_failed:
+            coverage_fresh = await self._coordinator.has_fresh_coverage(
+                endpoint="/teams",
+                canonical_filters="",
+                capability="team.core_identity",
+            )
         if not coverage_fresh and matches:
             match_ids = {match.id for match in matches}
             coverage_fresh = await _has_matching_fresh_coverage(
@@ -183,15 +192,24 @@ class ConferenceIdentities:
         freshness: FreshnessMode = FreshnessMode.ensure_fresh,
     ) -> ConferenceIdentity:
         """Resolve an exact conference ID, name, or abbreviation."""
-        strict = freshness is FreshnessMode.local_only
-        matches = await _conference_matches(self._coordinator, query, strict=strict)
+        matches, catalog_read_failed = await _initial_catalog_lookup(
+            _conference_matches(
+                self._coordinator,
+                query,
+                strict=freshness is not FreshnessMode.allow_stale,
+            ),
+            freshness=freshness,
+            empty=[],
+        )
         if freshness is not FreshnessMode.ensure_fresh:
             return _one("Conference", matches)
-        coverage_fresh = await self._coordinator.has_fresh_coverage(
-            endpoint="/conferences",
-            canonical_filters="",
-            capability="conference.identity",
-        )
+        coverage_fresh = False
+        if not catalog_read_failed:
+            coverage_fresh = await self._coordinator.has_fresh_coverage(
+                endpoint="/conferences",
+                canonical_filters="",
+                capability="conference.identity",
+            )
         if not coverage_fresh and matches:
             match_ids = {match.id for match in matches}
             coverage_fresh = await _has_matching_fresh_coverage(
@@ -238,11 +256,18 @@ class VenueIdentities:
         freshness: FreshnessMode = FreshnessMode.ensure_fresh,
     ) -> VenueIdentity:
         """Resolve an exact venue ID or canonical name."""
-        strict = freshness is FreshnessMode.local_only
-        matches = await _venue_matches(self._coordinator, query, strict=strict)
+        matches, catalog_read_failed = await _initial_catalog_lookup(
+            _venue_matches(
+                self._coordinator,
+                query,
+                strict=freshness is not FreshnessMode.allow_stale,
+            ),
+            freshness=freshness,
+            empty=[],
+        )
         if freshness is not FreshnessMode.ensure_fresh:
             return _one("Venue", matches)
-        if await self._coordinator.has_fresh_coverage(
+        if not catalog_read_failed and await self._coordinator.has_fresh_coverage(
             endpoint="/venues",
             canonical_filters="",
             capability="venue.identity",
@@ -280,23 +305,31 @@ class GameIdentities:
         freshness: FreshnessMode = FreshnessMode.ensure_fresh,
     ) -> GameIdentity:
         """Resolve one game by exact provider ID."""
-        strict = freshness is FreshnessMode.local_only
-        match = await self._coordinator.find_game(game_id, strict=strict)
+        match, catalog_read_failed = await _initial_catalog_lookup(
+            self._coordinator.find_game(
+                game_id,
+                strict=freshness is not FreshnessMode.allow_stale,
+            ),
+            freshness=freshness,
+            empty=None,
+        )
         if freshness is not FreshnessMode.ensure_fresh:
             return _one("Game", [match] if match is not None else [])
         filters = canonical_filters({"id": game_id})
         broad_fresh = False
-        if match is not None and match.season is not None:
+        if not catalog_read_failed and match is not None and match.season is not None:
             broad_fresh = await self._coordinator.has_fresh_coverage(
                 endpoint="/games",
                 canonical_filters=canonical_filters({"year": match.season}),
                 capability="game.identity",
             )
-        exact_fresh = await self._coordinator.has_fresh_coverage(
-            endpoint="/games",
-            canonical_filters=filters,
-            capability="game.identity",
-        )
+        exact_fresh = False
+        if not catalog_read_failed:
+            exact_fresh = await self._coordinator.has_fresh_coverage(
+                endpoint="/games",
+                canonical_filters=filters,
+                capability="game.identity",
+            )
         scoped_fresh = False
         if (
             not broad_fresh
@@ -342,13 +375,19 @@ class GameIdentities:
         """Return game identities matching an explicit season partition."""
         request = GamesRequest(year=season, week=week, team=team)
         filters = canonical_filters(_serialize_request("/games", request))
-        strict = freshness is FreshnessMode.local_only
-        matches = await self._coordinator.find_games(
-            season=season, week=week, team=team, strict=strict
+        matches, catalog_read_failed = await _initial_catalog_lookup(
+            self._coordinator.find_games(
+                season=season,
+                week=week,
+                team=team,
+                strict=freshness is not FreshnessMode.allow_stale,
+            ),
+            freshness=freshness,
+            empty=[],
         )
         if freshness is not FreshnessMode.ensure_fresh:
             return matches
-        if await self._coordinator.has_fresh_coverage(
+        if not catalog_read_failed and await self._coordinator.has_fresh_coverage(
             endpoint="/games",
             canonical_filters=filters,
             capability="game.identity",
@@ -388,9 +427,15 @@ class AthleteIdentities:
         freshness: FreshnessMode = FreshnessMode.ensure_fresh,
     ) -> AthleteIdentity:
         """Resolve one exact athlete, requiring scope when names are duplicated."""
-        strict = freshness is FreshnessMode.local_only
-        matches = await self._coordinator.find_athletes(
-            name=name, team=team, season=season, strict=strict
+        matches, catalog_read_failed = await _initial_catalog_lookup(
+            self._coordinator.find_athletes(
+                name=name,
+                team=team,
+                season=season,
+                strict=freshness is not FreshnessMode.allow_stale,
+            ),
+            freshness=freshness,
+            empty=[],
         )
         if freshness is not FreshnessMode.ensure_fresh:
             return _one_athlete(matches)
@@ -404,11 +449,13 @@ class AthleteIdentities:
             endpoint = "/player/search"
             capability = "athlete.identity"
         filters = canonical_filters(_serialize_request(endpoint, request))
-        coverage_fresh = await self._coordinator.has_fresh_coverage(
-            endpoint=endpoint,
-            canonical_filters=filters,
-            capability=capability,
-        )
+        coverage_fresh = False
+        if not catalog_read_failed:
+            coverage_fresh = await self._coordinator.has_fresh_coverage(
+                endpoint=endpoint,
+                canonical_filters=filters,
+                capability=capability,
+            )
         if (
             not coverage_fresh
             and matches
@@ -706,6 +753,28 @@ class IdentitiesResource:
             capability=capability,
             fetch=fetch,
         )
+
+
+async def _initial_catalog_lookup[ResultT](
+    lookup: Awaitable[ResultT],
+    *,
+    freshness: FreshnessMode,
+    empty: ResultT,
+) -> tuple[ResultT, bool]:
+    """Return an initial catalog result while preserving read failure state.
+
+    :param lookup: Strict catalog lookup for the requested identity operation.
+    :param freshness: Caller-selected identity freshness behavior.
+    :param empty: Empty result used to continue an API-capable lookup.
+    :return: Catalog result and whether the catalog failed to answer.
+    :raises CFBDCacheBackendError: If a local-only lookup cannot be answered.
+    """
+    try:
+        return await lookup, False
+    except CFBDCacheBackendError:
+        if freshness is FreshnessMode.local_only:
+            raise
+        return empty, True
 
 
 async def _team_matches(
