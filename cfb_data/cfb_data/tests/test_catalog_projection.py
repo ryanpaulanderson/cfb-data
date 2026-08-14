@@ -6,7 +6,7 @@ from cfb_data.cache._catalog import CatalogProjection, project_catalog
 from cfb_data.coaches.models.pydantic.responses import CoachTenure
 from cfb_data.conferences.models.pydantic.responses import TeamConferenceChange
 from cfb_data.draft.models.pydantic.responses import DraftPick
-from cfb_data.games.models.pydantic.responses import TeamGameStats
+from cfb_data.games.models.pydantic.responses import Game, TeamGameStats
 from cfb_data.metrics.models.pydantic.responses import PlayWinProbability
 from cfb_data.players.models.pydantic.responses import PlayerSearchResult
 from cfb_data.playoffs.models.pydantic.responses import PlayoffMatchupSlotSource
@@ -136,6 +136,63 @@ def test_live_game_projects_home_and_away_relationships(
     ]
     assert projection.coverage is not None
     assert "game.team_relationships" in projection.coverage.capabilities
+
+
+def test_game_placeholder_ids_do_not_become_catalog_relationships(
+    game_response: dict[str, object],
+) -> None:
+    """Treat upstream zero IDs as unresolved relationship placeholders."""
+    response = dict(game_response)
+    response.update({"homeId": 0, "awayId": 0, "venueId": 0})
+    game = Game.model_validate(response)
+
+    projection = _project(game, "/games", {"year": 2024})
+
+    assert [
+        (fact.home_team_id, fact.away_team_id, fact.venue_id)
+        for fact in projection.games
+    ] == [(None, None, None)]
+
+
+def test_team_placeholder_venue_does_not_become_season_relationship() -> None:
+    """Exclude a zero home-venue placeholder from team-season facts."""
+    team = Team.model_validate(
+        {
+            "id": 130,
+            "school": "Michigan",
+            "mascot": "Wolverines",
+            "abbreviation": "MICH",
+            "alternateNames": [],
+            "conference": "Big Ten",
+            "division": None,
+            "classification": "fbs",
+            "color": "#00274C",
+            "alternateColor": "#FFCB05",
+            "logos": [],
+            "twitter": None,
+            "location": {
+                "id": 0,
+                "name": None,
+                "city": None,
+                "state": None,
+                "zip": None,
+                "countryCode": None,
+                "timezone": None,
+                "latitude": None,
+                "longitude": None,
+                "elevation": None,
+                "capacity": None,
+                "constructionYear": None,
+                "grass": None,
+                "dome": None,
+            },
+        }
+    )
+
+    projection = _project(team, "/teams", {"year": 2024})
+
+    assert [fact.venue_id for fact in projection.team_seasons] == [None]
+    assert projection.venues == ()
 
 
 def test_play_models_project_game_drive_play_type_and_team_relationships() -> None:

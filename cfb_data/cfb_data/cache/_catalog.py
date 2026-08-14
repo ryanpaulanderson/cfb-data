@@ -415,7 +415,7 @@ class _ProjectionBuilder:
             location = data.get("location")
             venue_id = None
             if isinstance(location, dict):
-                venue_id = _optional_int(location.get("id"))
+                venue_id = _positive_int(location.get("id"))
             self.team_seasons[(team_id, season)] = TeamSeasonFact(
                 team_id=team_id,
                 season=season,
@@ -530,23 +530,25 @@ class _ProjectionBuilder:
             game_id = _optional_int(data.get("id"))
         if game_id is None or game_id <= 0:
             return
-        home_team_id = _optional_int(data.get("home_id")) or _optional_int(
-            data.get("home_team_id")
-        )
-        away_team_id = _optional_int(data.get("away_id")) or _optional_int(
-            data.get("away_team_id")
-        )
+        home_team_id = _positive_int(data.get("home_id"))
+        if home_team_id is None:
+            home_team_id = _positive_int(data.get("home_team_id"))
+        away_team_id = _positive_int(data.get("away_id"))
+        if away_team_id is None:
+            away_team_id = _positive_int(data.get("away_team_id"))
         if class_name in {"LiveGame", "TeamGameStats"}:
             nested_home_team_id, nested_away_team_id = _nested_game_team_ids(data)
-            home_team_id = home_team_id or nested_home_team_id
-            away_team_id = away_team_id or nested_away_team_id
-        venue_id = _optional_int(data.get("venue_id"))
+            if home_team_id is None:
+                home_team_id = nested_home_team_id
+            if away_team_id is None:
+                away_team_id = nested_away_team_id
+        venue_id = _positive_int(data.get("venue_id"))
         if class_name == "ScoreboardGame":
-            home_team_id = _nested_int(data.get("home_team"), "id")
-            away_team_id = _nested_int(data.get("away_team"), "id")
+            home_team_id = _nested_positive_int(data.get("home_team"), "id")
+            away_team_id = _nested_positive_int(data.get("away_team"), "id")
         if class_name == "PlayoffLinkedGame":
-            home_team_id = _nested_int(data.get("home_team"), "id")
-            away_team_id = _nested_int(data.get("away_team"), "id")
+            home_team_id = _nested_positive_int(data.get("home_team"), "id")
+            away_team_id = _nested_positive_int(data.get("away_team"), "id")
         status = _optional_string(data.get("status"))
         if class_name == "Game" and status is None:
             completed = data.get("completed")
@@ -1318,6 +1320,12 @@ def _optional_int(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def _positive_int(value: object) -> int | None:
+    """Narrow an unknown field to a positive integer identity."""
+    narrowed = _optional_int(value)
+    return narrowed if narrowed is not None and narrowed > 0 else None
+
+
 def _optional_string(value: object) -> str | None:
     """Narrow an unknown validated field or string enum to text."""
     if isinstance(value, StrEnum):
@@ -1359,4 +1367,11 @@ def _nested_int(value: object, name: str) -> int | None:
     """Return an integer from a validated nested model dump."""
     if isinstance(value, dict):
         return _optional_int(cast(dict[str, object], value).get(name))
+    return None
+
+
+def _nested_positive_int(value: object, name: str) -> int | None:
+    """Return a positive identity from a validated nested model dump."""
+    if isinstance(value, dict):
+        return _positive_int(cast(dict[str, object], value).get(name))
     return None

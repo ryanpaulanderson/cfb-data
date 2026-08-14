@@ -505,7 +505,7 @@ class RedisCacheBackend:
                         "season": str(season_fact.season),
                         "conference_name": season_fact.conference_name,
                         "venue_id": str(season_fact.venue_id)
-                        if season_fact.venue_id
+                        if season_fact.venue_id is not None
                         else None,
                         "last_seen_at": observed_at,
                     }
