@@ -30,6 +30,10 @@ from cfb_data.errors import (
 )
 from cfb_data.games.models.pydantic.requests import GamesRequest
 from cfb_data.games.models.pydantic.responses import Game
+from cfb_data.identities._normalization import (
+    game_identity_status,
+    positive_identity_id,
+)
 from cfb_data.identities.models import (
     AthleteIdentity,
     ConferenceIdentity,
@@ -916,10 +920,10 @@ def _game_from_row(row: Game) -> GameIdentity:
         week=row.week,
         season_type=str(row.season_type),
         start_date=row.start_date,
-        status="completed" if row.completed else "scheduled",
-        home_team_id=row.home_id,
-        away_team_id=row.away_id,
-        venue_id=row.venue_id,
+        status=game_identity_status(status=None, completed=row.completed),
+        home_team_id=positive_identity_id(row.home_id),
+        away_team_id=positive_identity_id(row.away_id),
+        venue_id=positive_identity_id(row.venue_id),
     )
 
 

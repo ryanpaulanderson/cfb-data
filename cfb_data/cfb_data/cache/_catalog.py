@@ -10,6 +10,10 @@ from typing import cast
 from pydantic import BaseModel
 
 from cfb_data.base.types import QueryParameters
+from cfb_data.identities._normalization import (
+    game_identity_status,
+    positive_identity_id,
+)
 
 
 class CoverageStatus(StrEnum):
@@ -549,10 +553,10 @@ class _ProjectionBuilder:
         if class_name == "PlayoffLinkedGame":
             home_team_id = _nested_positive_int(data.get("home_team"), "id")
             away_team_id = _nested_positive_int(data.get("away_team"), "id")
-        status = _optional_string(data.get("status"))
-        if class_name == "Game" and status is None:
-            completed = data.get("completed")
-            status = "completed" if completed is True else None
+        status = game_identity_status(
+            status=data.get("status"),
+            completed=data.get("completed") if class_name == "Game" else None,
+        )
         raw_start_date = data.get("start_date") or data.get("start_time")
         start_date = raw_start_date if isinstance(raw_start_date, datetime) else None
         self.games[game_id] = GameFact(
@@ -1322,8 +1326,7 @@ def _optional_int(value: object) -> int | None:
 
 def _positive_int(value: object) -> int | None:
     """Narrow an unknown field to a positive integer identity."""
-    narrowed = _optional_int(value)
-    return narrowed if narrowed is not None and narrowed > 0 else None
+    return positive_identity_id(value)
 
 
 def _optional_string(value: object) -> str | None:

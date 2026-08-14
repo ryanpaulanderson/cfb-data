@@ -294,6 +294,30 @@ async def test_incomplete_game_does_not_claim_a_scheduled_status(
 
 
 @pytest.mark.asyncio
+async def test_cacheless_game_identity_normalizes_unknown_relationships(
+    api_server: ServerFactory,
+    game_response: dict[str, object],
+) -> None:
+    """Apply compact game normalization without persistent catalog storage."""
+    game = dict(game_response)
+    game.update({"completed": False, "homeId": 0, "awayId": 0, "venueId": 0})
+
+    async def handler(request: web.Request) -> web.Response:
+        return web.json_response([game])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient("key", base_url=base_url) as client:
+            identity = await client.identities.games.resolve(game_id=401628347)
+
+    assert (
+        identity.status,
+        identity.home_team_id,
+        identity.away_team_id,
+        identity.venue_id,
+    ) == (None, None, None, None)
+
+
+@pytest.mark.asyncio
 async def test_identity_resolution_works_in_memory_without_persistence(
     api_server: ServerFactory,
 ) -> None:
