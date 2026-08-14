@@ -205,6 +205,24 @@ class CFBDResponseDecodeError(_EndpointError):
         )
 
 
+class CFBDNoContentError(_EndpointError):
+    """Report an undocumented empty success from a JSON endpoint."""
+
+    attempts: int
+
+    def __init__(self, *, endpoint: str, attempts: int) -> None:
+        """Initialize a strict no-content response error.
+
+        :param endpoint: Fixed endpoint path without query parameters.
+        :param attempts: Total attempts made.
+        """
+        self.attempts = attempts
+        super().__init__(
+            f"HTTP 204 returned no JSON after {attempts} attempt(s)",
+            endpoint=endpoint,
+        )
+
+
 class CFBDResponseValidationError(_EndpointError):
     """Report a decoded response that violates its Pydantic contract."""
 
@@ -248,6 +266,7 @@ __all__ = [
     "CFBDIdentityAmbiguityError",
     "CFBDIdentityNotFoundError",
     "CFBDOptionalDependencyError",
+    "CFBDNoContentError",
     "CFBDRateLimitError",
     "CFBDRequestValidationError",
     "CFBDResponseDecodeError",

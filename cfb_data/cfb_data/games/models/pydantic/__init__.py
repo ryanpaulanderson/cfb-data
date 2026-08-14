@@ -2,6 +2,7 @@
 
 from cfb_data.enums import Classification, MediaType, SeasonType
 
+from .identity import GameIdentity
 from .requests import (
     AdvancedBoxScoreRequest,
     CalendarRequest,
@@ -70,6 +71,7 @@ __all__ = [
     "GameStatus",
     "GamePlayoff",
     "Game",
+    "GameIdentity",
     "CalendarWeek",
     "GameMedia",
     "GameWeather",

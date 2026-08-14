@@ -3,9 +3,21 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from cfb_data._catalog.models import RecruitFact, TeamFact, TeamSeasonFact
+from cfb_data._catalog.projection import (
+    CatalogSink,
+    IdentityAttribute,
+    IdentityKey,
+    ObservationAuthority,
+    ProjectionContext,
+    ValueTransform,
+    observe_athlete,
+    observe_team,
+)
 from cfb_data.conferences.models.pydantic.responses import ConferenceClassification
 from cfb_data.venues.models.pydantic.responses import Venue
 
@@ -29,11 +41,42 @@ class _ResponseModel(BaseModel):
 class Team(_ResponseModel):
     """Represent one team and its current or historical affiliation."""
 
-    id: int = Field(gt=0)
-    school: str
+    id: Annotated[
+        int,
+        IdentityKey(
+            TeamFact,
+            "id",
+            transform=ValueTransform.positive_int,
+            authority=ObservationAuthority.authoritative,
+        ),
+    ] = Field(gt=0)
+    school: Annotated[
+        str,
+        IdentityAttribute(
+            TeamFact,
+            "school",
+            transform=ValueTransform.nonempty_text,
+            authority=ObservationAuthority.authoritative,
+        ),
+    ]
     mascot: str | None
-    abbreviation: str | None
-    alternate_names: list[str] | None = Field(alias="alternateNames")
+    abbreviation: Annotated[
+        str | None,
+        IdentityAttribute(
+            TeamFact,
+            "abbreviation",
+            authority=ObservationAuthority.authoritative,
+        ),
+    ]
+    alternate_names: Annotated[
+        list[str] | None,
+        IdentityAttribute(
+            TeamFact,
+            "alternate_names",
+            transform=ValueTransform.aliases,
+            authority=ObservationAuthority.authoritative,
+        ),
+    ] = Field(alias="alternateNames")
     conference: str | None
     division: str | None
     classification: ConferenceClassification | None
@@ -42,6 +85,23 @@ class Team(_ResponseModel):
     logos: list[str] | None
     twitter: str | None
     location: Venue | None
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project request-scoped team-season relationships."""
+        year = context.parameters.get("year")
+        if isinstance(year, bool) or not isinstance(year, int):
+            return
+        venue_id = self.location.id if self.location is not None else None
+        sink.add(
+            TeamSeasonFact(
+                team_id=self.id,
+                season=year,
+                conference_name=self.conference,
+                venue_id=venue_id if venue_id is not None and venue_id > 0 else None,
+            ),
+            authority=ObservationAuthority.authoritative,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class MatchupGame(_ResponseModel):
@@ -82,7 +142,7 @@ class RosterPlayer(_ResponseModel):
     team: str
     height: float | None
     weight: int | None = Field(ge=0)
-    jersey: int | None = Field(ge=0)
+    jersey: int | None
     year: int = Field(ge=0)
     position: str | None
     home_city: str | None = Field(alias="homeCity")
@@ -92,6 +152,32 @@ class RosterPlayer(_ResponseModel):
     home_longitude: float | None = Field(alias="homeLongitude")
     home_county_fips: str | None = Field(alias="homeCountyFIPS")
     recruit_ids: list[str] | None = Field(alias="recruitIds")
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project roster identity using the request season, not class year."""
+        name = " ".join(part for part in (self.first_name, self.last_name) if part)
+        year = context.parameters.get("year")
+        season = year if isinstance(year, int) and not isinstance(year, bool) else None
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        observe_athlete(
+            sink,
+            id=self.id,
+            name=name,
+            position=self.position,
+            team=self.team,
+            season=season,
+            authority=ObservationAuthority.authoritative,
+            source=source,
+        )
+        if season is None or self.recruit_ids is None:
+            return
+        for recruit_id in self.recruit_ids:
+            if recruit_id:
+                sink.add(
+                    RecruitFact(recruit_id, self.id, name, season),
+                    authority=ObservationAuthority.canonical,
+                    source=source,
+                )
 
 
 class TeamTalent(_ResponseModel):
@@ -114,3 +200,11 @@ class TeamATS(_ResponseModel):
     ats_losses: int = Field(alias="atsLosses", ge=0)
     ats_pushes: int = Field(alias="atsPushes", ge=0)
     avg_cover_margin: float | None = Field(alias="avgCoverMargin")
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the team identity and season carried by ATS results."""
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        observe_team(sink, id=self.team_id, school=self.team, source=source)
+        sink.add(
+            TeamSeasonFact(self.team_id, self.year, self.conference), source=source
+        )

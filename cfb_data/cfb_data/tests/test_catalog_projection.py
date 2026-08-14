@@ -2,7 +2,8 @@
 
 from datetime import UTC, datetime, timedelta
 
-from cfb_data.cache._catalog import CatalogProjection, project_catalog
+from cfb_data._catalog.models import CatalogProjection
+from cfb_data.cache._catalog import project_catalog
 from cfb_data.coaches.models.pydantic.responses import CoachTenure
 from cfb_data.conferences.models.pydantic.responses import TeamConferenceChange
 from cfb_data.draft.models.pydantic.responses import DraftPick
@@ -11,7 +12,7 @@ from cfb_data.metrics.models.pydantic.responses import PlayWinProbability
 from cfb_data.players.models.pydantic.responses import PlayerSearchResult
 from cfb_data.playoffs.models.pydantic.responses import PlayoffMatchupSlotSource
 from cfb_data.plays.models.pydantic.responses import LiveGame, Play
-from cfb_data.teams.models.pydantic.responses import Team
+from cfb_data.teams.models.pydantic.responses import RosterPlayer, Team
 from pydantic import BaseModel
 
 
@@ -80,6 +81,32 @@ def test_authoritative_team_projection_preserves_known_empty_aliases() -> None:
     projection = _project(team, "/teams", {})
 
     assert projection.teams[0].alternate_names == ()
+
+
+def test_roster_accepts_provider_negative_jersey_sentinel() -> None:
+    """Preserve the upstream unconstrained integer jersey contract."""
+    player = RosterPlayer.model_validate(
+        {
+            "id": "1",
+            "firstName": "Example",
+            "lastName": "Player",
+            "team": "Michigan",
+            "height": None,
+            "weight": None,
+            "jersey": -1,
+            "year": 1,
+            "position": None,
+            "homeCity": None,
+            "homeState": None,
+            "homeCountry": None,
+            "homeLatitude": None,
+            "homeLongitude": None,
+            "homeCountyFIPS": None,
+            "recruitIds": None,
+        }
+    )
+
+    assert player.jersey == -1
 
 
 def test_team_game_stats_project_home_and_away_relationships() -> None:

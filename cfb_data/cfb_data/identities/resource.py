@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import unicodedata
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
+from cfb_data._catalog.sources import IdentitySourceSpec, identity_source
 from cfb_data._executor import _EndpointExecutor, _serialize_request
 from cfb_data.cache._catalog import canonical_filters
 from cfb_data.cache._coordinator import CacheCoordinator
 from cfb_data.cache.config import CacheMode
+from cfb_data.conferences.models.pydantic.identity import ConferenceIdentity
 from cfb_data.conferences.models.pydantic.requests import (
     ConferenceAffiliationsRequest,
     ConferencesRequest,
@@ -30,30 +31,23 @@ from cfb_data.errors import (
     CFBDIdentityAmbiguityError,
     CFBDIdentityNotFoundError,
 )
+from cfb_data.games.models.pydantic.identity import GameIdentity
 from cfb_data.games.models.pydantic.requests import GamesRequest
 from cfb_data.games.models.pydantic.responses import Game
-from cfb_data.identities._normalization import (
-    game_identity_status,
-    positive_identity_id,
-)
-from cfb_data.identities.models import (
-    AthleteIdentity,
-    ConferenceIdentity,
-    FreshnessMode,
-    GameIdentity,
-    HydrationPlan,
-    TeamIdentity,
-    VenueIdentity,
-)
+from cfb_data.identities.contracts import FreshnessMode, HydrationPlan
+from cfb_data.players.models.pydantic.identity import AthleteIdentity
 from cfb_data.players.models.pydantic.requests import PlayerSearchRequest
 from cfb_data.players.models.pydantic.responses import PlayerSearchResult
 from cfb_data.plays.models.pydantic.responses import PlayStatType, PlayType
+from cfb_data.stats.models.pydantic.responses import _StatCategoryValue
+from cfb_data.teams.models.pydantic.identity import TeamIdentity
 from cfb_data.teams.models.pydantic.requests import (
     FBSTeamsRequest,
     RosterRequest,
     TeamsRequest,
 )
 from cfb_data.teams.models.pydantic.responses import RosterPlayer, Team
+from cfb_data.venues.models.pydantic.identity import VenueIdentity
 from cfb_data.venues.models.pydantic.responses import Venue
 
 _TEAM_ROWS = TypeAdapter(list[Team])
@@ -65,7 +59,7 @@ _ROSTER_ROWS = TypeAdapter(list[RosterPlayer])
 _PLAYER_SEARCH_ROWS = TypeAdapter(list[PlayerSearchResult])
 _PLAY_TYPE_ROWS = TypeAdapter(list[PlayType])
 _PLAY_STAT_TYPE_ROWS = TypeAdapter(list[PlayStatType])
-_CATEGORY_VALUES = TypeAdapter(list[str])
+_CATEGORY_VALUES = TypeAdapter(list[_StatCategoryValue])
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -143,7 +137,7 @@ class TeamIdentities:
         if coverage_fresh:
             return _one("Team", matches)
         try:
-            rows = await self._executor.fetch_many(
+            await self._executor.fetch_many(
                 endpoint="/teams", request=TeamsRequest(), response_adapter=_TEAM_ROWS
             )
         except Exception as exc:
@@ -152,8 +146,6 @@ class TeamIdentities:
                 return _one("Team", matches)
             raise
         matches = await _team_matches(self._coordinator, query, strict=False)
-        if not matches:
-            matches = _teams_from_rows(rows, query)
         return _one("Team", matches)
 
     async def resolve_id(
@@ -223,7 +215,7 @@ class ConferenceIdentities:
         if coverage_fresh:
             return _one("Conference", matches)
         try:
-            rows = await self._executor.fetch_many(
+            await self._executor.fetch_many(
                 endpoint="/conferences",
                 request=ConferencesRequest(),
                 response_adapter=_CONFERENCE_ROWS,
@@ -234,8 +226,6 @@ class ConferenceIdentities:
                 return _one("Conference", matches)
             raise
         matches = await _conference_matches(self._coordinator, query, strict=False)
-        if not matches:
-            matches = _conferences_from_rows(rows, query)
         return _one("Conference", matches)
 
 
@@ -274,7 +264,7 @@ class VenueIdentities:
         ):
             return _one("Venue", matches)
         try:
-            rows = await self._executor.fetch_many(
+            await self._executor.fetch_many(
                 endpoint="/venues", request=_EMPTY_REQUEST, response_adapter=_VENUE_ROWS
             )
         except Exception as exc:
@@ -283,8 +273,6 @@ class VenueIdentities:
                 return _one("Venue", matches)
             raise
         matches = await _venue_matches(self._coordinator, query, strict=False)
-        if not matches:
-            matches = _venues_from_rows(rows, query)
         return _one("Venue", matches)
 
 
@@ -348,7 +336,7 @@ class GameIdentities:
         if broad_fresh or exact_fresh or scoped_fresh:
             return _one("Game", [match] if match is not None else [])
         try:
-            rows = await self._executor.fetch_many(
+            await self._executor.fetch_many(
                 endpoint="/games",
                 request=GamesRequest(game_id=game_id),
                 response_adapter=_GAME_ROWS,
@@ -359,10 +347,7 @@ class GameIdentities:
                 return match
             raise
         match = await self._coordinator.find_game(game_id)
-        if match is None:
-            converted = [_game_from_row(row) for row in rows if row.id == game_id]
-            return _one("Game", converted)
-        return match
+        return _one("Game", [match] if match is not None else [])
 
     async def find(
         self,
@@ -394,7 +379,7 @@ class GameIdentities:
         ):
             return matches
         try:
-            rows = await self._executor.fetch_many(
+            await self._executor.fetch_many(
                 endpoint="/games", request=request, response_adapter=_GAME_ROWS
             )
         except Exception as exc:
@@ -405,7 +390,7 @@ class GameIdentities:
         matches = await self._coordinator.find_games(
             season=season, week=week, team=team
         )
-        return matches or [_game_from_row(row) for row in rows]
+        return matches
 
 
 class AthleteIdentities:
@@ -476,17 +461,15 @@ class AthleteIdentities:
 
         try:
             if isinstance(request, RosterRequest):
-                roster_rows = await self._executor.fetch_many(
+                await self._executor.fetch_many(
                     endpoint=endpoint, request=request, response_adapter=_ROSTER_ROWS
                 )
-                in_memory = _athletes_from_roster(roster_rows, name, team, season)
             else:
-                search_rows = await self._executor.fetch_many(
+                await self._executor.fetch_many(
                     endpoint=endpoint,
                     request=request,
                     response_adapter=_PLAYER_SEARCH_ROWS,
                 )
-                in_memory = _athletes_from_search(search_rows, name, team, season)
         except Exception as exc:
             if matches and self._coordinator.allows_identity_stale(exc):
                 _LOGGER.warning("CFBD identity stale-if-error namespace=athlete")
@@ -495,7 +478,7 @@ class AthleteIdentities:
         matches = await self._coordinator.find_athletes(
             name=name, team=team, season=season
         )
-        return _one_athlete(matches or in_memory)
+        return _one_athlete(matches)
 
 
 class IdentitiesResource:
@@ -615,6 +598,23 @@ class IdentitiesResource:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             raise
+        for call in pending:
+            persisted = await self._coordinator.has_fresh_coverage(
+                endpoint=call.endpoint,
+                canonical_filters=call.canonical_filters,
+                capability=call.capability,
+                strict=True,
+            )
+            if not persisted:
+                await self._coordinator.record_hydration_failure(
+                    endpoint=call.endpoint,
+                    canonical_filters=call.canonical_filters,
+                    failure_category="CFBDCacheBackendError",
+                )
+                raise CFBDCacheBackendError(
+                    "Identity hydration did not durably commit "
+                    f"endpoint={call.endpoint}"
+                )
         return HydrationPlan(
             seasons=normalized_seasons,
             classification=normalized_classification,
@@ -638,52 +638,47 @@ class IdentitiesResource:
         )
         team_call = (
             self._many_call(
-                "/teams/fbs",
+                _hydration_source("/teams/fbs"),
                 FBSTeamsRequest(),
                 _TEAM_ROWS,
-                "team.core_identity",
             )
             if classification is Classification.fbs
             else self._many_call(
-                "/teams", TeamsRequest(), _TEAM_ROWS, "team.core_identity"
+                _hydration_source("/teams"), TeamsRequest(), _TEAM_ROWS
             )
         )
         calls = [
             team_call,
-            self._many_call("/venues", _EMPTY_REQUEST, _VENUE_ROWS, "venue.identity"),
+            self._many_call(_hydration_source("/venues"), _EMPTY_REQUEST, _VENUE_ROWS),
             self._many_call(
-                "/conferences",
+                _hydration_source("/conferences"),
                 ConferencesRequest(classification=conference_classification),
                 _CONFERENCE_ROWS,
-                "conference.identity",
             ),
             self._many_call(
-                "/conferences/affiliations",
+                _hydration_source("/conferences/affiliations"),
                 ConferenceAffiliationsRequest(classification=conference_classification),
                 _AFFILIATION_ROWS,
-                "team.conference_history",
             ),
         ]
         for season in seasons:
             calls.extend(
                 [
                     self._many_call(
-                        "/games",
+                        _hydration_source("/games"),
                         GamesRequest(
                             year=season,
                             classification=classification,
                         ),
                         _GAME_ROWS,
-                        "game.identity",
                     ),
                     self._many_call(
-                        "/roster",
+                        _hydration_source("/roster"),
                         RosterRequest(
                             year=season,
                             classification=classification,
                         ),
                         _ROSTER_ROWS,
-                        "athlete.identity",
                     ),
                 ]
             )
@@ -691,22 +686,19 @@ class IdentitiesResource:
             calls.extend(
                 [
                     self._many_call(
-                        "/plays/types",
+                        _hydration_source("/plays/types"),
                         _EMPTY_REQUEST,
                         _PLAY_TYPE_ROWS,
-                        "play_type.identity",
                     ),
                     self._many_call(
-                        "/plays/stats/types",
+                        _hydration_source("/plays/stats/types"),
                         _EMPTY_REQUEST,
                         _PLAY_STAT_TYPE_ROWS,
-                        "play_stat_type.identity",
                     ),
                     self._values_call(
-                        "/stats/categories",
+                        _hydration_source("/stats/categories"),
                         _EMPTY_REQUEST,
                         _CATEGORY_VALUES,
-                        "stat_category.identity",
                     ),
                 ]
             )
@@ -714,12 +706,13 @@ class IdentitiesResource:
 
     def _many_call[RowT: BaseModel](
         self,
-        endpoint: str,
+        source: IdentitySourceSpec,
         request: BaseModel,
         adapter: TypeAdapter[list[RowT]],
-        capability: str,
     ) -> _HydrationCall:
         """Build one typed model-list hydration operation."""
+        endpoint = source.endpoint
+        capability = _required_hydration_capability(source)
 
         async def fetch() -> object:
             return await self._executor.fetch_many(
@@ -735,12 +728,13 @@ class IdentitiesResource:
 
     def _values_call[ValueT](
         self,
-        endpoint: str,
+        source: IdentitySourceSpec,
         request: BaseModel,
         adapter: TypeAdapter[list[ValueT]],
-        capability: str,
     ) -> _HydrationCall:
         """Build one typed scalar-list hydration operation."""
+        endpoint = source.endpoint
+        capability = _required_hydration_capability(source)
 
         async def fetch() -> object:
             return await self._executor.fetch_values(
@@ -753,6 +747,20 @@ class IdentitiesResource:
             capability=capability,
             fetch=fetch,
         )
+
+
+def _hydration_source(endpoint: str) -> IdentitySourceSpec:
+    """Return one explicitly hydration-capable endpoint specification."""
+    source = identity_source(endpoint)
+    _required_hydration_capability(source)
+    return source
+
+
+def _required_hydration_capability(source: IdentitySourceSpec) -> str:
+    """Return a source's hydration capability or reject an invalid plan."""
+    if source.hydration_capability is None:
+        raise RuntimeError(f"Endpoint {source.endpoint} is not a hydration source")
+    return source.hydration_capability
 
 
 async def _initial_catalog_lookup[ResultT](
@@ -941,126 +949,3 @@ def _safe_summary(value: object) -> str:
         "unknown",
     )
     return f"{identifier}:{name[:80]}"
-
-
-def _normalize(value: str) -> str:
-    """Apply exact Unicode, case, trim, and whitespace normalization."""
-    return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
-
-
-def _query_matches(query: str | int, identifier: int, *names: str | None) -> bool:
-    """Match provider ID first, then normalized exact identity strings."""
-    if isinstance(query, int):
-        return query == identifier
-    stripped = query.strip()
-    if stripped.isdigit() and int(stripped) == identifier:
-        return True
-    normalized = _normalize(query)
-    return any(name is not None and _normalize(name) == normalized for name in names)
-
-
-def _teams_from_rows(rows: Sequence[Team], query: str | int) -> list[TeamIdentity]:
-    """Return exact compact team matches from validated in-memory rows."""
-    return [
-        TeamIdentity(
-            id=row.id,
-            school=row.school,
-            abbreviation=row.abbreviation,
-            alternate_names=tuple(row.alternate_names or ()),
-        )
-        for row in rows
-        if _query_matches(
-            query,
-            row.id,
-            row.school,
-            row.abbreviation,
-            *(row.alternate_names or ()),
-        )
-    ]
-
-
-def _conferences_from_rows(
-    rows: Sequence[Conference], query: str | int
-) -> list[ConferenceIdentity]:
-    """Return exact compact conference matches from validated rows."""
-    return [
-        ConferenceIdentity(
-            id=row.id,
-            name=row.name,
-            abbreviation=row.abbreviation,
-            classification=str(row.classification) if row.classification else None,
-        )
-        for row in rows
-        if _query_matches(query, row.id, row.name, row.abbreviation)
-    ]
-
-
-def _venues_from_rows(rows: Sequence[Venue], query: str | int) -> list[VenueIdentity]:
-    """Return exact compact venue matches from validated in-memory rows."""
-    return [
-        VenueIdentity(id=row.id, name=row.name, city=row.city, state=row.state)
-        for row in rows
-        if row.id is not None
-        and row.id > 0
-        and row.name is not None
-        and _query_matches(query, row.id, row.name)
-    ]
-
-
-def _game_from_row(row: Game) -> GameIdentity:
-    """Return one compact game identity from a validated endpoint row."""
-    return GameIdentity(
-        id=row.id,
-        season=row.season,
-        week=row.week,
-        season_type=str(row.season_type),
-        start_date=row.start_date,
-        status=game_identity_status(status=None, completed=row.completed),
-        home_team_id=positive_identity_id(row.home_id),
-        away_team_id=positive_identity_id(row.away_id),
-        venue_id=positive_identity_id(row.venue_id),
-    )
-
-
-def _athletes_from_roster(
-    rows: Sequence[RosterPlayer],
-    name: str,
-    team: str | None,
-    season: int | None,
-) -> list[AthleteIdentity]:
-    """Return exact compact athlete matches from validated roster rows."""
-    normalized = _normalize(name)
-    return [
-        AthleteIdentity(
-            id=row.id,
-            name=f"{row.first_name} {row.last_name}".strip(),
-            position=row.position,
-            team=row.team,
-            season=season,
-        )
-        for row in rows
-        if _normalize(f"{row.first_name} {row.last_name}") == normalized
-        and (team is None or _normalize(row.team) == _normalize(team))
-    ]
-
-
-def _athletes_from_search(
-    rows: Sequence[PlayerSearchResult],
-    name: str,
-    team: str | None,
-    season: int | None,
-) -> list[AthleteIdentity]:
-    """Return exact compact athlete matches from validated search rows."""
-    normalized = _normalize(name)
-    return [
-        AthleteIdentity(
-            id=row.id,
-            name=row.name,
-            position=row.position,
-            team=row.team,
-            season=season,
-        )
-        for row in rows
-        if _normalize(row.name) == normalized
-        and (team is None or _normalize(row.team) == _normalize(team))
-    ]

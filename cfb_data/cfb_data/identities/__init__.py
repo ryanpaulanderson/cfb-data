@@ -1,21 +1,5 @@
-"""Expose compact identity models and freshness controls."""
+"""Expose identity-query controls without owning domain entity schemas."""
 
-from .models import (
-    AthleteIdentity,
-    ConferenceIdentity,
-    FreshnessMode,
-    GameIdentity,
-    HydrationPlan,
-    TeamIdentity,
-    VenueIdentity,
-)
+from .contracts import FreshnessMode, HydrationPlan
 
-__all__ = [
-    "AthleteIdentity",
-    "ConferenceIdentity",
-    "FreshnessMode",
-    "GameIdentity",
-    "HydrationPlan",
-    "TeamIdentity",
-    "VenueIdentity",
-]
+__all__ = ["FreshnessMode", "HydrationPlan"]

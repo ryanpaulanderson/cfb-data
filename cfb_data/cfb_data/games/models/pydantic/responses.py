@@ -7,6 +7,15 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from cfb_data._catalog.models import TeamSeasonFact, VenueFact
+from cfb_data._catalog.projection import (
+    CatalogSink,
+    ObservationAuthority,
+    ProjectionContext,
+    observe_athlete,
+    observe_game,
+    observe_team,
+)
 from cfb_data.enums import (
     Classification,
     MediaType,
@@ -104,6 +113,28 @@ class Game(_ResponseModel):
     notes: str | None
     playoff: GamePlayoff | None
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project a schedule game and its stable team and venue relationships."""
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        observe_game(
+            sink,
+            id=self.id,
+            season=self.season,
+            week=self.week,
+            season_type=self.season_type,
+            start_date=self.start_date,
+            status=GameStatus.completed if self.completed else None,
+            home_team_id=self.home_id,
+            away_team_id=self.away_id,
+            venue_id=self.venue_id,
+            authority=ObservationAuthority.authoritative,
+            source=source,
+        )
+        observe_team(sink, id=self.home_id, school=self.home_team, source=source)
+        observe_team(sink, id=self.away_id, school=self.away_team, source=source)
+        if self.venue_id is not None and self.venue_id > 0 and self.venue:
+            sink.add(VenueFact(self.venue_id, self.venue), source=source)
+
 
 class CalendarWeek(_ResponseModel):
     """Represent a season week returned by ``GET /calendar``."""
@@ -137,6 +168,18 @@ class GameMedia(_ResponseModel):
     media_type: MediaType = Field(alias="mediaType")
     outlet: str
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the game partition carried by one media row."""
+        observe_game(
+            sink,
+            id=self.id,
+            season=self.season,
+            week=self.week,
+            season_type=self.season_type,
+            start_date=self.start_time,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
+
 
 class GameWeather(_ResponseModel):
     """Represent weather returned by ``GET /games/weather``."""
@@ -165,6 +208,22 @@ class GameWeather(_ResponseModel):
     pressure: float | None
     weather_condition_code: float | None = Field(alias="weatherConditionCode")
     weather_condition: str | None = Field(alias="weatherCondition")
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the game and venue relationship carried by weather data."""
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        observe_game(
+            sink,
+            id=self.id,
+            season=self.season,
+            week=self.week,
+            season_type=self.season_type,
+            start_date=self.start_time,
+            venue_id=self.venue_id,
+            source=source,
+        )
+        if self.venue_id > 0 and self.venue:
+            sink.add(VenueFact(self.venue_id, self.venue), source=source)
 
 
 class TeamRecord(_ResponseModel):
@@ -196,6 +255,16 @@ class TeamRecords(_ResponseModel):
     regular_season: TeamRecord = Field(alias="regularSeason")
     postseason: TeamRecord
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the team and season relationship carried by its record."""
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        observe_team(sink, id=self.team_id, school=self.team, source=source)
+        if self.team_id > 0:
+            sink.add(
+                TeamSeasonFact(self.team_id, self.year, self.conference),
+                source=source,
+            )
+
 
 class ScoreboardVenue(_ResponseModel):
     """Represent the venue attached to a scoreboard game."""
@@ -217,6 +286,15 @@ class ScoreboardTeam(_ResponseModel):
     points: int | None = Field(ge=0)
     line_scores: list[int] | None = Field(alias="lineScores")
     win_probability: float | None = Field(alias="winProbability", ge=0, le=1)
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one scoreboard team identity."""
+        observe_team(
+            sink,
+            id=self.id,
+            school=self.name,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class ScoreboardWeather(_ResponseModel):
@@ -264,6 +342,18 @@ class ScoreboardGame(_ResponseModel):
     weather: ScoreboardWeather
     betting: ScoreboardBetting
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project a live scoreboard game and its team relationships."""
+        observe_game(
+            sink,
+            id=self.id,
+            start_date=self.start_date,
+            status=self.status,
+            home_team_id=self.home_team.id,
+            away_team_id=self.away_team.id,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
+
 
 class TeamGameStat(_ResponseModel):
     """Represent one named team statistic in a game box score."""
@@ -284,12 +374,40 @@ class TeamGameStatsTeam(_ResponseModel):
     points: int | None = Field(ge=0)
     stats: list[TeamGameStat]
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one team carried by a game-stat response."""
+        observe_team(
+            sink,
+            id=self.team_id,
+            school=self.team,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
+
 
 class TeamGameStats(_ResponseModel):
     """Represent a game returned by ``GET /games/teams``."""
 
     id: int = Field(ge=0)
     teams: list[TeamGameStatsTeam]
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project a game with side-specific team relationships."""
+        year = context.parameters.get("year")
+        season = year if isinstance(year, int) and not isinstance(year, bool) else None
+        home_id = next(
+            (team.team_id for team in self.teams if team.home_away == "home"), None
+        )
+        away_id = next(
+            (team.team_id for team in self.teams if team.home_away == "away"), None
+        )
+        observe_game(
+            sink,
+            id=self.id,
+            season=season,
+            home_team_id=home_id,
+            away_team_id=away_id,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class PlayerGameStatPlayer(_ResponseModel):
@@ -298,6 +416,15 @@ class PlayerGameStatPlayer(_ResponseModel):
     id: str
     name: str
     stat: str
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the athlete carried by one nested game statistic."""
+        observe_athlete(
+            sink,
+            id=self.id,
+            name=self.name,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class PlayerGameStatType(_ResponseModel):
@@ -331,6 +458,25 @@ class PlayerGameStats(_ResponseModel):
 
     id: int = Field(ge=0)
     teams: list[PlayerGameStatsTeam]
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project game and request-scoped athlete memberships."""
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        year = context.parameters.get("year")
+        season = year if isinstance(year, int) and not isinstance(year, bool) else None
+        observe_game(sink, id=self.id, season=season, source=source)
+        for team in self.teams:
+            for category in team.categories:
+                for stat_type in category.types:
+                    for athlete in stat_type.athletes:
+                        observe_athlete(
+                            sink,
+                            id=athlete.id,
+                            name=athlete.name,
+                            team=team.team,
+                            season=season,
+                            source=source,
+                        )
 
 
 class StatsByQuarter(_ResponseModel):

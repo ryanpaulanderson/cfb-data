@@ -10,23 +10,45 @@ import unicodedata
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
 from functools import partial
+from itertools import batched
 from pathlib import Path
 from platform import system
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
 import aiosqlite
 
-from cfb_data.cache._catalog import CatalogProjection, CoverageRecord
+from cfb_data._catalog.merge import merge_catalog_observations
+from cfb_data._catalog.models import (
+    CatalogCounts,
+    CatalogObservation,
+    CatalogProjection,
+    CoverageRecord,
+)
+from cfb_data._catalog.sources import projection_contract
+from cfb_data.cache._catalog_codecs import (
+    decode_catalog_observation,
+    encode_catalog_observation,
+    observation_storage_key,
+    projection_from_observations,
+    projection_observations,
+)
+from cfb_data.cache._identity_codecs import (
+    athlete_identity,
+    conference_identity,
+    game_identity,
+    team_identity,
+    venue_identity,
+)
 from cfb_data.cache._models import MAX_RESPONSE_BODY_BYTES, ResponseRecord
 from cfb_data.cache.config import SQLiteCacheConfig
 from cfb_data.errors import CFBDCacheBackendError, CFBDClientStateError
-from cfb_data.identities.models import (
-    AthleteIdentity,
-    ConferenceIdentity,
-    GameIdentity,
-    TeamIdentity,
-    VenueIdentity,
-)
+
+if TYPE_CHECKING:
+    from cfb_data.conferences.models.pydantic.identity import ConferenceIdentity
+    from cfb_data.games.models.pydantic.identity import GameIdentity
+    from cfb_data.players.models.pydantic.identity import AthleteIdentity
+    from cfb_data.teams.models.pydantic.identity import TeamIdentity
+    from cfb_data.venues.models.pydantic.identity import VenueIdentity
 
 _SCHEMA_VERSION = 1
 
@@ -46,6 +68,12 @@ CREATE TABLE IF NOT EXISTS response_records (
     etag TEXT,
     last_modified TEXT,
     row_count INTEGER NOT NULL CHECK (row_count >= 0)
+) STRICT;
+CREATE TABLE IF NOT EXISTS catalog_observations (
+    namespace TEXT NOT NULL,
+    grain TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    PRIMARY KEY (namespace, grain)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS response_retention_idx
 ON response_records(retained_until);
@@ -244,6 +272,7 @@ CREATE TABLE IF NOT EXISTS coverage (
     retained_until TEXT NOT NULL,
     row_count INTEGER NOT NULL,
     known_cap INTEGER,
+    projection_contract TEXT NOT NULL,
     api_version TEXT NOT NULL,
     cache_key_version INTEGER NOT NULL,
     response_contract_version INTEGER NOT NULL,
@@ -402,6 +431,12 @@ class SQLiteCacheBackend:
                         record.row_count,
                     ),
                 )
+                projection = await self._merge_projection(
+                    connection,
+                    projection,
+                    observed_at=record.fetched_at,
+                    source=record.endpoint,
+                )
                 await self._commit_projection(connection, projection, observed_at)
                 await connection.commit()
             except asyncio.CancelledError:
@@ -440,7 +475,7 @@ class SQLiteCacheBackend:
         """Return whether complete fresh coverage proves one capability."""
         async with self._operation_lock:
             cursor = await self._active_connection().execute(
-                "SELECT capabilities_json FROM coverage WHERE endpoint = ? "
+                "SELECT capabilities_json, projection_contract FROM coverage WHERE endpoint = ? "
                 "AND canonical_filters = ? AND status = 'complete' AND fresh_until > ?",
                 (endpoint, canonical_filters, now.isoformat()),
             )
@@ -448,6 +483,8 @@ class SQLiteCacheBackend:
             await cursor.close()
             for row in rows:
                 raw = _row_str(row, 0)
+                if _row_str(row, 1) != projection_contract(endpoint):
+                    continue
                 try:
                     parsed: object = json.loads(raw)
                 except json.JSONDecodeError as exc:
@@ -570,7 +607,7 @@ class SQLiteCacheBackend:
         rows = await cursor.fetchall()
         await cursor.close()
         return [
-            TeamIdentity(
+            team_identity(
                 id=_row_int(row, 0),
                 school=_row_str(row, 1),
                 abbreviation=_row_optional_str(row, 2),
@@ -605,7 +642,7 @@ class SQLiteCacheBackend:
         rows = await cursor.fetchall()
         await cursor.close()
         return [
-            ConferenceIdentity(
+            conference_identity(
                 id=_row_int(row, 0),
                 name=_row_str(row, 1),
                 abbreviation=_row_optional_str(row, 2),
@@ -634,7 +671,7 @@ class SQLiteCacheBackend:
         rows = await cursor.fetchall()
         await cursor.close()
         return [
-            VenueIdentity(
+            venue_identity(
                 id=_row_int(row, 0),
                 name=_row_str(row, 1),
                 city=_row_optional_str(row, 2),
@@ -731,7 +768,7 @@ class SQLiteCacheBackend:
         rows = await cursor.fetchall()
         await cursor.close()
         return [
-            AthleteIdentity(
+            athlete_identity(
                 id=_row_str(row, 0),
                 name=_row_str(row, 1),
                 position=_row_optional_str(row, 2),
@@ -740,6 +777,39 @@ class SQLiteCacheBackend:
             )
             for row in rows
         ]
+
+    async def catalog_counts(self) -> CatalogCounts:
+        """Return row counts for every explicit SQLite catalog table."""
+        tables = (
+            "teams",
+            "team_seasons",
+            "conferences",
+            "conference_affiliations",
+            "venues",
+            "games",
+            "athletes",
+            "athlete_team_seasons",
+            "recruits",
+            "coaches",
+            "coach_team_seasons",
+            "drives",
+            "plays",
+            "vocabularies",
+            "playoff_matchups",
+        )
+        values: list[int] = []
+        async with self._operation_lock:
+            connection = self._active_connection()
+            for table in tables:
+                cursor = await connection.execute(f"SELECT COUNT(*) FROM {table}")
+                row = await cursor.fetchone()
+                await cursor.close()
+                if row is None:
+                    raise CFBDCacheBackendError(
+                        f"SQLite catalog table {table} returned no count"
+                    )
+                values.append(_row_int(row, 0))
+        return CatalogCounts(*values)
 
     async def _validate_schema(self, connection: aiosqlite.Connection) -> None:
         """Initialize or reject the versioned catalog schema."""
@@ -759,6 +829,59 @@ class SQLiteCacheBackend:
         if _row_str(row, 0) != str(_SCHEMA_VERSION):
             raise CFBDCacheBackendError("SQLite cache schema version is incompatible")
 
+    async def _merge_projection(
+        self,
+        connection: aiosqlite.Connection,
+        projection: CatalogProjection,
+        *,
+        observed_at: datetime,
+        source: str,
+    ) -> CatalogProjection:
+        """Merge typed observations and persist their provenance transactionally."""
+        candidates = projection_observations(
+            projection, observed_at=observed_at, source=source
+        )
+        keyed = tuple(
+            (observation_storage_key(candidate), candidate) for candidate in candidates
+        )
+        stored: dict[tuple[str, str], CatalogObservation] = {}
+        for chunk in batched(keyed, 400):
+            predicates = " OR ".join("(namespace = ? AND grain = ?)" for _ in chunk)
+            arguments = tuple(
+                value for (namespace, grain), _ in chunk for value in (namespace, grain)
+            )
+            cursor = await connection.execute(
+                "SELECT namespace, grain, payload FROM catalog_observations WHERE "
+                + predicates,
+                arguments,
+            )
+            rows = await cursor.fetchall()
+            await cursor.close()
+            stored.update(
+                {
+                    (_row_str(row, 0), _row_str(row, 1)): (
+                        decode_catalog_observation(_row_str(row, 2))
+                    )
+                    for row in rows
+                }
+            )
+        merged = tuple(
+            merge_catalog_observations(stored.get(key), candidate)
+            for key, candidate in keyed
+        )
+        await connection.executemany(
+            "INSERT INTO catalog_observations VALUES (?, ?, ?) "
+            "ON CONFLICT(namespace, grain) DO UPDATE SET payload=excluded.payload",
+            (
+                (
+                    *observation_storage_key(observation),
+                    encode_catalog_observation(observation),
+                )
+                for observation in merged
+            ),
+        )
+        return projection_from_observations(merged, original=projection)
+
     async def _commit_projection(
         self,
         connection: aiosqlite.Connection,
@@ -770,10 +893,9 @@ class SQLiteCacheBackend:
             "INSERT INTO teams VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1) "
             "ON CONFLICT(id) DO UPDATE SET school=excluded.school, "
             "normalized_school=excluded.normalized_school, "
-            "abbreviation=COALESCE(excluded.abbreviation, teams.abbreviation), "
-            "normalized_abbreviation=COALESCE(excluded.normalized_abbreviation, "
-            "teams.normalized_abbreviation), alternate_names_json=CASE WHEN ? "
-            "THEN excluded.alternate_names_json ELSE teams.alternate_names_json END, "
+            "abbreviation=excluded.abbreviation, "
+            "normalized_abbreviation=excluded.normalized_abbreviation, "
+            "alternate_names_json=excluded.alternate_names_json, "
             "last_seen_at=excluded.last_seen_at",
             [
                 (
@@ -785,7 +907,6 @@ class SQLiteCacheBackend:
                     json.dumps(fact.alternate_names or (), separators=(",", ":")),
                     observed_at,
                     observed_at,
-                    fact.alternate_names is not None,
                 )
                 for fact in projection.teams
             ],
@@ -810,8 +931,8 @@ class SQLiteCacheBackend:
         await connection.executemany(
             "INSERT INTO team_seasons VALUES (?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(team_id, season) DO UPDATE SET "
-            "conference_name=COALESCE(excluded.conference_name, team_seasons.conference_name), "
-            "venue_id=COALESCE(excluded.venue_id, team_seasons.venue_id), "
+            "conference_name=excluded.conference_name, "
+            "venue_id=excluded.venue_id, "
             "last_seen_at=excluded.last_seen_at",
             [
                 (
@@ -829,10 +950,9 @@ class SQLiteCacheBackend:
             "INSERT INTO conferences VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1) "
             "ON CONFLICT(id) DO UPDATE SET name=excluded.name, "
             "normalized_name=excluded.normalized_name, "
-            "abbreviation=COALESCE(excluded.abbreviation, conferences.abbreviation), "
-            "normalized_abbreviation=COALESCE(excluded.normalized_abbreviation, "
-            "conferences.normalized_abbreviation), "
-            "classification=COALESCE(excluded.classification, conferences.classification), "
+            "abbreviation=excluded.abbreviation, "
+            "normalized_abbreviation=excluded.normalized_abbreviation, "
+            "classification=excluded.classification, "
             "last_seen_at=excluded.last_seen_at",
             [
                 (
@@ -851,7 +971,7 @@ class SQLiteCacheBackend:
         await connection.executemany(
             "INSERT INTO conference_affiliations VALUES (?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(team_id, conference_id, start_year) DO UPDATE SET "
-            "end_year=COALESCE(excluded.end_year, conference_affiliations.end_year), "
+            "end_year=excluded.end_year, "
             "last_seen_at=excluded.last_seen_at",
             [
                 (
@@ -869,8 +989,8 @@ class SQLiteCacheBackend:
             "INSERT INTO venues VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1) "
             "ON CONFLICT(id) DO UPDATE SET name=excluded.name, "
             "normalized_name=excluded.normalized_name, "
-            "city=COALESCE(excluded.city, venues.city), "
-            "state=COALESCE(excluded.state, venues.state), "
+            "city=excluded.city, "
+            "state=excluded.state, "
             "last_seen_at=excluded.last_seen_at",
             [
                 (
@@ -887,14 +1007,11 @@ class SQLiteCacheBackend:
         )
         await connection.executemany(
             "INSERT INTO games VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1) "
-            "ON CONFLICT(id) DO UPDATE SET season=COALESCE(excluded.season, games.season), "
-            "week=COALESCE(excluded.week, games.week), "
-            "season_type=COALESCE(excluded.season_type, games.season_type), "
-            "start_date=COALESCE(excluded.start_date, games.start_date), "
-            "status=COALESCE(excluded.status, games.status), "
-            "home_team_id=COALESCE(excluded.home_team_id, games.home_team_id), "
-            "away_team_id=COALESCE(excluded.away_team_id, games.away_team_id), "
-            "venue_id=COALESCE(excluded.venue_id, games.venue_id), "
+            "ON CONFLICT(id) DO UPDATE SET season=excluded.season, "
+            "week=excluded.week, season_type=excluded.season_type, "
+            "start_date=excluded.start_date, status=excluded.status, "
+            "home_team_id=excluded.home_team_id, "
+            "away_team_id=excluded.away_team_id, venue_id=excluded.venue_id, "
             "last_seen_at=excluded.last_seen_at",
             [
                 (
@@ -917,7 +1034,7 @@ class SQLiteCacheBackend:
             "INSERT INTO athletes VALUES (?, ?, ?, ?, ?, ?, 1, 1) "
             "ON CONFLICT(id) DO UPDATE SET name=excluded.name, "
             "normalized_name=excluded.normalized_name, "
-            "position=COALESCE(excluded.position, athletes.position), "
+            "position=excluded.position, "
             "last_seen_at=excluded.last_seen_at",
             [
                 (
@@ -949,8 +1066,8 @@ class SQLiteCacheBackend:
         )
         await connection.executemany(
             "INSERT INTO recruits VALUES (?, ?, ?, ?, ?, ?, 1, 1) "
-            "ON CONFLICT(id) DO UPDATE SET athlete_id=COALESCE(excluded.athlete_id, "
-            "recruits.athlete_id), name=excluded.name, year=excluded.year, "
+            "ON CONFLICT(id) DO UPDATE SET athlete_id=excluded.athlete_id, "
+            "name=excluded.name, year=excluded.year, "
             "last_seen_at=excluded.last_seen_at",
             [
                 (
@@ -968,7 +1085,7 @@ class SQLiteCacheBackend:
             "INSERT INTO coaches VALUES (?, ?, ?, ?, ?, ?, 1, 1) "
             "ON CONFLICT(id) DO UPDATE SET name=excluded.name, "
             "normalized_name=excluded.normalized_name, "
-            "wikidata_id=COALESCE(excluded.wikidata_id, coaches.wikidata_id), "
+            "wikidata_id=excluded.wikidata_id, "
             "last_seen_at=excluded.last_seen_at",
             [
                 (
@@ -985,10 +1102,7 @@ class SQLiteCacheBackend:
         await connection.executemany(
             "INSERT INTO coach_team_seasons VALUES (?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(coach_id, team_id, start_year) DO UPDATE SET "
-            "end_year=CASE WHEN excluded.tenure_id IS NULL "
-            "AND coach_team_seasons.tenure_id IS NOT NULL "
-            "THEN coach_team_seasons.end_year ELSE excluded.end_year END, "
-            "tenure_id=COALESCE(excluded.tenure_id, coach_team_seasons.tenure_id), "
+            "end_year=excluded.end_year, tenure_id=excluded.tenure_id, "
             "last_seen_at=excluded.last_seen_at",
             [
                 (
@@ -1006,10 +1120,10 @@ class SQLiteCacheBackend:
         await connection.executemany(
             "INSERT INTO drives VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1) "
             "ON CONFLICT(id) DO UPDATE SET game_id=excluded.game_id, "
-            "offense_team_id=COALESCE(excluded.offense_team_id, drives.offense_team_id), "
-            "offense_team=COALESCE(excluded.offense_team, drives.offense_team), "
-            "defense_team_id=COALESCE(excluded.defense_team_id, drives.defense_team_id), "
-            "defense_team=COALESCE(excluded.defense_team, drives.defense_team), "
+            "offense_team_id=excluded.offense_team_id, "
+            "offense_team=excluded.offense_team, "
+            "defense_team_id=excluded.defense_team_id, "
+            "defense_team=excluded.defense_team, "
             "last_seen_at=excluded.last_seen_at",
             [
                 (
@@ -1028,9 +1142,9 @@ class SQLiteCacheBackend:
         await connection.executemany(
             "INSERT INTO plays VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1) "
             "ON CONFLICT(id) DO UPDATE SET game_id=excluded.game_id, "
-            "drive_id=COALESCE(excluded.drive_id, plays.drive_id), "
-            "play_type_id=COALESCE(excluded.play_type_id, plays.play_type_id), "
-            "play_type=COALESCE(excluded.play_type, plays.play_type), "
+            "drive_id=excluded.drive_id, "
+            "play_type_id=excluded.play_type_id, "
+            "play_type=excluded.play_type, "
             "last_seen_at=excluded.last_seen_at",
             [
                 (
@@ -1048,7 +1162,7 @@ class SQLiteCacheBackend:
         await connection.executemany(
             "INSERT INTO vocabularies VALUES (?, ?, ?, ?, ?, ?, 1, 1) "
             "ON CONFLICT(namespace, id) DO UPDATE SET name=excluded.name, "
-            "abbreviation=COALESCE(excluded.abbreviation, vocabularies.abbreviation), "
+            "abbreviation=excluded.abbreviation, "
             "last_seen_at=excluded.last_seen_at",
             [
                 (
@@ -1065,9 +1179,8 @@ class SQLiteCacheBackend:
         await connection.executemany(
             "INSERT INTO playoff_matchups VALUES (?, ?, ?, ?, ?, 1, 1) "
             "ON CONFLICT(id) DO UPDATE SET "
-            "season=COALESCE(excluded.season, playoff_matchups.season), "
-            "linked_game_id=COALESCE(excluded.linked_game_id, "
-            "playoff_matchups.linked_game_id), last_seen_at=excluded.last_seen_at",
+            "season=excluded.season, linked_game_id=excluded.linked_game_id, "
+            "last_seen_at=excluded.last_seen_at",
             [
                 (
                     fact.id,
@@ -1087,7 +1200,7 @@ class SQLiteCacheBackend:
     ) -> None:
         """Upsert one complete capability-aware coverage record."""
         await connection.execute(
-            "INSERT INTO coverage VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+            "INSERT INTO coverage VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
             "'5.24.0', 1, 1, 1, 1, NULL) ON CONFLICT(partition_key) DO UPDATE SET "
             "namespace=excluded.namespace, canonical_filters=excluded.canonical_filters, "
             "capabilities_json=excluded.capabilities_json, status=excluded.status, "
@@ -1095,6 +1208,7 @@ class SQLiteCacheBackend:
             "fetched_at=excluded.fetched_at, validated_at=excluded.validated_at, "
             "fresh_until=excluded.fresh_until, retained_until=excluded.retained_until, "
             "row_count=excluded.row_count, known_cap=excluded.known_cap, "
+            "projection_contract=excluded.projection_contract, "
             "failure_category=NULL",
             (
                 coverage.partition_key,
@@ -1110,6 +1224,7 @@ class SQLiteCacheBackend:
                 coverage.retained_until.isoformat(),
                 coverage.row_count,
                 coverage.known_cap,
+                coverage.projection_contract,
             ),
         )
         await connection.execute(
@@ -1189,7 +1304,7 @@ def _response_from_row(row: Sequence[object]) -> ResponseRecord:
 def _game_identity(row: Sequence[object]) -> GameIdentity:
     """Validate and construct one compact game identity from SQLite columns."""
     raw_date = _row_optional_str(row, 4)
-    return GameIdentity(
+    return game_identity(
         id=_row_int(row, 0),
         season=_row_optional_int(row, 1),
         week=_row_optional_int(row, 2),

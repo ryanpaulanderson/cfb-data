@@ -8,6 +8,7 @@ from cfb_data.enums import (
     SeasonType,
 )
 
+from .models.pydantic.identity import GameIdentity
 from .models.pydantic.requests import (
     AdvancedBoxScoreRequest,
     CalendarRequest,
@@ -30,6 +31,7 @@ __all__ = [
     "GameMediaRequest",
     "GamesRequest",
     "GamesResource",
+    "GameIdentity",
     "GameWeatherRequest",
     "MediaType",
     "PlayerGameStatsRequest",

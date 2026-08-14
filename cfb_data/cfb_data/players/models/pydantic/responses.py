@@ -6,6 +6,12 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from cfb_data._catalog.projection import (
+    CatalogSink,
+    ObservationAuthority,
+    ProjectionContext,
+    observe_athlete,
+)
 from cfb_data.enums import TransferEligibility
 from cfb_data.metrics.models.pydantic.responses import PlayerSeasonPPASplit
 
@@ -53,6 +59,43 @@ class PlayerSearchResult(_ResponseModel):
     active_end_year: int | None = Field(alias="activeEndYear", ge=1869)
     team_stints: list[PlayerSearchTeamStint] = Field(alias="teamStints")
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project a player and every explicit team-season stint."""
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        year = context.parameters.get("year")
+        request_season = (
+            year if isinstance(year, int) and not isinstance(year, bool) else None
+        )
+        observe_athlete(
+            sink,
+            id=self.id,
+            name=self.name,
+            position=self.position,
+            team=self.team,
+            season=request_season,
+            authority=ObservationAuthority.canonical,
+            source=source,
+        )
+        for stint in self.team_stints:
+            if stint.start_year is None:
+                continue
+            end_year = stint.end_year or self.active_end_year
+            if end_year is None or end_year < stint.start_year:
+                continue
+            if end_year - stint.start_year > 100:
+                continue
+            for season in range(stint.start_year, end_year + 1):
+                observe_athlete(
+                    sink,
+                    id=self.id,
+                    name=self.name,
+                    position=self.position,
+                    team=stint.team,
+                    season=season,
+                    authority=ObservationAuthority.canonical,
+                    source=source,
+                )
+
 
 class PlayerUsageSplit(_ResponseModel):
     """Represent a player's share of team plays by context."""
@@ -77,6 +120,19 @@ class PlayerUsage(_ResponseModel):
     team: str
     conference: str
     usage: PlayerUsageSplit
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project a season-scoped athlete identity."""
+        observe_athlete(
+            sink,
+            id=self.id,
+            name=self.name,
+            position=self.position,
+            team=self.team,
+            season=self.season,
+            authority=ObservationAuthority.canonical,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class PlayerSeasonOverviewStat(_ResponseModel):
@@ -119,6 +175,19 @@ class PlayerSeasonOverview(_ResponseModel):
     box_score_stats: PlayerSeasonOverviewBoxScore = Field(alias="boxScoreStats")
     usage: PlayerUsageSplit | None = None
     ppa: PlayerSeasonOverviewPPA | None = None
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the overview's exact athlete membership."""
+        observe_athlete(
+            sink,
+            id=self.id,
+            name=self.name,
+            position=self.position,
+            team=self.team,
+            season=self.season,
+            authority=ObservationAuthority.authoritative,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class ReturningProduction(_ResponseModel):

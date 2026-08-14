@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cfb_data._catalog.models import PlayFact
+from cfb_data._catalog.projection import (
+    CatalogSink,
+    ProjectionContext,
+    observe_athlete,
+    observe_game,
+    observe_team,
+)
 from cfb_data.enums import SeasonType
 
 
@@ -74,6 +82,17 @@ class TeamGamePredictedPointsAdded(_ResponseModel):
     offense: TeamGamePPAUnit
     defense: TeamGamePPAUnit
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the game partition carried by team PPA metrics."""
+        observe_game(
+            sink,
+            id=self.game_id,
+            season=self.season,
+            week=self.week,
+            season_type=self.season_type,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
+
 
 class PlayerGamePPAAverage(_ResponseModel):
     """Represent a player's per-play PPA averages for one game."""
@@ -95,6 +114,18 @@ class PlayerGamePredictedPointsAdded(_ResponseModel):
     team: str
     opponent: str
     average_ppa: PlayerGamePPAAverage = Field(alias="averagePPA")
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project a game-scoped athlete membership."""
+        observe_athlete(
+            sink,
+            id=self.id,
+            name=self.name,
+            position=self.position,
+            team=self.team,
+            season=self.season,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class PlayerSeasonPPASplit(_ResponseModel):
@@ -122,6 +153,18 @@ class PlayerSeasonPredictedPointsAdded(_ResponseModel):
     average_ppa: PlayerSeasonPPASplit = Field(alias="averagePPA")
     total_ppa: PlayerSeasonPPASplit = Field(alias="totalPPA")
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project a season-scoped athlete membership."""
+        observe_athlete(
+            sink,
+            id=self.id,
+            name=self.name,
+            position=self.position,
+            team=self.team,
+            season=self.season,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
+
 
 class PlayWinProbability(_ResponseModel):
     """Represent the modeled home win probability after one play."""
@@ -143,6 +186,20 @@ class PlayWinProbability(_ResponseModel):
     home_win_probability: float = Field(alias="homeWinProbability", ge=0, le=1)
     play_number: int = Field(alias="playNumber", ge=0)
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project game, teams, and play identity from win probability."""
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        observe_game(
+            sink,
+            id=self.game_id,
+            home_team_id=self.home_id,
+            away_team_id=self.away_id,
+            source=source,
+        )
+        observe_team(sink, id=self.home_id, school=self.home, source=source)
+        observe_team(sink, id=self.away_id, school=self.away, source=source)
+        sink.add(PlayFact(self.play_id, self.game_id), source=source)
+
 
 class PregameWinProbability(_ResponseModel):
     """Represent one game's pregame home win probability."""
@@ -155,6 +212,17 @@ class PregameWinProbability(_ResponseModel):
     away_team: str = Field(alias="awayTeam")
     spread: float
     home_win_probability: float = Field(alias="homeWinProbability", ge=0, le=1)
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the game partition carried by a pregame forecast."""
+        observe_game(
+            sink,
+            id=self.game_id,
+            season=self.season,
+            week=self.week,
+            season_type=self.season_type,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class FieldGoalExpectedPoints(_ResponseModel):

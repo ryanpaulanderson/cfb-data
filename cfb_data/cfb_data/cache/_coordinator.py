@@ -11,16 +11,18 @@ from collections.abc import Awaitable, Callable, Coroutine
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Self, TypeVar, cast
+from typing import TYPE_CHECKING, Self, TypeVar, cast
 
 from pydantic import BaseModel
 
+from cfb_data._catalog.models import CatalogProjection
 from cfb_data._transport import _HTTPTransport
 from cfb_data.base.types import QueryParameters
 from cfb_data.cache._backend import CacheBackend
 from cfb_data.cache._catalog import project_catalog
 from cfb_data.cache._key import response_cache_key
 from cfb_data.cache._models import MAX_RESPONSE_BODY_BYTES, ResponseRecord
+from cfb_data.cache._null import NullCacheBackend
 from cfb_data.cache.config import CacheMode, CachePolicyConfig, CacheProfile
 from cfb_data.cache.policy import cache_profile, resolve_ttl
 from cfb_data.errors import (
@@ -29,15 +31,17 @@ from cfb_data.errors import (
     CFBDHTTPError,
     CFBDTransportError,
 )
-from cfb_data.identities.models import (
-    AthleteIdentity,
-    ConferenceIdentity,
-    GameIdentity,
-    TeamIdentity,
-    VenueIdentity,
-)
+
+if TYPE_CHECKING:
+    from cfb_data.conferences.models.pydantic.identity import ConferenceIdentity
+    from cfb_data.games.models.pydantic.identity import GameIdentity
+    from cfb_data.players.models.pydantic.identity import AthleteIdentity
+    from cfb_data.teams.models.pydantic.identity import TeamIdentity
+    from cfb_data.venues.models.pydantic.identity import VenueIdentity
 
 _LOGGER = logging.getLogger(__name__)
+_MAX_CATALOG_COMMIT_TIMEOUT_SECONDS = 30.0
+_OBSERVATIONS_PER_COMMIT_SECOND = 10_000
 _LEASE_DURATION = timedelta(seconds=60)
 _LEASE_RENEW_INTERVAL_SECONDS = 20.0
 _ValueT = TypeVar("_ValueT")
@@ -98,6 +102,7 @@ class CacheCoordinator:
         """Initialize coordination without opening backend resources."""
         self._transport = transport
         self._backend = backend
+        self._transient = NullCacheBackend()
         self._enabled = enabled
         self._credential_scope = credential_scope
         self._policy = policy
@@ -110,9 +115,12 @@ class CacheCoordinator:
         self._flights: dict[str, _FlightState] = {}
         self._flights_lock = asyncio.Lock()
         self._backend_available = False
+        self._transient_available = False
 
     async def open(self) -> None:
         """Open the configured backend while preserving fail-open API behavior."""
+        await self._transient.open()
+        self._transient_available = True
         if not self._enabled:
             return
         try:
@@ -126,19 +134,21 @@ class CacheCoordinator:
 
     async def close(self) -> None:
         """Close the configured backend if it opened successfully."""
-        if not self._backend_available:
-            return
-        self._backend_available = False
-        try:
-            async with asyncio.timeout(self._io_timeout_seconds):
-                await self._backend.close()
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            _LOGGER.warning(
-                "CFBD cache backend failure operation=close category=%s",
-                type(exc).__name__,
-            )
+        if self._backend_available:
+            self._backend_available = False
+            try:
+                async with asyncio.timeout(self._io_timeout_seconds):
+                    await self._backend.close()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                _LOGGER.warning(
+                    "CFBD cache backend failure operation=close category=%s",
+                    type(exc).__name__,
+                )
+        if self._transient_available:
+            self._transient_available = False
+            await self._transient.close()
 
     def mode_scope(self, mode: CacheMode) -> CacheModeScope:
         """Return a task-local explicit cache-behavior context manager."""
@@ -146,7 +156,7 @@ class CacheCoordinator:
 
     @property
     def identity_store_available(self) -> bool:
-        """Return whether the configured catalog backend opened successfully."""
+        """Return whether durable catalog persistence opened successfully."""
         return self._backend_available
 
     def ensure_active(self) -> None:
@@ -167,7 +177,19 @@ class CacheCoordinator:
     ) -> bool:
         """Return whether the catalog freshly proves one partition capability."""
         self.ensure_active()
-        return await self._identity_backend_call(
+        if strict:
+            return await self._identity_backend_call(
+                "coverage_read",
+                self._backend.has_fresh_coverage(
+                    endpoint=endpoint,
+                    canonical_filters=canonical_filters,
+                    capability=capability,
+                    now=self._utc_now(),
+                ),
+                default=False,
+                strict=True,
+            )
+        answered, persistent = await self._catalog_call(
             "coverage_read",
             self._backend.has_fresh_coverage(
                 endpoint=endpoint,
@@ -175,8 +197,14 @@ class CacheCoordinator:
                 capability=capability,
                 now=self._utc_now(),
             ),
-            default=False,
-            strict=strict,
+        )
+        if answered:
+            return bool(persistent)
+        return await self._transient.has_fresh_coverage(
+            endpoint=endpoint,
+            canonical_filters=canonical_filters,
+            capability=capability,
+            now=self._utc_now(),
         )
 
     async def record_hydration_failure(
@@ -205,48 +233,52 @@ class CacheCoordinator:
     ) -> list[TeamIdentity]:
         """Return exact team matches from the configured catalog."""
         self.ensure_active()
-        return await self._identity_backend_call(
+        answered, persistent = await self._catalog_call(
             "team_identity_read",
             self._backend.find_teams(query),
-            default=[],
-            strict=strict,
         )
+        if answered:
+            return persistent or []
+        return await self._transient.find_teams(query)
 
     async def find_conferences(
         self, query: str | int, *, strict: bool = False
     ) -> list[ConferenceIdentity]:
         """Return exact conference matches from the configured catalog."""
         self.ensure_active()
-        return await self._identity_backend_call(
+        answered, persistent = await self._catalog_call(
             "conference_identity_read",
             self._backend.find_conferences(query),
-            default=[],
-            strict=strict,
         )
+        if answered:
+            return persistent or []
+        return await self._transient.find_conferences(query)
 
     async def find_venues(
         self, query: str | int, *, strict: bool = False
     ) -> list[VenueIdentity]:
         """Return exact venue matches from the configured catalog."""
         self.ensure_active()
-        return await self._identity_backend_call(
+        answered, persistent = await self._catalog_call(
             "venue_identity_read",
             self._backend.find_venues(query),
-            default=[],
-            strict=strict,
         )
+        if answered:
+            return persistent or []
+        return await self._transient.find_venues(query)
 
     async def find_game(
         self, game_id: int, *, strict: bool = False
     ) -> GameIdentity | None:
         """Return one game identity from the configured catalog."""
         self.ensure_active()
-        return await self._identity_backend_call(
+        answered, persistent = await self._catalog_call(
             "game_identity_read",
             self._backend.find_game(game_id),
-            default=None,
-            strict=strict,
         )
+        if answered:
+            return persistent
+        return await self._transient.find_game(game_id)
 
     async def find_games(
         self,
@@ -258,12 +290,13 @@ class CacheCoordinator:
     ) -> list[GameIdentity]:
         """Return game identities from one explicit catalog partition."""
         self.ensure_active()
-        return await self._identity_backend_call(
+        answered, persistent = await self._catalog_call(
             "game_identity_search",
             self._backend.find_games(season=season, week=week, team=team),
-            default=[],
-            strict=strict,
         )
+        if answered:
+            return persistent or []
+        return await self._transient.find_games(season=season, week=week, team=team)
 
     async def find_athletes(
         self,
@@ -275,12 +308,13 @@ class CacheCoordinator:
     ) -> list[AthleteIdentity]:
         """Return athlete identities from an exact scoped catalog query."""
         self.ensure_active()
-        return await self._identity_backend_call(
+        answered, persistent = await self._catalog_call(
             "athlete_identity_read",
             self._backend.find_athletes(name=name, team=team, season=season),
-            default=[],
-            strict=strict,
         )
+        if answered:
+            return persistent or []
+        return await self._transient.find_athletes(name=name, team=team, season=season)
 
     async def cleanup_responses(self) -> int:
         """Remove expired response entries without deleting catalog facts."""
@@ -313,10 +347,24 @@ class CacheCoordinator:
         if not self._enabled or profile is CacheProfile.operational:
             event = "disabled" if not self._enabled else "operational_bypass"
             _LOGGER.debug("CFBD response cache %s endpoint=%s", event, endpoint)
-            return await self._network_only(endpoint, parameters, validate)
+            return await self._network_only(
+                endpoint,
+                parameters,
+                response_contract,
+                profile,
+                validate,
+                project=not self._enabled,
+            )
         if mode is CacheMode.bypass:
             _LOGGER.debug("CFBD response cache bypass endpoint=%s", endpoint)
-            return await self._network_only(endpoint, parameters, validate)
+            return await self._network_only(
+                endpoint,
+                parameters,
+                response_contract,
+                profile,
+                validate,
+                project=False,
+            )
 
         key = response_cache_key(
             base_url=self._transport.base_url,
@@ -337,6 +385,12 @@ class CacheCoordinator:
             )
         ):
             _LOGGER.debug("CFBD response cache hit endpoint=%s", endpoint)
+            await self._reproject_record(
+                endpoint=endpoint,
+                parameters=parameters,
+                record=retained,
+                value=cached,
+            )
             return cached
         if mode is CacheMode.local_only:
             raise CFBDCacheMissError(
@@ -438,6 +492,12 @@ class CacheCoordinator:
             and rechecked_value is not None
             and rechecked.fresh_until > now
         ):
+            await self._reproject_record(
+                endpoint=endpoint,
+                parameters=parameters,
+                record=rechecked,
+                value=rechecked_value,
+            )
             return rechecked_value
         if rechecked is not None and rechecked_value is not None:
             stale_record, stale_value = rechecked, rechecked_value
@@ -492,6 +552,12 @@ class CacheCoordinator:
                 and retained.fresh_until > now
                 and (not force_refresh or retained != refresh_baseline)
             ):
+                await self._reproject_record(
+                    endpoint=endpoint,
+                    parameters=parameters,
+                    record=retained,
+                    value=value,
+                )
                 return value
             if asyncio.get_running_loop().time() >= deadline:
                 _LOGGER.warning(
@@ -521,6 +587,12 @@ class CacheCoordinator:
                 and retained.fresh_until > now
                 and (not force_refresh or retained != refresh_baseline)
             ):
+                await self._reproject_record(
+                    endpoint=endpoint,
+                    parameters=parameters,
+                    record=retained,
+                    value=value,
+                )
                 return value
             if retained is not None and value is not None:
                 stale_record, stale_value = retained, value
@@ -662,8 +734,12 @@ class CacheCoordinator:
             fresh_until=record.fresh_until,
             retained_until=record.retained_until,
         )
+        await self._transient.commit_response(record, projection)
         await self._backend_call(
-            "commit", self._backend.commit_response(record, projection), default=None
+            "commit",
+            self._backend.commit_response(record, projection),
+            default=None,
+            timeout_seconds=self._catalog_commit_timeout(projection),
         )
         return value
 
@@ -671,13 +747,88 @@ class CacheCoordinator:
         self,
         endpoint: str,
         parameters: QueryParameters,
+        response_contract: str,
+        profile: CacheProfile,
         validate: Callable[[object], _ValueT],
+        *,
+        project: bool,
     ) -> _ValueT:
-        """Fetch and validate without consulting or populating persistence."""
+        """Fetch and validate, optionally populating the transient catalog."""
         envelope = await self._transport.get_response(endpoint, parameters)
         if envelope.body is None:
             raise CFBDCacheBackendError("Successful response has no JSON body")
-        return validate(envelope.body)
+        value = validate(envelope.body)
+        if not project or not self._transient_available:
+            return value
+        now = self._utc_now()
+        projectable = cast(BaseModel | list[object], value)
+        ttl = resolve_ttl(
+            profile=profile,
+            endpoint=endpoint,
+            parameters=parameters,
+            value=projectable,
+            policy=self._policy,
+            now=now,
+        )
+        if ttl is None:
+            return value
+        key = response_cache_key(
+            base_url=self._transport.base_url,
+            endpoint=endpoint,
+            parameters=parameters,
+            response_contract=response_contract,
+            credential_scope=self._credential_scope,
+        )
+        record = ResponseRecord(
+            key=key,
+            endpoint=endpoint,
+            response_contract=response_contract,
+            body=b"",
+            fetched_at=now,
+            fresh_until=now + ttl.fresh_for,
+            retained_until=now + ttl.retain_for,
+            etag=None,
+            last_modified=None,
+            row_count=len(value) if isinstance(value, list) else 1,
+        )
+        projection = project_catalog(
+            endpoint=endpoint,
+            parameters=parameters,
+            value=projectable,
+            response_key=key,
+            fetched_at=now,
+            fresh_until=record.fresh_until,
+            retained_until=record.retained_until,
+        )
+        await self._transient.commit_response(record, projection)
+        return value
+
+    async def _reproject_record(
+        self,
+        *,
+        endpoint: str,
+        parameters: QueryParameters,
+        record: ResponseRecord,
+        value: _ValueT,
+    ) -> None:
+        """Reproject one retained validated response through the current contract."""
+        projectable = cast(BaseModel | list[object], value)
+        projection = project_catalog(
+            endpoint=endpoint,
+            parameters=parameters,
+            value=projectable,
+            response_key=record.key,
+            fetched_at=record.fetched_at,
+            fresh_until=record.fresh_until,
+            retained_until=record.retained_until,
+        )
+        await self._transient.commit_response(record, projection)
+        await self._backend_call(
+            "reproject",
+            self._backend.commit_response(record, projection),
+            default=None,
+            timeout_seconds=self._catalog_commit_timeout(projection),
+        )
 
     async def _read_record(self, key: str, now: datetime) -> ResponseRecord | None:
         """Read a retained record with fail-open backend behavior."""
@@ -723,10 +874,11 @@ class CacheCoordinator:
         awaitable: Awaitable[ResultT],
         *,
         default: ResultT,
+        timeout_seconds: float | None = None,
     ) -> ResultT:
         """Bound backend I/O and convert failures to observable fail-open results."""
         try:
-            async with asyncio.timeout(self._io_timeout_seconds):
+            async with asyncio.timeout(timeout_seconds or self._io_timeout_seconds):
                 return await awaitable
         except asyncio.CancelledError:
             raise
@@ -737,6 +889,14 @@ class CacheCoordinator:
                 type(exc).__name__,
             )
             return default
+
+    def _catalog_commit_timeout(self, projection: CatalogProjection) -> float:
+        """Return a bounded deadline scaled to atomic observation-batch size."""
+        additional = len(projection.observations) / _OBSERVATIONS_PER_COMMIT_SECOND
+        return min(
+            _MAX_CATALOG_COMMIT_TIMEOUT_SECONDS,
+            max(self._io_timeout_seconds, self._io_timeout_seconds + additional),
+        )
 
     async def _identity_backend_call[ResultT](
         self,
@@ -771,6 +931,27 @@ class CacheCoordinator:
                     "The configured identity catalog backend could not answer"
                 ) from exc
             return default
+
+    async def _catalog_call[ResultT](
+        self, operation: str, awaitable: Awaitable[ResultT]
+    ) -> tuple[bool, ResultT | None]:
+        """Return whether the persistent catalog answered and its result."""
+        if not self._backend_available:
+            if isinstance(awaitable, Coroutine):
+                awaitable.close()
+            return False, None
+        try:
+            async with asyncio.timeout(self._io_timeout_seconds):
+                return True, await awaitable
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _LOGGER.warning(
+                "CFBD identity backend failure operation=%s category=%s",
+                operation,
+                type(exc).__name__,
+            )
+            return False, None
 
 
 def _observe_flight_completion(task: asyncio.Task[object]) -> None:

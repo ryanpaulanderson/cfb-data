@@ -7,6 +7,16 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from cfb_data._catalog.models import DriveFact, PlayFact, VocabularyFact
+from cfb_data._catalog.projection import (
+    CatalogSink,
+    ObservationAuthority,
+    ProjectionContext,
+    observe_athlete,
+    observe_game,
+    observe_team,
+)
+
 
 class _ResponseModel(BaseModel):
     """Apply the upstream closed-object contract to response models."""
@@ -67,6 +77,15 @@ class Play(_ResponseModel):
     ppa: float | None
     wallclock: datetime | None
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one historical play and its drive relationship."""
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        sink.add(
+            PlayFact(self.id, self.game_id, self.drive_id, None, self.play_type),
+            source=source,
+        )
+        sink.add(DriveFact(self.drive_id, self.game_id), source=source)
+
 
 class PlayType(_ResponseModel):
     """Represent one available historical play type."""
@@ -74,6 +93,14 @@ class PlayType(_ResponseModel):
     id: int = Field(gt=0)
     text: str
     abbreviation: str | None
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one play-type vocabulary value."""
+        sink.add(
+            VocabularyFact("play_type", str(self.id), self.text, self.abbreviation),
+            authority=ObservationAuthority.authoritative,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class PlayStat(_ResponseModel):
@@ -99,12 +126,34 @@ class PlayStat(_ResponseModel):
     stat_type: str = Field(alias="statType")
     stat: int
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project play, drive, and athlete membership from one stat row."""
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        sink.add(PlayFact(self.play_id, self.game_id, self.drive_id), source=source)
+        sink.add(DriveFact(self.drive_id, self.game_id), source=source)
+        observe_athlete(
+            sink,
+            id=self.athlete_id,
+            name=self.athlete_name,
+            team=self.team,
+            season=self.season,
+            source=source,
+        )
+
 
 class PlayStatType(_ResponseModel):
     """Represent one available athlete play-stat type."""
 
     id: int = Field(gt=0)
     name: str
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one play-stat vocabulary value."""
+        sink.add(
+            VocabularyFact("play_stat_type", str(self.id), self.name),
+            authority=ObservationAuthority.authoritative,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class HomeAway(StrEnum):
@@ -153,6 +202,30 @@ class LiveGamePlay(_ResponseModel):
     down_type: DownType = Field(alias="downType")
     play_text: str = Field(alias="playText")
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project a live play using its ancestor drive and game."""
+        game = context.parent(LiveGame)
+        drive = context.parent(LiveGameDrive)
+        if not isinstance(game, LiveGame):
+            return
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        drive_id = drive.id if isinstance(drive, LiveGameDrive) else None
+        sink.add(
+            PlayFact(
+                self.id,
+                game.id,
+                drive_id,
+                self.play_type_id,
+                self.play_type,
+            ),
+            source=source,
+        )
+        observe_team(sink, id=self.team_id, school=self.team, source=source)
+        sink.add(
+            VocabularyFact("play_type", str(self.play_type_id), self.play_type),
+            source=source,
+        )
+
 
 class LiveGameDrive(_ResponseModel):
     """Represent one drive nested within a live game."""
@@ -175,6 +248,26 @@ class LiveGameDrive(_ResponseModel):
     result: str
     points_gained: int = Field(alias="pointsGained")
     plays: list[LiveGamePlay]
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project a live drive using its ancestor game."""
+        game = context.parent(LiveGame)
+        if not isinstance(game, LiveGame):
+            return
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        sink.add(
+            DriveFact(
+                self.id,
+                game.id,
+                self.offense_id,
+                self.offense,
+                self.defense_id,
+                self.defense,
+            ),
+            source=source,
+        )
+        observe_team(sink, id=self.offense_id, school=self.offense, source=source)
+        observe_team(sink, id=self.defense_id, school=self.defense, source=source)
 
 
 class LiveGameTeam(_ResponseModel):
@@ -215,6 +308,15 @@ class LiveGameTeam(_ResponseModel):
         le=1,
     )
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one team from a live-game aggregate."""
+        observe_team(
+            sink,
+            id=self.team_id,
+            school=self.team,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
+
 
 class LiveGame(_ResponseModel):
     """Represent the nested response returned by ``GET /live/plays``."""
@@ -229,3 +331,23 @@ class LiveGame(_ResponseModel):
     yards_to_goal: int | None = Field(alias="yardsToGoal", ge=0)
     teams: list[LiveGameTeam]
     drives: list[LiveGameDrive]
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project a live game and side-specific team relationships."""
+        home_id = next(
+            (team.team_id for team in self.teams if team.home_away is HomeAway.home),
+            None,
+        )
+        away_id = next(
+            (team.team_id for team in self.teams if team.home_away is HomeAway.away),
+            None,
+        )
+        observe_game(
+            sink,
+            id=self.id,
+            status=self.status,
+            home_team_id=home_id,
+            away_team_id=away_id,
+            authority=ObservationAuthority.canonical,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )

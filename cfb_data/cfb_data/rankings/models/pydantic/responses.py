@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cfb_data._catalog.projection import CatalogSink, ProjectionContext, observe_team
 from cfb_data.enums import SeasonType
 
 
@@ -20,6 +21,15 @@ class PollRank(_ResponseModel):
     conference: str | None
     first_place_votes: int | None = Field(alias="firstPlaceVotes", ge=0)
     points: int | None = Field(ge=0)
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the ranked provider team identity."""
+        observe_team(
+            sink,
+            id=self.team_id,
+            school=self.school,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class Poll(_ResponseModel):

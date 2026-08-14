@@ -2,6 +2,13 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cfb_data._catalog.models import RecruitFact
+from cfb_data._catalog.projection import (
+    CatalogSink,
+    ObservationAuthority,
+    ProjectionContext,
+    observe_athlete,
+)
 from cfb_data.enums import RecruitClassification
 
 
@@ -39,6 +46,23 @@ class Recruit(_ResponseModel):
     state_province: str | None = Field(alias="stateProvince")
     country: str | None
     hometown_info: RecruitHometown = Field(alias="hometownInfo")
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project recruiting identity and an optional athlete link."""
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        sink.add(
+            RecruitFact(self.id, self.athlete_id, self.name, self.year),
+            authority=ObservationAuthority.authoritative,
+            source=source,
+        )
+        if self.athlete_id:
+            observe_athlete(
+                sink,
+                id=self.athlete_id,
+                name=self.name,
+                position=self.position,
+                source=source,
+            )
 
 
 class TeamRecruitingRanking(_ResponseModel):

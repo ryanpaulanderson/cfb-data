@@ -8,8 +8,12 @@ from pathlib import Path
 
 import pytest
 from aiohttp import web
+from cfb_data._catalog.models import CatalogProjection
+from cfb_data.cache._models import ResponseRecord
+from cfb_data.cache._sqlite import SQLiteCacheBackend
 
 from cfb_data import (
+    CacheMode,
     CFBDCacheBackendError,
     CFBDClient,
     CFBDIdentityAmbiguityError,
@@ -404,7 +408,7 @@ async def test_identity_resolution_works_in_memory_without_persistence(
 
 
 @pytest.mark.asyncio
-async def test_local_only_never_uses_network_and_requires_a_catalog(
+async def test_local_only_uses_the_transient_catalog_without_network(
     api_server: ServerFactory,
 ) -> None:
     calls = 0
@@ -416,12 +420,62 @@ async def test_local_only_never_uses_network_and_requires_a_catalog(
 
     async with api_server(handler) as base_url:
         async with CFBDClient("key", base_url=base_url) as client:
-            with pytest.raises(CFBDCacheBackendError):
+            with pytest.raises(CFBDIdentityNotFoundError):
                 await client.identities.teams.resolve(
                     "Michigan", freshness=FreshnessMode.local_only
                 )
+            assert calls == 0
+            await client.teams.list()
+            identity = await client.identities.teams.resolve(
+                "Michigan", freshness=FreshnessMode.local_only
+            )
 
-    assert calls == 0
+    assert identity.id == 130
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_retained_response_reprojects_after_projection_contract_change(
+    api_server: ServerFactory,
+    tmp_path: Path,
+) -> None:
+    """Rebuild catalog facts locally when source-owned projection metadata changes."""
+    calls = 0
+    path = tmp_path / "cache.sqlite3"
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        return web.json_response([_team()])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key", base_url=base_url, cache=SQLiteCacheConfig(path=path)
+        ) as client:
+            await client.teams.list()
+
+        with sqlite3.connect(path) as connection:
+            connection.execute("DELETE FROM team_aliases")
+            connection.execute("DELETE FROM teams")
+            connection.execute(
+                "DELETE FROM catalog_observations WHERE namespace = 'team'"
+            )
+            connection.execute(
+                "UPDATE coverage SET projection_contract = 'stale-contract' "
+                "WHERE endpoint = '/teams'"
+            )
+
+        async with CFBDClient(
+            "key", base_url=base_url, cache=SQLiteCacheConfig(path=path)
+        ) as client:
+            with client.cache_mode(CacheMode.local_only):
+                await client.teams.list()
+            identity = await client.identities.teams.resolve(
+                "Wolverines", freshness=FreshnessMode.local_only
+            )
+
+    assert identity.id == 130
+    assert calls == 1
 
 
 @pytest.mark.asyncio
@@ -766,3 +820,41 @@ async def test_failed_hydration_marks_no_false_coverage_and_resumes_minimally(
         "/games",
         "/roster",
     ]
+
+
+@pytest.mark.asyncio
+async def test_hydration_rejects_a_response_not_durably_committed(
+    api_server: ServerFactory,
+    game_response: dict[str, object],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Never report hydration success from transient fail-open coverage alone."""
+    payloads: dict[str, object] = {
+        "/teams": [_team()],
+        "/venues": [_venue()],
+        "/conferences": [_conference()],
+        "/conferences/affiliations": [_affiliation()],
+        "/games": [game_response],
+        "/roster": [_roster_player()],
+    }
+
+    async def handler(request: web.Request) -> web.Response:
+        return web.json_response(payloads[request.path])
+
+    async def discard_commit(
+        backend: SQLiteCacheBackend,
+        record: ResponseRecord,
+        projection: CatalogProjection,
+    ) -> None:
+        del backend, record, projection
+
+    monkeypatch.setattr(SQLiteCacheBackend, "commit_response", discard_commit)
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            cache=SQLiteCacheConfig(path=tmp_path / "cache.sqlite3"),
+        ) as client:
+            with pytest.raises(CFBDCacheBackendError, match="durably commit"):
+                await client.identities.hydrate(seasons=[2024], max_concurrency=1)

@@ -29,6 +29,7 @@ from cfb_data.stats.models.pydantic.responses import (
     PlayerStat,
     StatCategory,
     TeamStat,
+    _StatCategoryValue,
 )
 
 _RequestT = TypeVar("_RequestT", bound=BaseModel)
@@ -50,7 +51,7 @@ _PLAYER_STAT_ROWS = TypeAdapter(list[PlayerStat])
 _PLAYER_SEASON_SUCCESS_ROWS = TypeAdapter(list[PlayerSeasonSuccessRate])
 _PLAYER_GAME_SUCCESS_ROWS = TypeAdapter(list[PlayerGameSuccessRate])
 _TEAM_STAT_ROWS = TypeAdapter(list[TeamStat])
-_CATEGORY_VALUES = TypeAdapter(list[str])
+_CATEGORY_VALUES = TypeAdapter(list[_StatCategoryValue])
 _ADVANCED_SEASON_ROWS = TypeAdapter(list[AdvancedSeasonStat])
 _ADVANCED_GAME_ROWS = TypeAdapter(list[AdvancedGameStat])
 _GAME_HAVOC_ROWS = TypeAdapter(list[GameHavocStats])
@@ -249,7 +250,7 @@ class StatsResource[FrameT]:
             request=_CATEGORIES_REQUEST,
             response_adapter=_CATEGORY_VALUES,
         )
-        rows = [StatCategory(category=value) for value in values]
+        rows = [StatCategory(category=value.root) for value in values]
         return self._dataframe_adapter.from_models(
             endpoint="/stats/categories",
             row_model=StatCategory,

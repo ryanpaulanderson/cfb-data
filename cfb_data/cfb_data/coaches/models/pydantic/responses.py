@@ -7,6 +7,14 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from cfb_data._catalog.models import CoachFact, CoachTeamSeasonFact, TeamSeasonFact
+from cfb_data._catalog.projection import (
+    CatalogSink,
+    ObservationAuthority,
+    ProjectionContext,
+    observe_team,
+)
+
 
 class _ResponseModel(BaseModel):
     """Apply the upstream closed-object contract to Coaches responses."""
@@ -43,6 +51,14 @@ class CoachSeason(_ResponseModel):
     sp_offense: float | None = Field(alias="spOffense")
     sp_defense: float | None = Field(alias="spDefense")
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the team and season carried by a coach summary."""
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        observe_team(sink, id=self.team_id, school=self.school, source=source)
+        sink.add(
+            TeamSeasonFact(self.team_id, self.year, self.conference), source=source
+        )
+
 
 class Coach(_ResponseModel):
     """Represent one historical head coach and selected seasons."""
@@ -52,6 +68,21 @@ class Coach(_ResponseModel):
     last_name: str = Field(alias="lastName")
     hire_date: datetime | None = Field(alias="hireDate")
     seasons: list[CoachSeason]
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one coach and all selected coach-team seasons."""
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        name = " ".join(part for part in (self.first_name, self.last_name) if part)
+        sink.add(
+            CoachFact(self.id, name),
+            authority=ObservationAuthority.canonical,
+            source=source,
+        )
+        for season in self.seasons:
+            sink.add(
+                CoachTeamSeasonFact(self.id, season.team_id, season.year, season.year),
+                source=source,
+            )
 
 
 class CoachRecord(_ResponseModel):
@@ -71,12 +102,28 @@ class CoachReference(_ResponseModel):
     first_name: str = Field(alias="firstName")
     last_name: str = Field(alias="lastName")
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one canonical coach reference."""
+        sink.add(
+            CoachFact(self.id, f"{self.first_name} {self.last_name}".strip()),
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
+
 
 class CoachTeamReference(_ResponseModel):
     """Represent a team associated with a coach."""
 
     id: int = Field(gt=0)
     school: str
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one team referenced by coaching data."""
+        observe_team(
+            sink,
+            id=self.id,
+            school=self.school,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class CoachSeasonTeamReference(CoachTeamReference):
@@ -100,6 +147,15 @@ class CoachAlmaMater(_ResponseModel):
     id: int = Field(gt=0)
     school: str
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the provider team used as a coach's alma mater."""
+        observe_team(
+            sink,
+            id=self.id,
+            school=self.school,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
+
 
 class CoachProfile(_ResponseModel):
     """Represent canonical identity and career totals for one coach."""
@@ -115,6 +171,15 @@ class CoachProfile(_ResponseModel):
     graduation_year: int | None = Field(alias="graduationYear", ge=1869)
     wikidata_id: str | None = Field(alias="wikidataId")
     hall_of_fame_year: int | None = Field(alias="hallOfFameYear", ge=1869)
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the authoritative coach profile identity."""
+        name = self.display_name or f"{self.first_name} {self.last_name}".strip()
+        sink.add(
+            CoachFact(self.id, name, self.wikidata_id),
+            authority=ObservationAuthority.authoritative,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class CoachTenure(_ResponseModel):
@@ -133,6 +198,20 @@ class CoachTenure(_ResponseModel):
     seasons: int = Field(ge=0)
     record: CoachRecord
     attribution_complete: bool = Field(alias="attributionComplete")
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one continuous coach-team tenure."""
+        sink.add(
+            CoachTeamSeasonFact(
+                self.coach.id,
+                self.team.id,
+                self.start_year,
+                self.end_year,
+                self.id,
+            ),
+            authority=ObservationAuthority.authoritative,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class CoachYearOverYear(_ResponseModel):
@@ -235,6 +314,14 @@ class DetailedCoachSeason(CoachRecord):
     draft_following_season: CoachDraftContext | None = Field(
         alias="draftFollowingSeason"
     )
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one explicit coach-team season relationship."""
+        sink.add(
+            CoachTeamSeasonFact(self.coach.id, self.team.id, self.year, self.year),
+            authority=ObservationAuthority.canonical,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 __all__ = [

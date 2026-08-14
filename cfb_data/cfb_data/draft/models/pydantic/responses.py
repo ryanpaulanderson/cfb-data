@@ -2,6 +2,15 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cfb_data._catalog.models import VocabularyFact
+from cfb_data._catalog.projection import (
+    CatalogSink,
+    ObservationAuthority,
+    ProjectionContext,
+    observe_athlete,
+    observe_team,
+)
+
 
 class _ResponseModel(BaseModel):
     """Apply the upstream closed-object contract to Draft responses."""
@@ -17,12 +26,31 @@ class DraftTeam(_ResponseModel):
     display_name: str | None = Field(alias="displayName")
     logo: str | None
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one NFL team vocabulary value."""
+        name = self.display_name or self.location
+        sink.add(
+            VocabularyFact("draft_team", name, name),
+            authority=ObservationAuthority.authoritative,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
+
 
 class DraftPosition(_ResponseModel):
     """Represent an NFL Draft position category."""
 
     name: str
     abbreviation: str
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one draft-position vocabulary value."""
+        sink.add(
+            VocabularyFact(
+                "draft_position", self.abbreviation, self.name, self.abbreviation
+            ),
+            authority=ObservationAuthority.authoritative,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class DraftPickHometown(_ResponseModel):
@@ -60,6 +88,32 @@ class DraftPick(_ResponseModel):
     )
     pre_draft_grade: int | None = Field(alias="preDraftGrade", ge=0)
     hometown_info: DraftPickHometown = Field(alias="hometownInfo")
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project linked college athlete, school, and NFL identities."""
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        if self.college_athlete_id is not None:
+            observe_athlete(
+                sink,
+                id=str(self.college_athlete_id),
+                name=self.name,
+                position=self.position,
+                source=source,
+            )
+        observe_team(
+            sink,
+            id=self.college_id,
+            school=self.college_team,
+            source=source,
+        )
+        sink.add(
+            VocabularyFact("nfl_athlete", str(self.nfl_athlete_id), self.name),
+            source=source,
+        )
+        sink.add(
+            VocabularyFact("draft_team", str(self.nfl_team_id), self.nfl_team),
+            source=source,
+        )
 
 
 __all__ = ["DraftPick", "DraftPickHometown", "DraftPosition", "DraftTeam"]

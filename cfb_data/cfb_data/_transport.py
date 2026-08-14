@@ -25,6 +25,7 @@ from cfb_data.errors import (
     CFBDClientStateError,
     CFBDConfigurationError,
     CFBDHTTPError,
+    CFBDNoContentError,
     CFBDRateLimitError,
     CFBDResponseDecodeError,
     CFBDServerError,
@@ -342,6 +343,9 @@ class _HTTPTransport:
                         category=f"http_{response.status}",
                     )
                 raise error
+
+            if response.status == 204:
+                raise CFBDNoContentError(endpoint=endpoint, attempts=attempt)
 
             if (
                 response.content_length is not None

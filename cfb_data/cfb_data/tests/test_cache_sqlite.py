@@ -4,14 +4,16 @@ import asyncio
 import json
 import sqlite3
 import stat
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from cfb_data.cache._catalog import (
+from cfb_data._catalog.models import (
     AthleteFact,
     AthleteTeamSeasonFact,
     CatalogProjection,
+    CoachFact,
     CoachTeamSeasonFact,
     ConferenceAffiliationFact,
     ConferenceFact,
@@ -21,10 +23,13 @@ from cfb_data.cache._catalog import (
     GameFact,
     PlayFact,
     PlayoffMatchupFact,
+    RecruitFact,
     TeamFact,
+    TeamSeasonFact,
     VenueFact,
     VocabularyFact,
 )
+from cfb_data._catalog.projection import CatalogSink, ObservationAuthority
 from cfb_data.cache._models import ResponseRecord
 from cfb_data.cache._sqlite import SQLiteCacheBackend
 from cfb_data.cache.config import SQLiteCacheConfig
@@ -54,7 +59,9 @@ def _projection(now: datetime, record: ResponseRecord) -> CatalogProjection:
             TeamFact(130, "Michigan", "MICH", ("Wolverines",)),
             TeamFact(333, "Alabama", "ALA", ("Crimson Tide",)),
         ),
+        team_seasons=(TeamSeasonFact(130, 2024, "Big Ten", 365),),
         conferences=(ConferenceFact(5, "Big Ten", "B1G", "fbs"),),
+        affiliations=(ConferenceAffiliationFact(130, 5, 1896, None),),
         venues=(VenueFact(365, "Michigan Stadium", "Ann Arbor", "MI"),),
         games=(
             GameFact(
@@ -71,6 +78,13 @@ def _projection(now: datetime, record: ResponseRecord) -> CatalogProjection:
         ),
         athletes=(AthleteFact("4794102", "Zeke Berry", "DB"),),
         athlete_team_seasons=(AthleteTeamSeasonFact("4794102", "Michigan", 2024),),
+        recruits=(RecruitFact("recruit-1", "4794102", "Zeke Berry", 2022),),
+        coaches=(CoachFact(1, "Sherrone Moore"),),
+        coach_team_seasons=(CoachTeamSeasonFact(1, 130, 2024, None, 1),),
+        drives=(DriveFact("drive-1", 401628347, 130, "Michigan", 333, "Alabama"),),
+        plays=(PlayFact("play-1", 401628347, "drive-1", 1, "Rush"),),
+        vocabularies=(VocabularyFact("play_type", "1", "Rush", "RUSH"),),
+        playoff_matchups=(PlayoffMatchupFact(1, 2024, 401628347),),
         coverage=CoverageRecord(
             partition_key="/games:year=2024",
             namespace="game",
@@ -87,6 +101,23 @@ def _projection(now: datetime, record: ResponseRecord) -> CatalogProjection:
             known_cap=None,
         ),
     )
+
+
+def _team_observation(
+    observed_at: datetime, *, abbreviation: str | None, aliases: tuple[str, ...]
+) -> CatalogProjection:
+    """Return one authoritative team observation with sparse abbreviation nulls."""
+    sink = CatalogSink(observed_at)
+    observed = {"id", "school", "alternate_names"}
+    if abbreviation is not None:
+        observed.add("abbreviation")
+    sink.add(
+        TeamFact(130, "Michigan", abbreviation, aliases),
+        authority=ObservationAuthority.authoritative,
+        source="teams.Team",
+        observed_fields=frozenset(observed),
+    )
+    return sink.projection()
 
 
 @pytest.mark.asyncio
@@ -124,8 +155,20 @@ async def test_sqlite_atomically_persists_response_catalog_and_coverage(
     assert [(athlete.id, athlete.team) for athlete in athletes] == [
         ("4794102", "Michigan")
     ]
+    counts = await backend.catalog_counts()
+    assert (counts.teams, counts.conferences, counts.venues, counts.games) == (
+        2,
+        1,
+        1,
+        1,
+    )
+    assert all(value > 0 for value in asdict(counts).values())
 
     await backend.close()
+    reopened = await SQLiteCacheBackend(SQLiteCacheConfig(path=path)).open()
+    assert [team.id for team in await reopened.find_teams("Wolverines")] == [130]
+    assert await reopened.catalog_counts() == counts
+    await reopened.close()
 
 
 @pytest.mark.asyncio
@@ -184,6 +227,35 @@ async def test_sqlite_authoritative_alias_removal_updates_lookup_index(
 
     assert await backend.find_teams("Wolverines") == []
     await backend.close()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_catalog_merge_is_ingestion_order_independent(
+    tmp_path: Path,
+) -> None:
+    """Select canonical fields by evidence rather than commit order."""
+    older = datetime(2026, 8, 13, tzinfo=UTC)
+    newer = older + timedelta(minutes=1)
+    states = (
+        (
+            _record(older),
+            _team_observation(older, abbreviation="MICH", aliases=("Wolverines",)),
+        ),
+        (_record(newer), _team_observation(newer, abbreviation=None, aliases=())),
+    )
+    results = []
+    for index, ordered in enumerate((states, tuple(reversed(states)))):
+        backend = await SQLiteCacheBackend(
+            SQLiteCacheConfig(path=tmp_path / f"order-{index}.sqlite3")
+        ).open()
+        for record, projection in ordered:
+            await backend.commit_response(record, projection)
+        results.append((await backend.find_teams(130))[0])
+        await backend.close()
+
+    assert results[0] == results[1]
+    assert results[0].abbreviation == "MICH"
+    assert results[0].alternate_names == ()
 
 
 @pytest.mark.asyncio

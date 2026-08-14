@@ -1,5 +1,6 @@
 """Export Pydantic models for Teams endpoints."""
 
+from .identity import TeamIdentity
 from .requests import (
     FBSTeamsRequest,
     RosterRequest,
@@ -18,6 +19,7 @@ __all__ = [
     "RosterRequest",
     "TalentRequest",
     "Team",
+    "TeamIdentity",
     "TeamATS",
     "TeamATSRequest",
     "TeamMatchupRequest",
