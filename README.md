@@ -261,10 +261,12 @@ original string, integer, or float value for DataFrames.
 Direct pandas and Polars Parquet methods are not the cfb-data persistence
 compatibility contract: pandas object inference and Polars `Object` columns do
 not provide identical empty- and mixed-value behavior. Version 0.2.0 keeps the
-codec internal so future caching can use it without prematurely committing to
-a public save/load API. See
+codec internal so future workflow checkpoints and tabular artifacts can use it
+without prematurely committing to a public save/load API. See
 [`ADR 0003`](docs/architecture/0003-canonical-arrow-parquet.md) for the format,
-validation, and compatibility decisions.
+validation, and compatibility decisions. API response caching and its durable
+identity catalog are a separate accepted architecture in
+[`ADR 0004`](docs/architecture/0004-api-cache-identity-catalog.md).
 
 ## Retries and errors
 

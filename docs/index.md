@@ -52,6 +52,7 @@ architecture/request-lifecycle
 architecture/0001-validated-models-before-dataframes
 architecture/0002-heterogeneous-stat-scalars
 architecture/0003-canonical-arrow-parquet
+architecture/0004-api-cache-identity-catalog
 notices-of-decision/README
 notices-of-decision/0001-canonical-nested-tabular-representation
 ```

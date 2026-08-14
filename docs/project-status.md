@@ -110,6 +110,10 @@ recorded in
 [`architecture/0001-validated-models-before-dataframes.md`](architecture/0001-validated-models-before-dataframes.md)
 and
 [`architecture/0003-canonical-arrow-parquet.md`](architecture/0003-canonical-arrow-parquet.md).
+The accepted response-cache, identity-catalog, coverage-ledger, and hydration
+design is recorded separately in
+[`architecture/0004-api-cache-identity-catalog.md`](architecture/0004-api-cache-identity-catalog.md);
+it is not implemented in version 0.4.1.
 
 ## Development contract
 
