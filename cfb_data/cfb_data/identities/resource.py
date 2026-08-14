@@ -119,7 +119,8 @@ class TeamIdentities:
             return _one("Team", matches)
         coverage_fresh = False
         if not catalog_read_failed:
-            coverage_fresh = await self._coordinator.has_fresh_coverage(
+            coverage_fresh = await _has_durable_fresh_coverage(
+                self._coordinator,
                 endpoint="/teams",
                 canonical_filters="",
                 capability="team.core_identity",
@@ -197,7 +198,8 @@ class ConferenceIdentities:
             return _one("Conference", matches)
         coverage_fresh = False
         if not catalog_read_failed:
-            coverage_fresh = await self._coordinator.has_fresh_coverage(
+            coverage_fresh = await _has_durable_fresh_coverage(
+                self._coordinator,
                 endpoint="/conferences",
                 canonical_filters="",
                 capability="conference.identity",
@@ -257,7 +259,8 @@ class VenueIdentities:
         )
         if freshness is not FreshnessMode.ensure_fresh:
             return _one("Venue", matches)
-        if not catalog_read_failed and await self._coordinator.has_fresh_coverage(
+        if not catalog_read_failed and await _has_durable_fresh_coverage(
+            self._coordinator,
             endpoint="/venues",
             canonical_filters="",
             capability="venue.identity",
@@ -306,14 +309,16 @@ class GameIdentities:
         filters = canonical_filters({"id": game_id})
         broad_fresh = False
         if not catalog_read_failed and match is not None and match.season is not None:
-            broad_fresh = await self._coordinator.has_fresh_coverage(
+            broad_fresh = await _has_durable_fresh_coverage(
+                self._coordinator,
                 endpoint="/games",
                 canonical_filters=canonical_filters({"year": match.season}),
                 capability="game.identity",
             )
         exact_fresh = False
         if not catalog_read_failed:
-            exact_fresh = await self._coordinator.has_fresh_coverage(
+            exact_fresh = await _has_durable_fresh_coverage(
+                self._coordinator,
                 endpoint="/games",
                 canonical_filters=filters,
                 capability="game.identity",
@@ -372,7 +377,8 @@ class GameIdentities:
         )
         if freshness is not FreshnessMode.ensure_fresh:
             return matches
-        if not catalog_read_failed and await self._coordinator.has_fresh_coverage(
+        if not catalog_read_failed and await _has_durable_fresh_coverage(
+            self._coordinator,
             endpoint="/games",
             canonical_filters=filters,
             capability="game.identity",
@@ -436,7 +442,8 @@ class AthleteIdentities:
         filters = canonical_filters(_serialize_request(endpoint, request))
         coverage_fresh = False
         if not catalog_read_failed:
-            coverage_fresh = await self._coordinator.has_fresh_coverage(
+            coverage_fresh = await _has_durable_fresh_coverage(
+                self._coordinator,
                 endpoint=endpoint,
                 canonical_filters=filters,
                 capability=capability,
@@ -818,7 +825,8 @@ async def _has_matching_fresh_coverage[RowT: BaseModel](
     """
     for endpoint, request in partitions:
         filters = canonical_filters(_serialize_request(endpoint, request))
-        if not await coordinator.has_fresh_coverage(
+        if not await _has_durable_fresh_coverage(
+            coordinator,
             endpoint=endpoint,
             canonical_filters=filters,
             capability=capability,
@@ -836,6 +844,32 @@ async def _has_matching_fresh_coverage[RowT: BaseModel](
         if any(matches(row) for row in rows):
             return True
     return False
+
+
+async def _has_durable_fresh_coverage(
+    coordinator: CacheCoordinator,
+    *,
+    endpoint: str,
+    canonical_filters: str,
+    capability: str,
+) -> bool:
+    """Return fresh durable coverage or treat an unanswered read as stale.
+
+    :param coordinator: Cache and catalog coordinator.
+    :param endpoint: Canonical endpoint path owning the coverage partition.
+    :param canonical_filters: Canonical serialized partition filters.
+    :param capability: Catalog capability required by the identity operation.
+    :return: Whether the persistent catalog confirms fresh coverage.
+    """
+    try:
+        return await coordinator.has_fresh_coverage(
+            endpoint=endpoint,
+            canonical_filters=canonical_filters,
+            capability=capability,
+            strict=True,
+        )
+    except CFBDCacheBackendError:
+        return False
 
 
 def _classified_conference_partitions() -> tuple[tuple[str, BaseModel], ...]:

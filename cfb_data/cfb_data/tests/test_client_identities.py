@@ -391,6 +391,42 @@ async def test_ensure_fresh_fails_open_after_catalog_read_corruption(
 
 
 @pytest.mark.asyncio
+async def test_ensure_fresh_does_not_accept_transient_coverage_after_read_failure(
+    api_server: ServerFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Refresh when durable coverage cannot confirm a transient catalog fact."""
+    path = tmp_path / "cache.sqlite3"
+    calls = 0
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        return web.json_response([_team()])
+
+    async def fail_coverage_read(backend: SQLiteCacheBackend, **kwargs: object) -> bool:
+        del backend, kwargs
+        raise RuntimeError("coverage read failed")
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key", base_url=base_url, cache=SQLiteCacheConfig(path=path)
+        ) as client:
+            assert (await client.identities.teams.resolve("Michigan")).id == 130
+            with sqlite3.connect(path) as connection:
+                connection.execute(sqlite_test_sql("delete_responses.sql"))
+            monkeypatch.setattr(
+                SQLiteCacheBackend, "has_fresh_coverage", fail_coverage_read
+            )
+
+            refreshed = await client.identities.teams.resolve("Michigan")
+
+    assert refreshed.id == 130
+    assert calls == 2
+
+
+@pytest.mark.asyncio
 async def test_identity_resolution_works_in_memory_without_persistence(
     api_server: ServerFactory,
 ) -> None:
