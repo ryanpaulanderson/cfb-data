@@ -15,9 +15,13 @@ from cfb_data.cache._catalog import (
     ConferenceFact,
     CoverageRecord,
     CoverageStatus,
+    DriveFact,
     GameFact,
+    PlayFact,
+    PlayoffMatchupFact,
     TeamFact,
     VenueFact,
+    VocabularyFact,
 )
 from cfb_data.cache._models import ResponseRecord
 from cfb_data.cache._sqlite import SQLiteCacheBackend
@@ -192,6 +196,55 @@ async def test_sqlite_season_facts_preserve_coach_tenure_ranges(
             "ORDER BY coach_id"
         ).fetchall()
     assert rows == [(1, 2024, 44), (2, None, 45)]
+
+
+@pytest.mark.asyncio
+async def test_sqlite_sparse_relationships_preserve_richer_fields(
+    tmp_path: Path,
+) -> None:
+    """Keep optional relationship facts that a later source cannot observe."""
+    now = datetime(2026, 8, 13, tzinfo=UTC)
+    path = tmp_path / "cache.sqlite3"
+    backend = await SQLiteCacheBackend(SQLiteCacheConfig(path=path)).open()
+    await backend.commit_response(
+        _record(now),
+        CatalogProjection(
+            drives=(DriveFact("drive-1", 99, 130, "Michigan", 333, "Alabama"),),
+            plays=(PlayFact("play-1", 99, "drive-1", 1, "Rush"),),
+            vocabularies=(VocabularyFact("play_type", "1", "Rush", "RUSH"),),
+            playoff_matchups=(PlayoffMatchupFact(10, 2024, 99),),
+        ),
+    )
+    await backend.commit_response(
+        _record(now + timedelta(minutes=1)),
+        CatalogProjection(
+            drives=(DriveFact("drive-1", 99, None, None, None, None),),
+            plays=(PlayFact("play-1", 99, None, None, None),),
+            vocabularies=(VocabularyFact("play_type", "1", "Rush", None),),
+            playoff_matchups=(PlayoffMatchupFact(10, None, None),),
+        ),
+    )
+    await backend.close()
+
+    with sqlite3.connect(path) as connection:
+        drive = connection.execute(
+            "SELECT offense_team_id, offense_team, defense_team_id, defense_team "
+            "FROM drives WHERE id = 'drive-1'"
+        ).fetchone()
+        play = connection.execute(
+            "SELECT drive_id, play_type_id, play_type FROM plays WHERE id = 'play-1'"
+        ).fetchone()
+        vocabulary = connection.execute(
+            "SELECT abbreviation FROM vocabularies "
+            "WHERE namespace = 'play_type' AND id = '1'"
+        ).fetchone()
+        playoff = connection.execute(
+            "SELECT season, linked_game_id FROM playoff_matchups WHERE id = 10"
+        ).fetchone()
+    assert drive == (130, "Michigan", 333, "Alabama")
+    assert play == ("drive-1", 1, "Rush")
+    assert vocabulary == ("RUSH",)
+    assert playoff == (2024, 99)
 
 
 @pytest.mark.asyncio

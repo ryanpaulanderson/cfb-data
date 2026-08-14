@@ -992,9 +992,9 @@ class SQLiteCacheBackend:
             "INSERT INTO drives VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1) "
             "ON CONFLICT(id) DO UPDATE SET game_id=excluded.game_id, "
             "offense_team_id=COALESCE(excluded.offense_team_id, drives.offense_team_id), "
-            "offense_team=excluded.offense_team, "
+            "offense_team=COALESCE(excluded.offense_team, drives.offense_team), "
             "defense_team_id=COALESCE(excluded.defense_team_id, drives.defense_team_id), "
-            "defense_team=excluded.defense_team, "
+            "defense_team=COALESCE(excluded.defense_team, drives.defense_team), "
             "last_seen_at=excluded.last_seen_at",
             [
                 (
@@ -1013,8 +1013,10 @@ class SQLiteCacheBackend:
         await connection.executemany(
             "INSERT INTO plays VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1) "
             "ON CONFLICT(id) DO UPDATE SET game_id=excluded.game_id, "
-            "drive_id=excluded.drive_id, play_type_id=excluded.play_type_id, "
-            "play_type=excluded.play_type, last_seen_at=excluded.last_seen_at",
+            "drive_id=COALESCE(excluded.drive_id, plays.drive_id), "
+            "play_type_id=COALESCE(excluded.play_type_id, plays.play_type_id), "
+            "play_type=COALESCE(excluded.play_type, plays.play_type), "
+            "last_seen_at=excluded.last_seen_at",
             [
                 (
                     fact.id,
@@ -1031,7 +1033,8 @@ class SQLiteCacheBackend:
         await connection.executemany(
             "INSERT INTO vocabularies VALUES (?, ?, ?, ?, ?, ?, 1, 1) "
             "ON CONFLICT(namespace, id) DO UPDATE SET name=excluded.name, "
-            "abbreviation=excluded.abbreviation, last_seen_at=excluded.last_seen_at",
+            "abbreviation=COALESCE(excluded.abbreviation, vocabularies.abbreviation), "
+            "last_seen_at=excluded.last_seen_at",
             [
                 (
                     fact.namespace,
@@ -1046,8 +1049,10 @@ class SQLiteCacheBackend:
         )
         await connection.executemany(
             "INSERT INTO playoff_matchups VALUES (?, ?, ?, ?, ?, 1, 1) "
-            "ON CONFLICT(id) DO UPDATE SET season=excluded.season, "
-            "linked_game_id=excluded.linked_game_id, last_seen_at=excluded.last_seen_at",
+            "ON CONFLICT(id) DO UPDATE SET "
+            "season=COALESCE(excluded.season, playoff_matchups.season), "
+            "linked_game_id=COALESCE(excluded.linked_game_id, "
+            "playoff_matchups.linked_game_id), last_seen_at=excluded.last_seen_at",
             [
                 (
                     fact.id,
