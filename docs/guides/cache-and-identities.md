@@ -264,6 +264,12 @@ Freshness modes are:
 - `local_only`: forbid network access and query only the configured catalog or
   facts already projected into this client's transient catalog.
 
+When a durable backend was configured but cannot answer, `local_only` raises
+`CFBDCacheBackendError` instead of silently masking the failure with transient
+state. A client configured without persistence may still use facts projected
+into its own transient catalog. `allow_stale` continues to fail open to those
+transient facts when a durable read fails.
+
 Normal endpoint calls enrich the same catalog after response validation, so
 hydration is not the only source of identity facts.
 

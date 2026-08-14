@@ -434,6 +434,73 @@ async def test_local_only_uses_the_transient_catalog_without_network(
 
 
 @pytest.mark.asyncio
+async def test_local_only_identity_reads_surface_durable_catalog_failures(
+    api_server: ServerFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Raise one explicit cache error for every strict public identity read."""
+    calls = 0
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        return web.json_response([_team()])
+
+    async def fail_catalog_read(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise RuntimeError("catalog read failed")
+
+    for method_name in (
+        "find_teams",
+        "find_conferences",
+        "find_venues",
+        "find_game",
+        "find_games",
+        "find_athletes",
+    ):
+        monkeypatch.setattr(SQLiteCacheBackend, method_name, fail_catalog_read)
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            cache=SQLiteCacheConfig(path=tmp_path / "cache.sqlite3"),
+        ) as client:
+            await client.teams.list()
+            with pytest.raises(CFBDCacheBackendError, match="could not answer"):
+                await client.identities.teams.resolve(
+                    "Michigan", freshness=FreshnessMode.local_only
+                )
+            with pytest.raises(CFBDCacheBackendError, match="could not answer"):
+                await client.identities.conferences.resolve(
+                    "Big Ten", freshness=FreshnessMode.local_only
+                )
+            with pytest.raises(CFBDCacheBackendError, match="could not answer"):
+                await client.identities.venues.resolve(
+                    "Michigan Stadium", freshness=FreshnessMode.local_only
+                )
+            with pytest.raises(CFBDCacheBackendError, match="could not answer"):
+                await client.identities.games.resolve(
+                    game_id=401628347, freshness=FreshnessMode.local_only
+                )
+            with pytest.raises(CFBDCacheBackendError, match="could not answer"):
+                await client.identities.games.find(
+                    season=2024, freshness=FreshnessMode.local_only
+                )
+            with pytest.raises(CFBDCacheBackendError, match="could not answer"):
+                await client.identities.athletes.resolve(
+                    name="Donovan Edwards", freshness=FreshnessMode.local_only
+                )
+            stale = await client.identities.teams.resolve(
+                "Michigan", freshness=FreshnessMode.allow_stale
+            )
+
+    assert stale.id == 130
+    assert calls == 1
+
+
+@pytest.mark.asyncio
 async def test_retained_response_reprojects_after_projection_contract_change(
     api_server: ServerFactory,
     tmp_path: Path,

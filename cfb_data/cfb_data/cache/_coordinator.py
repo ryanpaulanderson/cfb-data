@@ -231,8 +231,22 @@ class CacheCoordinator:
     async def find_teams(
         self, query: str | int, *, strict: bool = False
     ) -> list[TeamIdentity]:
-        """Return exact team matches from the configured catalog."""
+        """Return exact team matches from the configured catalog.
+
+        :param query: Provider ID or exact normalized team name.
+        :param strict: Raise when the durable catalog cannot answer instead of
+            consulting the transient catalog.
+        :return: Matching compact team identities.
+        :raises CFBDCacheBackendError: If strict durable lookup fails.
+        """
         self.ensure_active()
+        if strict and self._enabled:
+            return await self._identity_backend_call(
+                "team_identity_read",
+                self._backend.find_teams(query),
+                default=[],
+                strict=True,
+            )
         answered, persistent = await self._catalog_call(
             "team_identity_read",
             self._backend.find_teams(query),
@@ -244,8 +258,22 @@ class CacheCoordinator:
     async def find_conferences(
         self, query: str | int, *, strict: bool = False
     ) -> list[ConferenceIdentity]:
-        """Return exact conference matches from the configured catalog."""
+        """Return exact conference matches from the configured catalog.
+
+        :param query: Provider ID or exact normalized conference name.
+        :param strict: Raise when the durable catalog cannot answer instead of
+            consulting the transient catalog.
+        :return: Matching compact conference identities.
+        :raises CFBDCacheBackendError: If strict durable lookup fails.
+        """
         self.ensure_active()
+        if strict and self._enabled:
+            return await self._identity_backend_call(
+                "conference_identity_read",
+                self._backend.find_conferences(query),
+                default=[],
+                strict=True,
+            )
         answered, persistent = await self._catalog_call(
             "conference_identity_read",
             self._backend.find_conferences(query),
@@ -257,8 +285,22 @@ class CacheCoordinator:
     async def find_venues(
         self, query: str | int, *, strict: bool = False
     ) -> list[VenueIdentity]:
-        """Return exact venue matches from the configured catalog."""
+        """Return exact venue matches from the configured catalog.
+
+        :param query: Provider ID or exact normalized venue name.
+        :param strict: Raise when the durable catalog cannot answer instead of
+            consulting the transient catalog.
+        :return: Matching compact venue identities.
+        :raises CFBDCacheBackendError: If strict durable lookup fails.
+        """
         self.ensure_active()
+        if strict and self._enabled:
+            return await self._identity_backend_call(
+                "venue_identity_read",
+                self._backend.find_venues(query),
+                default=[],
+                strict=True,
+            )
         answered, persistent = await self._catalog_call(
             "venue_identity_read",
             self._backend.find_venues(query),
@@ -270,8 +312,22 @@ class CacheCoordinator:
     async def find_game(
         self, game_id: int, *, strict: bool = False
     ) -> GameIdentity | None:
-        """Return one game identity from the configured catalog."""
+        """Return one game identity from the configured catalog.
+
+        :param game_id: Exact provider game ID.
+        :param strict: Raise when the durable catalog cannot answer instead of
+            consulting the transient catalog.
+        :return: Matching compact game identity, or ``None`` when absent.
+        :raises CFBDCacheBackendError: If strict durable lookup fails.
+        """
         self.ensure_active()
+        if strict and self._enabled:
+            return await self._identity_backend_call(
+                "game_identity_read",
+                self._backend.find_game(game_id),
+                default=None,
+                strict=True,
+            )
         answered, persistent = await self._catalog_call(
             "game_identity_read",
             self._backend.find_game(game_id),
@@ -288,8 +344,24 @@ class CacheCoordinator:
         team: str | None,
         strict: bool = False,
     ) -> list[GameIdentity]:
-        """Return game identities from one explicit catalog partition."""
+        """Return game identities from one explicit catalog partition.
+
+        :param season: Four-digit season year.
+        :param week: Optional season week.
+        :param team: Optional exact normalized team name.
+        :param strict: Raise when the durable catalog cannot answer instead of
+            consulting the transient catalog.
+        :return: Matching compact game identities.
+        :raises CFBDCacheBackendError: If strict durable lookup fails.
+        """
         self.ensure_active()
+        if strict and self._enabled:
+            return await self._identity_backend_call(
+                "game_identity_search",
+                self._backend.find_games(season=season, week=week, team=team),
+                default=[],
+                strict=True,
+            )
         answered, persistent = await self._catalog_call(
             "game_identity_search",
             self._backend.find_games(season=season, week=week, team=team),
@@ -306,8 +378,24 @@ class CacheCoordinator:
         season: int | None,
         strict: bool = False,
     ) -> list[AthleteIdentity]:
-        """Return athlete identities from an exact scoped catalog query."""
+        """Return athlete identities from an exact scoped catalog query.
+
+        :param name: Exact normalized athlete name.
+        :param team: Optional exact normalized team name.
+        :param season: Optional season year.
+        :param strict: Raise when the durable catalog cannot answer instead of
+            consulting the transient catalog.
+        :return: Matching compact athlete identities.
+        :raises CFBDCacheBackendError: If strict durable lookup fails.
+        """
         self.ensure_active()
+        if strict and self._enabled:
+            return await self._identity_backend_call(
+                "athlete_identity_read",
+                self._backend.find_athletes(name=name, team=team, season=season),
+                default=[],
+                strict=True,
+            )
         answered, persistent = await self._catalog_call(
             "athlete_identity_read",
             self._backend.find_athletes(name=name, team=team, season=season),
