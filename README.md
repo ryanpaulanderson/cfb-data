@@ -147,10 +147,12 @@ silently changing backend types.
 
 Source-domain Pydantic models own the upstream fields and typed declarations
 that produce catalog facts. The catalog owns only normalized merge, coverage,
-provenance, persistence, and query semantics. With persistence disabled, the
-same projection path writes a client-local transient catalog; there is no
-separate response-to-identity fallback. Compact identity result types live in
-their team, conference, venue, game, and player domains, while
+provenance, persistence, and query semantics. The SQLite schema and queries
+live in packaged `.sql` resources rendered through a strict Jinja handler;
+runtime data continues to use bound SQLite parameters. With persistence
+disabled, the same projection path writes a client-local transient catalog;
+there is no separate response-to-identity fallback. Compact identity result
+types live in their team, conference, venue, game, and player domains, while
 `client.identities` remains the query and hydration facade.
 
 Per-operation modes are `default`, `refresh`, `bypass`, and `local_only`.

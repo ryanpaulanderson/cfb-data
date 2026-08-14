@@ -60,8 +60,11 @@ owns normalized grains, three-state merge semantics, provenance, and indexes.
 Cache-disabled calls use the same path through a client-local transient catalog
 rather than direct response converters. Response hits remain subject to the
 current Pydantic contract. Process-local single-flight and renewable backend
-leases coalesce concurrent refreshes. The public `client.identities` facade
-provides exact team, conference, venue, game, and scoped-athlete resolution
+leases coalesce concurrent refreshes. SQLite DDL and queries are packaged as
+dedicated `.sql` resources and strictly rendered through one Jinja handler;
+runtime values remain database-bound parameters. The public
+`client.identities` facade provides exact team, conference, venue, game, and
+scoped-athlete resolution
 plus dry-run, bounded, resumable canonical hydration. Its compact result types
 live in those five source domains rather than a parallel identity-model module.
 

@@ -34,6 +34,7 @@ from cfb_data.cache._models import ResponseRecord
 from cfb_data.cache._sqlite import SQLiteCacheBackend
 from cfb_data.cache.config import SQLiteCacheConfig
 from cfb_data.errors import CFBDCacheBackendError
+from cfb_data.tests._sqlite_test_sql import sqlite_test_sql
 
 
 def _record(now: datetime) -> ResponseRecord:
@@ -315,8 +316,7 @@ async def test_sqlite_sparse_affiliation_preserves_known_end_year(
 
     with sqlite3.connect(path) as connection:
         end_year = connection.execute(
-            "SELECT end_year FROM conference_affiliations "
-            "WHERE team_id = 130 AND conference_id = 5 AND start_year = 1896"
+            sqlite_test_sql("select_affiliation_end_year.sql")
         ).fetchone()
     assert end_year == (1906,)
 
@@ -351,8 +351,7 @@ async def test_sqlite_season_facts_preserve_coach_tenure_ranges(
 
     with sqlite3.connect(path) as connection:
         rows = connection.execute(
-            "SELECT coach_id, end_year, tenure_id FROM coach_team_seasons "
-            "ORDER BY coach_id"
+            sqlite_test_sql("select_coach_team_seasons.sql")
         ).fetchall()
     assert rows == [(1, 2024, 44), (2, None, 45)]
 
@@ -386,19 +385,13 @@ async def test_sqlite_sparse_relationships_preserve_richer_fields(
     await backend.close()
 
     with sqlite3.connect(path) as connection:
-        drive = connection.execute(
-            "SELECT offense_team_id, offense_team, defense_team_id, defense_team "
-            "FROM drives WHERE id = 'drive-1'"
-        ).fetchone()
-        play = connection.execute(
-            "SELECT drive_id, play_type_id, play_type FROM plays WHERE id = 'play-1'"
-        ).fetchone()
+        drive = connection.execute(sqlite_test_sql("select_drive.sql")).fetchone()
+        play = connection.execute(sqlite_test_sql("select_play.sql")).fetchone()
         vocabulary = connection.execute(
-            "SELECT abbreviation FROM vocabularies "
-            "WHERE namespace = 'play_type' AND id = '1'"
+            sqlite_test_sql("select_play_type_abbreviation.sql")
         ).fetchone()
         playoff = connection.execute(
-            "SELECT season, linked_game_id FROM playoff_matchups WHERE id = 10"
+            sqlite_test_sql("select_playoff_matchup.sql")
         ).fetchone()
     assert drive == (130, "Michigan", 333, "Alabama")
     assert play == ("drive-1", 1, "Rush")
@@ -454,9 +447,7 @@ async def test_sqlite_rejects_an_incompatible_catalog_schema(tmp_path: Path) -> 
     backend = await SQLiteCacheBackend(SQLiteCacheConfig(path=path)).open()
     await backend.close()
     with sqlite3.connect(path) as connection:
-        connection.execute(
-            "UPDATE cache_meta SET value = '999' WHERE key = 'schema_version'"
-        )
+        connection.execute(sqlite_test_sql("set_incompatible_schema_version.sql"))
 
     with pytest.raises(CFBDCacheBackendError, match="initialization failed"):
         await SQLiteCacheBackend(SQLiteCacheConfig(path=path)).open()
@@ -471,9 +462,7 @@ async def test_sqlite_evicts_corrupt_response_metadata(tmp_path: Path) -> None:
     backend = await SQLiteCacheBackend(SQLiteCacheConfig(path=path)).open()
     await backend.commit_response(record, _projection(now, record))
     with sqlite3.connect(path) as connection:
-        connection.execute(
-            "UPDATE response_records SET fresh_until = 'not-a-timestamp'"
-        )
+        connection.execute(sqlite_test_sql("corrupt_response_timestamp.sql"))
 
     with pytest.raises(CFBDCacheBackendError, match="corrupt"):
         await backend.get_response(record.key, now)

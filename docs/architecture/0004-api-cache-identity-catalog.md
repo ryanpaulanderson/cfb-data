@@ -216,6 +216,14 @@ multi-host or network-filesystem coordination mechanism. `aiosqlite` becomes a
 normal runtime dependency so the recommended lightweight backend requires no
 feature extra.
 
+SQLite DDL and statements are installed as dedicated `.sql` resources rather
+than embedded in Python modules. One strict Jinja handler owns package-relative
+loading and rendering. Jinja substitutions are limited to validated structural
+values that SQLite cannot bind, such as a repeated predicate count or a pragma
+integer; response, identity, and filter data always use SQLite bound
+parameters. The explicit SQL files therefore remain the reviewable source of
+truth for schema and query behavior without weakening injection boundaries.
+
 Redis accepts an explicit `redis://` or `rediss://` location and uses one
 pooled async client. The `redis` Python package remains an optional `redis`
 extra. Response records use one Redis key per entry and native expiry at their
@@ -453,10 +461,10 @@ validity intervals instead of overwriting history. A source refresh may add or
 supersede observed facts, but response expiration alone never deletes them.
 Catalog facts are removed only by an explicit prune operation, user deletion,
 or complete backend loss. Because this implementation is unreleased, SQLite
-DDL and Redis keys are the final version-1 layout and no compatibility aliases,
-experimental migrations, or dual projectors exist. Future released format
-changes may use a new namespace or deliberate rebuild contract, but
-experimental branch layouts are not preserved.
+DDL in the packaged SQL resources and Redis keys are the final version-1 layout
+and no compatibility aliases, experimental migrations, or dual projectors
+exist. Future released format changes may use a new namespace or deliberate
+rebuild contract, but experimental branch layouts are not preserved.
 
 ### Coverage ledger
 

@@ -23,6 +23,7 @@ def test_distribution_and_package_are_importable() -> None:
     assert cfb_data.__doc__
     assert version("cfb-data") == "0.5.0"
     assert resource_files(cfb_data).joinpath("py.typed").is_file()
+    assert resource_files("cfb_data.cache").joinpath("sql", "schema.sql").is_file()
 
 
 def test_distribution_requires_supported_python_versions() -> None:

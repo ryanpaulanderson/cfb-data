@@ -59,7 +59,10 @@ permissions where the platform supports them.
 SQLite uses WAL mode, a finite busy timeout, and one serialized connection per
 client. It supports multiple local processes through database refresh leases,
 but the database must remain on local storage. Do not use SQLite WAL on NFS or
-as multi-host coordination.
+as multi-host coordination. The installed package keeps SQLite DDL and queries
+in dedicated `.sql` resources rendered by a strict Jinja loader. Jinja supplies
+only validated SQL structure; all request and catalog values remain bound
+SQLite parameters.
 
 ## Use shared Redis
 

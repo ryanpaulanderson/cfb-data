@@ -11,6 +11,7 @@ from aiohttp import web
 from cfb_data._catalog.models import CatalogProjection
 from cfb_data.cache._models import ResponseRecord
 from cfb_data.cache._sqlite import SQLiteCacheBackend
+from cfb_data.tests._sqlite_test_sql import sqlite_test_sql
 
 from cfb_data import (
     CacheMode,
@@ -381,9 +382,7 @@ async def test_ensure_fresh_fails_open_after_catalog_read_corruption(
         ) as client:
             await client.teams.list()
             with sqlite3.connect(path) as connection:
-                connection.execute(
-                    "UPDATE teams SET alternate_names_json = 'not-json' WHERE id = 130"
-                )
+                connection.execute(sqlite_test_sql("corrupt_team_aliases_json.sql"))
 
             identity = await client.identities.teams.resolve(130)
 
@@ -455,15 +454,10 @@ async def test_retained_response_reprojects_after_projection_contract_change(
             await client.teams.list()
 
         with sqlite3.connect(path) as connection:
-            connection.execute("DELETE FROM team_aliases")
-            connection.execute("DELETE FROM teams")
-            connection.execute(
-                "DELETE FROM catalog_observations WHERE namespace = 'team'"
-            )
-            connection.execute(
-                "UPDATE coverage SET projection_contract = 'stale-contract' "
-                "WHERE endpoint = '/teams'"
-            )
+            connection.execute(sqlite_test_sql("delete_team_aliases.sql"))
+            connection.execute(sqlite_test_sql("delete_teams.sql"))
+            connection.execute(sqlite_test_sql("delete_team_observations.sql"))
+            connection.execute(sqlite_test_sql("stale_team_projection_contract.sql"))
 
         async with CFBDClient(
             "key", base_url=base_url, cache=SQLiteCacheConfig(path=path)
@@ -557,13 +551,11 @@ async def test_classified_coverage_must_contain_the_matched_team(
             past = datetime(2000, 1, 1, tzinfo=UTC).isoformat()
             with sqlite3.connect(path) as connection:
                 connection.execute(
-                    "UPDATE coverage SET fresh_until = ? "
-                    "WHERE endpoint = '/teams' AND canonical_filters = ''",
+                    sqlite_test_sql("stale_broad_team_coverage.sql"),
                     (past,),
                 )
                 connection.execute(
-                    "UPDATE response_records SET fresh_until = ? "
-                    "WHERE endpoint = '/teams'",
+                    sqlite_test_sql("stale_team_response.sql"),
                     (past,),
                 )
             await client.teams.fbs()
@@ -735,9 +727,9 @@ async def test_ensure_fresh_can_fall_back_to_retained_catalog_identity(
             original = await client.identities.teams.resolve("Michigan")
 
         with sqlite3.connect(path) as connection:
-            connection.execute("DELETE FROM response_records")
+            connection.execute(sqlite_test_sql("delete_responses.sql"))
             connection.execute(
-                "UPDATE coverage SET fresh_until = ?",
+                sqlite_test_sql("stale_all_coverage.sql"),
                 (datetime(2000, 1, 1, tzinfo=UTC).isoformat(),),
             )
 
@@ -789,8 +781,7 @@ async def test_failed_hydration_marks_no_false_coverage_and_resumes_minimally(
                 await client.identities.hydrate(seasons=[2024], max_concurrency=1)
             with sqlite3.connect(cache_path) as connection:
                 failure_rows = connection.execute(
-                    "SELECT endpoint, failure_category FROM coverage_failures "
-                    "ORDER BY endpoint"
+                    sqlite_test_sql("select_coverage_failures.sql")
                 ).fetchall()
             assert ("/games", "CFBDServerError") in failure_rows
             resume = await client.identities.hydrate(
@@ -805,7 +796,7 @@ async def test_failed_hydration_marks_no_false_coverage_and_resumes_minimally(
             with sqlite3.connect(cache_path) as connection:
                 assert (
                     connection.execute(
-                        "SELECT endpoint FROM coverage_failures"
+                        sqlite_test_sql("select_coverage_failure_endpoints.sql")
                     ).fetchall()
                     == []
                 )

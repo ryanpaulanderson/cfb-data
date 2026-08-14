@@ -40,6 +40,7 @@ from cfb_data.cache._identity_codecs import (
     venue_identity,
 )
 from cfb_data.cache._models import MAX_RESPONSE_BODY_BYTES, ResponseRecord
+from cfb_data.cache._sqlite_sql import SQLiteSQL
 from cfb_data.cache.config import SQLiteCacheConfig
 from cfb_data.errors import CFBDCacheBackendError, CFBDClientStateError
 
@@ -52,244 +53,6 @@ if TYPE_CHECKING:
 
 _SCHEMA_VERSION = 1
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS cache_meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-) STRICT;
-CREATE TABLE IF NOT EXISTS response_records (
-    key TEXT PRIMARY KEY,
-    endpoint TEXT NOT NULL,
-    response_contract TEXT NOT NULL,
-    body BLOB NOT NULL,
-    fetched_at TEXT NOT NULL,
-    fresh_until TEXT NOT NULL,
-    retained_until TEXT NOT NULL,
-    etag TEXT,
-    last_modified TEXT,
-    row_count INTEGER NOT NULL CHECK (row_count >= 0)
-) STRICT;
-CREATE TABLE IF NOT EXISTS catalog_observations (
-    namespace TEXT NOT NULL,
-    grain TEXT NOT NULL,
-    payload TEXT NOT NULL,
-    PRIMARY KEY (namespace, grain)
-) STRICT;
-CREATE INDEX IF NOT EXISTS response_retention_idx
-ON response_records(retained_until);
-CREATE TABLE IF NOT EXISTS refresh_leases (
-    key TEXT PRIMARY KEY,
-    owner_token TEXT NOT NULL,
-    acquired_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL
-) STRICT;
-CREATE TABLE IF NOT EXISTS teams (
-    id INTEGER PRIMARY KEY,
-    school TEXT NOT NULL,
-    normalized_school TEXT NOT NULL,
-    abbreviation TEXT,
-    normalized_abbreviation TEXT,
-    alternate_names_json TEXT NOT NULL,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    source_version INTEGER NOT NULL,
-    schema_version INTEGER NOT NULL
-) STRICT;
-CREATE INDEX IF NOT EXISTS team_school_idx ON teams(normalized_school);
-CREATE INDEX IF NOT EXISTS team_abbreviation_idx ON teams(normalized_abbreviation);
-CREATE TABLE IF NOT EXISTS team_aliases (
-    team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-    alias TEXT NOT NULL,
-    normalized_alias TEXT NOT NULL,
-    PRIMARY KEY (team_id, normalized_alias)
-) STRICT;
-CREATE INDEX IF NOT EXISTS team_alias_idx ON team_aliases(normalized_alias);
-CREATE TABLE IF NOT EXISTS team_seasons (
-    team_id INTEGER NOT NULL,
-    season INTEGER NOT NULL,
-    conference_name TEXT,
-    venue_id INTEGER,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    PRIMARY KEY (team_id, season)
-) STRICT;
-CREATE TABLE IF NOT EXISTS conferences (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    normalized_name TEXT NOT NULL,
-    abbreviation TEXT,
-    normalized_abbreviation TEXT,
-    classification TEXT,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    source_version INTEGER NOT NULL,
-    schema_version INTEGER NOT NULL
-) STRICT;
-CREATE INDEX IF NOT EXISTS conference_name_idx ON conferences(normalized_name);
-CREATE INDEX IF NOT EXISTS conference_abbreviation_idx
-ON conferences(normalized_abbreviation);
-CREATE TABLE IF NOT EXISTS conference_affiliations (
-    team_id INTEGER NOT NULL,
-    conference_id INTEGER NOT NULL,
-    start_year INTEGER NOT NULL,
-    end_year INTEGER,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    PRIMARY KEY (team_id, conference_id, start_year)
-) STRICT;
-CREATE TABLE IF NOT EXISTS venues (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    normalized_name TEXT NOT NULL,
-    city TEXT,
-    state TEXT,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    source_version INTEGER NOT NULL,
-    schema_version INTEGER NOT NULL
-) STRICT;
-CREATE INDEX IF NOT EXISTS venue_name_idx ON venues(normalized_name);
-CREATE TABLE IF NOT EXISTS games (
-    id INTEGER PRIMARY KEY,
-    season INTEGER,
-    week INTEGER,
-    season_type TEXT,
-    start_date TEXT,
-    status TEXT,
-    home_team_id INTEGER,
-    away_team_id INTEGER,
-    venue_id INTEGER,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    source_version INTEGER NOT NULL,
-    schema_version INTEGER NOT NULL
-) STRICT;
-CREATE INDEX IF NOT EXISTS game_partition_idx ON games(season, week);
-CREATE TABLE IF NOT EXISTS athletes (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    normalized_name TEXT NOT NULL,
-    position TEXT,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    source_version INTEGER NOT NULL,
-    schema_version INTEGER NOT NULL
-) STRICT;
-CREATE INDEX IF NOT EXISTS athlete_name_idx ON athletes(normalized_name);
-CREATE TABLE IF NOT EXISTS athlete_team_seasons (
-    athlete_id TEXT NOT NULL,
-    team_name TEXT NOT NULL,
-    normalized_team_name TEXT NOT NULL,
-    season INTEGER NOT NULL,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    PRIMARY KEY (athlete_id, normalized_team_name, season)
-) STRICT;
-CREATE TABLE IF NOT EXISTS recruits (
-    id TEXT PRIMARY KEY,
-    athlete_id TEXT,
-    name TEXT NOT NULL,
-    year INTEGER NOT NULL,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    source_version INTEGER NOT NULL,
-    schema_version INTEGER NOT NULL
-) STRICT;
-CREATE TABLE IF NOT EXISTS coaches (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    normalized_name TEXT NOT NULL,
-    wikidata_id TEXT,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    source_version INTEGER NOT NULL,
-    schema_version INTEGER NOT NULL
-) STRICT;
-CREATE TABLE IF NOT EXISTS coach_team_seasons (
-    coach_id INTEGER NOT NULL,
-    team_id INTEGER NOT NULL,
-    start_year INTEGER NOT NULL,
-    end_year INTEGER,
-    tenure_id INTEGER,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    PRIMARY KEY (coach_id, team_id, start_year)
-) STRICT;
-CREATE TABLE IF NOT EXISTS drives (
-    id TEXT PRIMARY KEY,
-    game_id INTEGER NOT NULL,
-    offense_team_id INTEGER,
-    offense_team TEXT,
-    defense_team_id INTEGER,
-    defense_team TEXT,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    source_version INTEGER NOT NULL,
-    schema_version INTEGER NOT NULL
-) STRICT;
-CREATE TABLE IF NOT EXISTS plays (
-    id TEXT PRIMARY KEY,
-    game_id INTEGER NOT NULL,
-    drive_id TEXT,
-    play_type_id INTEGER,
-    play_type TEXT,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    source_version INTEGER NOT NULL,
-    schema_version INTEGER NOT NULL
-) STRICT;
-CREATE TABLE IF NOT EXISTS vocabularies (
-    namespace TEXT NOT NULL,
-    id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    abbreviation TEXT,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    source_version INTEGER NOT NULL,
-    schema_version INTEGER NOT NULL,
-    PRIMARY KEY (namespace, id)
-) STRICT;
-CREATE TABLE IF NOT EXISTS playoff_matchups (
-    id INTEGER PRIMARY KEY,
-    season INTEGER,
-    linked_game_id INTEGER,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    source_version INTEGER NOT NULL,
-    schema_version INTEGER NOT NULL
-) STRICT;
-CREATE TABLE IF NOT EXISTS coverage (
-    partition_key TEXT PRIMARY KEY,
-    namespace TEXT NOT NULL,
-    canonical_filters TEXT NOT NULL,
-    capabilities_json TEXT NOT NULL,
-    status TEXT NOT NULL,
-    response_key TEXT NOT NULL,
-    endpoint TEXT NOT NULL,
-    fetched_at TEXT NOT NULL,
-    validated_at TEXT NOT NULL,
-    fresh_until TEXT NOT NULL,
-    retained_until TEXT NOT NULL,
-    row_count INTEGER NOT NULL,
-    known_cap INTEGER,
-    projection_contract TEXT NOT NULL,
-    api_version TEXT NOT NULL,
-    cache_key_version INTEGER NOT NULL,
-    response_contract_version INTEGER NOT NULL,
-    projector_version INTEGER NOT NULL,
-    catalog_schema_version INTEGER NOT NULL,
-    failure_category TEXT
-) STRICT;
-CREATE INDEX IF NOT EXISTS coverage_namespace_idx ON coverage(namespace);
-CREATE TABLE IF NOT EXISTS coverage_failures (
-    partition_key TEXT PRIMARY KEY,
-    endpoint TEXT NOT NULL,
-    canonical_filters TEXT NOT NULL,
-    failure_category TEXT NOT NULL,
-    failed_at TEXT NOT NULL
-) STRICT;
-"""
-
 
 class SQLiteCacheBackend:
     """Own one WAL-mode SQLite connection for cache and catalog operations."""
@@ -298,6 +61,7 @@ class SQLiteCacheBackend:
         """Initialize configuration without opening a database connection."""
         self._config = config
         self._path = config.path or _default_path()
+        self._sql = SQLiteSQL()
         self._connection: aiosqlite.Connection | None = None
         self._operation_lock = asyncio.Lock()
 
@@ -322,22 +86,29 @@ class SQLiteCacheBackend:
                 asyncio.get_running_loop().time()
                 + self._config.busy_timeout.total_seconds()
             )
+            busy_timeout_ms = int(self._config.busy_timeout.total_seconds() * 1000)
             busy_cursor = await connection.execute(
-                f"PRAGMA busy_timeout={int(self._config.busy_timeout.total_seconds() * 1000)}"
+                self._sql.render(
+                    "set_busy_timeout.sql", busy_timeout_ms=busy_timeout_ms
+                )
             )
             await busy_cursor.close()
-            for statement in (
-                "PRAGMA foreign_keys=ON",
-                "PRAGMA journal_mode=WAL",
-                "PRAGMA synchronous=NORMAL",
+            for template_name in (
+                "enable_foreign_keys.sql",
+                "enable_wal.sql",
+                "set_synchronous_normal.sql",
             ):
                 cursor = await _retry_locked(
-                    partial(_execute_statement, connection, statement),
+                    partial(
+                        _execute_statement,
+                        connection,
+                        self._sql.render(template_name),
+                    ),
                     deadline=initialization_deadline,
                 )
                 await cursor.close()
             schema_cursor = await _retry_locked(
-                lambda: connection.executescript(_SCHEMA),
+                lambda: connection.executescript(self._sql.render("schema.sql")),
                 deadline=initialization_deadline,
             )
             await schema_cursor.close()
@@ -365,7 +136,7 @@ class SQLiteCacheBackend:
         async with self._operation_lock:
             connection = self._active_connection()
             size_cursor = await connection.execute(
-                "SELECT length(body) FROM response_records WHERE key = ?", (key,)
+                self._sql.render("get_response_size.sql"), (key,)
             )
             size_row = await size_cursor.fetchone()
             await size_cursor.close()
@@ -373,13 +144,11 @@ class SQLiteCacheBackend:
                 return None
             if _row_int(size_row, 0) > MAX_RESPONSE_BODY_BYTES:
                 await connection.execute(
-                    "DELETE FROM response_records WHERE key = ?", (key,)
+                    self._sql.render("delete_response.sql"), (key,)
                 )
                 raise CFBDCacheBackendError("SQLite response record is oversized")
             cursor = await connection.execute(
-                "SELECT key, endpoint, response_contract, body, fetched_at, "
-                "fresh_until, retained_until, etag, last_modified, row_count "
-                "FROM response_records WHERE key = ?",
+                self._sql.render("get_response.sql"),
                 (key,),
             )
             row = await cursor.fetchone()
@@ -390,14 +159,14 @@ class SQLiteCacheBackend:
                 record = _response_from_row(row)
             except Exception as exc:
                 await connection.execute(
-                    "DELETE FROM response_records WHERE key = ?", (key,)
+                    self._sql.render("delete_response.sql"), (key,)
                 )
                 raise CFBDCacheBackendError(
                     "SQLite response record is corrupt"
                 ) from exc
             if record.retained_until <= now:
                 await connection.execute(
-                    "DELETE FROM response_records WHERE key = ?", (key,)
+                    self._sql.render("delete_response.sql"), (key,)
                 )
                 return None
             return record
@@ -410,14 +179,9 @@ class SQLiteCacheBackend:
             connection = self._active_connection()
             observed_at = record.fetched_at.isoformat()
             try:
-                await connection.execute("BEGIN IMMEDIATE")
+                await connection.execute(self._sql.render("begin_immediate.sql"))
                 await connection.execute(
-                    "INSERT INTO response_records VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                    "ON CONFLICT(key) DO UPDATE SET endpoint=excluded.endpoint, "
-                    "response_contract=excluded.response_contract, body=excluded.body, "
-                    "fetched_at=excluded.fetched_at, fresh_until=excluded.fresh_until, "
-                    "retained_until=excluded.retained_until, etag=excluded.etag, "
-                    "last_modified=excluded.last_modified, row_count=excluded.row_count",
+                    self._sql.render("upsert_response.sql"),
                     (
                         record.key,
                         record.endpoint,
@@ -450,14 +214,14 @@ class SQLiteCacheBackend:
         """Delete one invalid or expired response record."""
         async with self._operation_lock:
             await self._active_connection().execute(
-                "DELETE FROM response_records WHERE key = ?", (key,)
+                self._sql.render("delete_response.sql"), (key,)
             )
 
     async def cleanup_responses(self, now: datetime) -> int:
         """Delete expired response records without pruning catalog facts."""
         async with self._operation_lock:
             cursor = await self._active_connection().execute(
-                "DELETE FROM response_records WHERE retained_until <= ?",
+                self._sql.render("cleanup_responses.sql"),
                 (now.isoformat(),),
             )
             changed = max(cursor.rowcount, 0)
@@ -475,8 +239,7 @@ class SQLiteCacheBackend:
         """Return whether complete fresh coverage proves one capability."""
         async with self._operation_lock:
             cursor = await self._active_connection().execute(
-                "SELECT capabilities_json, projection_contract FROM coverage WHERE endpoint = ? "
-                "AND canonical_filters = ? AND status = 'complete' AND fresh_until > ?",
+                self._sql.render("find_fresh_coverage.sql"),
                 (endpoint, canonical_filters, now.isoformat()),
             )
             rows = await cursor.fetchall()
@@ -511,10 +274,7 @@ class SQLiteCacheBackend:
         partition_key = f"{endpoint}:{canonical_filters}"
         async with self._operation_lock:
             await self._active_connection().execute(
-                "INSERT INTO coverage_failures VALUES (?, ?, ?, ?, ?) "
-                "ON CONFLICT(partition_key) DO UPDATE SET "
-                "failure_category=excluded.failure_category, "
-                "failed_at=excluded.failed_at",
+                self._sql.render("upsert_coverage_failure.sql"),
                 (
                     partition_key,
                     endpoint,
@@ -531,12 +291,9 @@ class SQLiteCacheBackend:
         async with self._operation_lock:
             connection = self._active_connection()
             try:
-                await connection.execute("BEGIN IMMEDIATE")
+                await connection.execute(self._sql.render("begin_immediate.sql"))
                 cursor = await connection.execute(
-                    "INSERT INTO refresh_leases(key, owner_token, acquired_at, expires_at) "
-                    "VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET "
-                    "owner_token=excluded.owner_token, acquired_at=excluded.acquired_at, "
-                    "expires_at=excluded.expires_at WHERE refresh_leases.expires_at <= ?",
+                    self._sql.render("acquire_refresh_lease.sql"),
                     (
                         key,
                         owner_token,
@@ -562,8 +319,7 @@ class SQLiteCacheBackend:
         """Renew a lease only if the caller remains its owner."""
         async with self._operation_lock:
             cursor = await self._active_connection().execute(
-                "UPDATE refresh_leases SET expires_at = ? "
-                "WHERE key = ? AND owner_token = ?",
+                self._sql.render("renew_refresh_lease.sql"),
                 (expires_at.isoformat(), key, owner_token),
             )
             changed = cursor.rowcount == 1
@@ -574,7 +330,7 @@ class SQLiteCacheBackend:
         """Release a lease only if the caller remains its owner."""
         async with self._operation_lock:
             cursor = await self._active_connection().execute(
-                "DELETE FROM refresh_leases WHERE key = ? AND owner_token = ?",
+                self._sql.render("release_refresh_lease.sql"),
                 (key, owner_token),
             )
             changed = cursor.rowcount == 1
@@ -591,17 +347,13 @@ class SQLiteCacheBackend:
         connection = self._active_connection()
         if isinstance(query, int):
             cursor = await connection.execute(
-                "SELECT id, school, abbreviation, alternate_names_json "
-                "FROM teams WHERE id = ?",
+                self._sql.render("find_team_by_id.sql"),
                 (query,),
             )
         else:
             normalized = _normalize(query)
             cursor = await connection.execute(
-                "SELECT DISTINCT t.id, t.school, t.abbreviation, "
-                "t.alternate_names_json FROM teams t LEFT JOIN team_aliases a "
-                "ON a.team_id = t.id WHERE t.normalized_school = ? "
-                "OR t.normalized_abbreviation = ? OR a.normalized_alias = ?",
+                self._sql.render("find_team_by_name.sql"),
                 (normalized, normalized, normalized),
             )
         rows = await cursor.fetchall()
@@ -628,15 +380,13 @@ class SQLiteCacheBackend:
         connection = self._active_connection()
         if isinstance(query, int):
             cursor = await connection.execute(
-                "SELECT id, name, abbreviation, classification FROM conferences "
-                "WHERE id = ?",
+                self._sql.render("find_conference_by_id.sql"),
                 (query,),
             )
         else:
             normalized = _normalize(query)
             cursor = await connection.execute(
-                "SELECT id, name, abbreviation, classification FROM conferences "
-                "WHERE normalized_name = ? OR normalized_abbreviation = ?",
+                self._sql.render("find_conference_by_name.sql"),
                 (normalized, normalized),
             )
         rows = await cursor.fetchall()
@@ -661,11 +411,11 @@ class SQLiteCacheBackend:
         connection = self._active_connection()
         if isinstance(query, int):
             cursor = await connection.execute(
-                "SELECT id, name, city, state FROM venues WHERE id = ?", (query,)
+                self._sql.render("find_venue_by_id.sql"), (query,)
             )
         else:
             cursor = await connection.execute(
-                "SELECT id, name, city, state FROM venues WHERE normalized_name = ?",
+                self._sql.render("find_venue_by_name.sql"),
                 (_normalize(query),),
             )
         rows = await cursor.fetchall()
@@ -688,8 +438,7 @@ class SQLiteCacheBackend:
     async def _find_game_unlocked(self, game_id: int) -> GameIdentity | None:
         """Return one game identity while holding the operation lock."""
         cursor = await self._active_connection().execute(
-            "SELECT id, season, week, season_type, start_date, status, "
-            "home_team_id, away_team_id, venue_id FROM games WHERE id = ?",
+            self._sql.render("find_game_by_id.sql"),
             (game_id,),
         )
         row = await cursor.fetchone()
@@ -707,30 +456,18 @@ class SQLiteCacheBackend:
         self, *, season: int, week: int | None, team: str | None
     ) -> list[GameIdentity]:
         """Return game matches while holding the operation lock."""
-        clauses = ["g.season = ?"]
-        arguments: list[object] = [season]
-        if week is not None:
-            clauses.append("g.week = ?")
-            arguments.append(week)
-        if team is not None:
-            team_ids = tuple(
-                identity.id for identity in await self._find_teams_unlocked(team)
-            )
-            if not team_ids:
-                return []
-            placeholders = ", ".join("?" for _ in team_ids)
-            clauses.append(
-                f"(g.home_team_id IN ({placeholders}) "
-                f"OR g.away_team_id IN ({placeholders}))"
-            )
-            arguments.extend(team_ids)
-            arguments.extend(team_ids)
+        normalized_team = _normalize(team) if team is not None else None
         cursor = await self._active_connection().execute(
-            "SELECT g.id, g.season, g.week, g.season_type, g.start_date, g.status, "
-            "g.home_team_id, g.away_team_id, g.venue_id FROM games g WHERE "
-            + " AND ".join(clauses)
-            + " ORDER BY g.start_date, g.id",
-            arguments,
+            self._sql.render("find_games.sql"),
+            (
+                season,
+                week,
+                week,
+                normalized_team,
+                normalized_team,
+                normalized_team,
+                normalized_team,
+            ),
         )
         rows = await cursor.fetchall()
         await cursor.close()
@@ -749,21 +486,16 @@ class SQLiteCacheBackend:
         self, *, name: str, team: str | None, season: int | None
     ) -> list[AthleteIdentity]:
         """Return exact athlete matches while holding the operation lock."""
-        clauses = ["a.normalized_name = ?"]
-        arguments: list[object] = [_normalize(name)]
-        if team is not None:
-            clauses.append("m.normalized_team_name = ?")
-            arguments.append(_normalize(team))
-        if season is not None:
-            clauses.append("m.season = ?")
-            arguments.append(season)
+        normalized_team = _normalize(team) if team is not None else None
         cursor = await self._active_connection().execute(
-            "SELECT DISTINCT a.id, a.name, a.position, m.team_name, m.season "
-            "FROM athletes a LEFT JOIN athlete_team_seasons m "
-            "ON m.athlete_id = a.id WHERE "
-            + " AND ".join(clauses)
-            + " ORDER BY a.id, m.season",
-            arguments,
+            self._sql.render("find_athletes.sql"),
+            (
+                _normalize(name),
+                normalized_team,
+                normalized_team,
+                season,
+                season,
+            ),
         )
         rows = await cursor.fetchall()
         await cursor.close()
@@ -780,48 +512,24 @@ class SQLiteCacheBackend:
 
     async def catalog_counts(self) -> CatalogCounts:
         """Return row counts for every explicit SQLite catalog table."""
-        tables = (
-            "teams",
-            "team_seasons",
-            "conferences",
-            "conference_affiliations",
-            "venues",
-            "games",
-            "athletes",
-            "athlete_team_seasons",
-            "recruits",
-            "coaches",
-            "coach_team_seasons",
-            "drives",
-            "plays",
-            "vocabularies",
-            "playoff_matchups",
-        )
-        values: list[int] = []
         async with self._operation_lock:
-            connection = self._active_connection()
-            for table in tables:
-                cursor = await connection.execute(f"SELECT COUNT(*) FROM {table}")
-                row = await cursor.fetchone()
-                await cursor.close()
-                if row is None:
-                    raise CFBDCacheBackendError(
-                        f"SQLite catalog table {table} returned no count"
-                    )
-                values.append(_row_int(row, 0))
-        return CatalogCounts(*values)
+            cursor = await self._active_connection().execute(
+                self._sql.render("catalog_counts.sql")
+            )
+            row = await cursor.fetchone()
+            await cursor.close()
+        if row is None:
+            raise CFBDCacheBackendError("SQLite catalog count query returned no row")
+        return CatalogCounts(*(_row_int(row, index) for index in range(15)))
 
     async def _validate_schema(self, connection: aiosqlite.Connection) -> None:
         """Initialize or reject the versioned catalog schema."""
         insert_cursor = await connection.execute(
-            "INSERT INTO cache_meta(key, value) VALUES ('schema_version', ?) "
-            "ON CONFLICT(key) DO NOTHING",
+            self._sql.render("initialize_schema_version.sql"),
             (str(_SCHEMA_VERSION),),
         )
         await insert_cursor.close()
-        cursor = await connection.execute(
-            "SELECT value FROM cache_meta WHERE key = 'schema_version'"
-        )
+        cursor = await connection.execute(self._sql.render("get_schema_version.sql"))
         row = await cursor.fetchone()
         await cursor.close()
         if row is None:
@@ -846,13 +554,13 @@ class SQLiteCacheBackend:
         )
         stored: dict[tuple[str, str], CatalogObservation] = {}
         for chunk in batched(keyed, 400):
-            predicates = " OR ".join("(namespace = ? AND grain = ?)" for _ in chunk)
             arguments = tuple(
                 value for (namespace, grain), _ in chunk for value in (namespace, grain)
             )
             cursor = await connection.execute(
-                "SELECT namespace, grain, payload FROM catalog_observations WHERE "
-                + predicates,
+                self._sql.render(
+                    "select_catalog_observations.sql", pair_count=len(chunk)
+                ),
                 arguments,
             )
             rows = await cursor.fetchall()
@@ -870,8 +578,7 @@ class SQLiteCacheBackend:
             for key, candidate in keyed
         )
         await connection.executemany(
-            "INSERT INTO catalog_observations VALUES (?, ?, ?) "
-            "ON CONFLICT(namespace, grain) DO UPDATE SET payload=excluded.payload",
+            self._sql.render("upsert_catalog_observation.sql"),
             (
                 (
                     *observation_storage_key(observation),
@@ -890,13 +597,7 @@ class SQLiteCacheBackend:
     ) -> None:
         """Upsert all projected fact types inside the caller's transaction."""
         await connection.executemany(
-            "INSERT INTO teams VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1) "
-            "ON CONFLICT(id) DO UPDATE SET school=excluded.school, "
-            "normalized_school=excluded.normalized_school, "
-            "abbreviation=excluded.abbreviation, "
-            "normalized_abbreviation=excluded.normalized_abbreviation, "
-            "alternate_names_json=excluded.alternate_names_json, "
-            "last_seen_at=excluded.last_seen_at",
+            self._sql.render("upsert_team.sql"),
             [
                 (
                     fact.id,
@@ -912,7 +613,7 @@ class SQLiteCacheBackend:
             ],
         )
         await connection.executemany(
-            "DELETE FROM team_aliases WHERE team_id = ?",
+            self._sql.render("delete_team_aliases.sql"),
             [
                 (fact.id,)
                 for fact in projection.teams
@@ -920,8 +621,7 @@ class SQLiteCacheBackend:
             ],
         )
         await connection.executemany(
-            "INSERT INTO team_aliases VALUES (?, ?, ?) "
-            "ON CONFLICT(team_id, normalized_alias) DO UPDATE SET alias=excluded.alias",
+            self._sql.render("upsert_team_alias.sql"),
             [
                 (fact.id, alias, _normalize(alias))
                 for fact in projection.teams
@@ -929,11 +629,7 @@ class SQLiteCacheBackend:
             ],
         )
         await connection.executemany(
-            "INSERT INTO team_seasons VALUES (?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(team_id, season) DO UPDATE SET "
-            "conference_name=excluded.conference_name, "
-            "venue_id=excluded.venue_id, "
-            "last_seen_at=excluded.last_seen_at",
+            self._sql.render("upsert_team_season.sql"),
             [
                 (
                     fact.team_id,
@@ -947,13 +643,7 @@ class SQLiteCacheBackend:
             ],
         )
         await connection.executemany(
-            "INSERT INTO conferences VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1) "
-            "ON CONFLICT(id) DO UPDATE SET name=excluded.name, "
-            "normalized_name=excluded.normalized_name, "
-            "abbreviation=excluded.abbreviation, "
-            "normalized_abbreviation=excluded.normalized_abbreviation, "
-            "classification=excluded.classification, "
-            "last_seen_at=excluded.last_seen_at",
+            self._sql.render("upsert_conference.sql"),
             [
                 (
                     fact.id,
@@ -969,10 +659,7 @@ class SQLiteCacheBackend:
             ],
         )
         await connection.executemany(
-            "INSERT INTO conference_affiliations VALUES (?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(team_id, conference_id, start_year) DO UPDATE SET "
-            "end_year=excluded.end_year, "
-            "last_seen_at=excluded.last_seen_at",
+            self._sql.render("upsert_conference_affiliation.sql"),
             [
                 (
                     fact.team_id,
@@ -986,12 +673,7 @@ class SQLiteCacheBackend:
             ],
         )
         await connection.executemany(
-            "INSERT INTO venues VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1) "
-            "ON CONFLICT(id) DO UPDATE SET name=excluded.name, "
-            "normalized_name=excluded.normalized_name, "
-            "city=excluded.city, "
-            "state=excluded.state, "
-            "last_seen_at=excluded.last_seen_at",
+            self._sql.render("upsert_venue.sql"),
             [
                 (
                     fact.id,
@@ -1006,13 +688,7 @@ class SQLiteCacheBackend:
             ],
         )
         await connection.executemany(
-            "INSERT INTO games VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1) "
-            "ON CONFLICT(id) DO UPDATE SET season=excluded.season, "
-            "week=excluded.week, season_type=excluded.season_type, "
-            "start_date=excluded.start_date, status=excluded.status, "
-            "home_team_id=excluded.home_team_id, "
-            "away_team_id=excluded.away_team_id, venue_id=excluded.venue_id, "
-            "last_seen_at=excluded.last_seen_at",
+            self._sql.render("upsert_game.sql"),
             [
                 (
                     fact.id,
@@ -1031,11 +707,7 @@ class SQLiteCacheBackend:
             ],
         )
         await connection.executemany(
-            "INSERT INTO athletes VALUES (?, ?, ?, ?, ?, ?, 1, 1) "
-            "ON CONFLICT(id) DO UPDATE SET name=excluded.name, "
-            "normalized_name=excluded.normalized_name, "
-            "position=excluded.position, "
-            "last_seen_at=excluded.last_seen_at",
+            self._sql.render("upsert_athlete.sql"),
             [
                 (
                     fact.id,
@@ -1049,9 +721,7 @@ class SQLiteCacheBackend:
             ],
         )
         await connection.executemany(
-            "INSERT INTO athlete_team_seasons VALUES (?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(athlete_id, normalized_team_name, season) DO UPDATE SET "
-            "team_name=excluded.team_name, last_seen_at=excluded.last_seen_at",
+            self._sql.render("upsert_athlete_team_season.sql"),
             [
                 (
                     fact.athlete_id,
@@ -1065,10 +735,7 @@ class SQLiteCacheBackend:
             ],
         )
         await connection.executemany(
-            "INSERT INTO recruits VALUES (?, ?, ?, ?, ?, ?, 1, 1) "
-            "ON CONFLICT(id) DO UPDATE SET athlete_id=excluded.athlete_id, "
-            "name=excluded.name, year=excluded.year, "
-            "last_seen_at=excluded.last_seen_at",
+            self._sql.render("upsert_recruit.sql"),
             [
                 (
                     fact.id,
@@ -1082,11 +749,7 @@ class SQLiteCacheBackend:
             ],
         )
         await connection.executemany(
-            "INSERT INTO coaches VALUES (?, ?, ?, ?, ?, ?, 1, 1) "
-            "ON CONFLICT(id) DO UPDATE SET name=excluded.name, "
-            "normalized_name=excluded.normalized_name, "
-            "wikidata_id=excluded.wikidata_id, "
-            "last_seen_at=excluded.last_seen_at",
+            self._sql.render("upsert_coach.sql"),
             [
                 (
                     fact.id,
@@ -1100,10 +763,7 @@ class SQLiteCacheBackend:
             ],
         )
         await connection.executemany(
-            "INSERT INTO coach_team_seasons VALUES (?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(coach_id, team_id, start_year) DO UPDATE SET "
-            "end_year=excluded.end_year, tenure_id=excluded.tenure_id, "
-            "last_seen_at=excluded.last_seen_at",
+            self._sql.render("upsert_coach_team_season.sql"),
             [
                 (
                     fact.coach_id,
@@ -1118,13 +778,7 @@ class SQLiteCacheBackend:
             ],
         )
         await connection.executemany(
-            "INSERT INTO drives VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1) "
-            "ON CONFLICT(id) DO UPDATE SET game_id=excluded.game_id, "
-            "offense_team_id=excluded.offense_team_id, "
-            "offense_team=excluded.offense_team, "
-            "defense_team_id=excluded.defense_team_id, "
-            "defense_team=excluded.defense_team, "
-            "last_seen_at=excluded.last_seen_at",
+            self._sql.render("upsert_drive.sql"),
             [
                 (
                     fact.id,
@@ -1140,12 +794,7 @@ class SQLiteCacheBackend:
             ],
         )
         await connection.executemany(
-            "INSERT INTO plays VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1) "
-            "ON CONFLICT(id) DO UPDATE SET game_id=excluded.game_id, "
-            "drive_id=excluded.drive_id, "
-            "play_type_id=excluded.play_type_id, "
-            "play_type=excluded.play_type, "
-            "last_seen_at=excluded.last_seen_at",
+            self._sql.render("upsert_play.sql"),
             [
                 (
                     fact.id,
@@ -1160,10 +809,7 @@ class SQLiteCacheBackend:
             ],
         )
         await connection.executemany(
-            "INSERT INTO vocabularies VALUES (?, ?, ?, ?, ?, ?, 1, 1) "
-            "ON CONFLICT(namespace, id) DO UPDATE SET name=excluded.name, "
-            "abbreviation=excluded.abbreviation, "
-            "last_seen_at=excluded.last_seen_at",
+            self._sql.render("upsert_vocabulary.sql"),
             [
                 (
                     fact.namespace,
@@ -1177,10 +823,7 @@ class SQLiteCacheBackend:
             ],
         )
         await connection.executemany(
-            "INSERT INTO playoff_matchups VALUES (?, ?, ?, ?, ?, 1, 1) "
-            "ON CONFLICT(id) DO UPDATE SET "
-            "season=excluded.season, linked_game_id=excluded.linked_game_id, "
-            "last_seen_at=excluded.last_seen_at",
+            self._sql.render("upsert_playoff_matchup.sql"),
             [
                 (
                     fact.id,
@@ -1200,16 +843,7 @@ class SQLiteCacheBackend:
     ) -> None:
         """Upsert one complete capability-aware coverage record."""
         await connection.execute(
-            "INSERT INTO coverage VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-            "'5.24.0', 1, 1, 1, 1, NULL) ON CONFLICT(partition_key) DO UPDATE SET "
-            "namespace=excluded.namespace, canonical_filters=excluded.canonical_filters, "
-            "capabilities_json=excluded.capabilities_json, status=excluded.status, "
-            "response_key=excluded.response_key, endpoint=excluded.endpoint, "
-            "fetched_at=excluded.fetched_at, validated_at=excluded.validated_at, "
-            "fresh_until=excluded.fresh_until, retained_until=excluded.retained_until, "
-            "row_count=excluded.row_count, known_cap=excluded.known_cap, "
-            "projection_contract=excluded.projection_contract, "
-            "failure_category=NULL",
+            self._sql.render("upsert_coverage.sql"),
             (
                 coverage.partition_key,
                 coverage.namespace,
@@ -1228,7 +862,7 @@ class SQLiteCacheBackend:
             ),
         )
         await connection.execute(
-            "DELETE FROM coverage_failures WHERE partition_key = ?",
+            self._sql.render("delete_coverage_failure.sql"),
             (coverage.partition_key,),
         )
 

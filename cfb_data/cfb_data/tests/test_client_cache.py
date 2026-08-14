@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from aiohttp import web
 from cfb_data.cache._sqlite import SQLiteCacheBackend
+from cfb_data.tests._sqlite_test_sql import sqlite_test_sql
 
 from cfb_data import (
     CacheMode,
@@ -311,11 +312,12 @@ async def test_distributed_lease_timeout_fails_open_to_http(
         ) as client:
             await client.games.calendar(year=2024)
             with sqlite3.connect(path) as connection:
-                row = connection.execute("SELECT key FROM response_records").fetchone()
+                row = connection.execute(
+                    sqlite_test_sql("select_response_key.sql")
+                ).fetchone()
                 assert row is not None
                 connection.execute(
-                    "INSERT INTO refresh_leases"
-                    "(key, owner_token, acquired_at, expires_at) VALUES (?, ?, ?, ?)",
+                    sqlite_test_sql("insert_refresh_lease.sql"),
                     (row[0], "other-worker", "2026-01-01", "9999-12-31"),
                 )
 
@@ -375,7 +377,9 @@ async def test_corrupt_retained_record_is_evicted_and_refetched(
             await client.games.calendar(year=2024)
 
         with sqlite3.connect(path) as connection:
-            connection.execute("UPDATE response_records SET body = ?", (b"not-json",))
+            connection.execute(
+                sqlite_test_sql("corrupt_response_body.sql"), (b"not-json",)
+            )
 
         async with CFBDClient("key", base_url=base_url, cache=_sqlite(path)) as client:
             recovered = await client.games.calendar(year=2024)
@@ -406,7 +410,9 @@ async def test_corrupt_retained_record_drops_conditional_validator(
             await client.games.calendar(year=2024)
 
         with sqlite3.connect(path) as connection:
-            connection.execute("UPDATE response_records SET body = ?", (b"not-json",))
+            connection.execute(
+                sqlite_test_sql("corrupt_response_body.sql"), (b"not-json",)
+            )
 
         async with CFBDClient("key", base_url=base_url, cache=_sqlite(path)) as client:
             recovered = await client.games.calendar(year=2024)
