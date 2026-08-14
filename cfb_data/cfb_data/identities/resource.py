@@ -110,11 +110,18 @@ class TeamIdentities:
         matches = await _team_matches(self._coordinator, query, strict=strict)
         if freshness is not FreshnessMode.ensure_fresh:
             return _one("Team", matches)
-        if await self._coordinator.has_fresh_coverage(
+        coverage_fresh = await self._coordinator.has_fresh_coverage(
             endpoint="/teams",
             canonical_filters="",
             capability="team.core_identity",
-        ):
+        )
+        if not coverage_fresh and matches:
+            coverage_fresh = await _has_any_fresh_coverage(
+                self._coordinator,
+                partitions=(("/teams/fbs", ""),),
+                capability="team.core_identity",
+            )
+        if coverage_fresh:
             return _one("Team", matches)
         try:
             rows = await self._executor.fetch_many(
@@ -170,11 +177,18 @@ class ConferenceIdentities:
         matches = await _conference_matches(self._coordinator, query, strict=strict)
         if freshness is not FreshnessMode.ensure_fresh:
             return _one("Conference", matches)
-        if await self._coordinator.has_fresh_coverage(
+        coverage_fresh = await self._coordinator.has_fresh_coverage(
             endpoint="/conferences",
             canonical_filters="",
             capability="conference.identity",
-        ):
+        )
+        if not coverage_fresh and matches:
+            coverage_fresh = await _has_any_fresh_coverage(
+                self._coordinator,
+                partitions=_classified_conference_partitions(),
+                capability="conference.identity",
+            )
+        if coverage_fresh:
             return _one("Conference", matches)
         try:
             rows = await self._executor.fetch_many(
@@ -269,7 +283,19 @@ class GameIdentities:
             canonical_filters=filters,
             capability="game.identity",
         )
-        if broad_fresh or exact_fresh:
+        scoped_fresh = False
+        if (
+            not broad_fresh
+            and not exact_fresh
+            and match is not None
+            and match.season is not None
+        ):
+            scoped_fresh = await _has_any_fresh_coverage(
+                self._coordinator,
+                partitions=_classified_game_partitions(match.season),
+                capability="game.identity",
+            )
+        if broad_fresh or exact_fresh or scoped_fresh:
             return _one("Game", [match] if match is not None else [])
         try:
             rows = await self._executor.fetch_many(
@@ -361,11 +387,23 @@ class AthleteIdentities:
             endpoint = "/player/search"
             capability = "athlete.identity"
         filters = canonical_filters(_serialize_request(endpoint, request))
-        if await self._coordinator.has_fresh_coverage(
+        coverage_fresh = await self._coordinator.has_fresh_coverage(
             endpoint=endpoint,
             canonical_filters=filters,
             capability=capability,
+        )
+        if (
+            not coverage_fresh
+            and matches
+            and season is not None
+            and isinstance(request, RosterRequest)
         ):
+            coverage_fresh = await _has_any_fresh_coverage(
+                self._coordinator,
+                partitions=_classified_roster_partitions(season),
+                capability=capability,
+            )
+        if coverage_fresh:
             return _one("Athlete", matches)
 
         try:
@@ -658,6 +696,73 @@ async def _team_matches(
         if by_id:
             return by_id
     return await coordinator.find_teams(query, strict=strict)
+
+
+async def _has_any_fresh_coverage(
+    coordinator: CacheCoordinator,
+    *,
+    partitions: Sequence[tuple[str, str]],
+    capability: str,
+) -> bool:
+    """Return whether any compatible hydration partition is fresh."""
+    for endpoint, filters in partitions:
+        if await coordinator.has_fresh_coverage(
+            endpoint=endpoint,
+            canonical_filters=filters,
+            capability=capability,
+        ):
+            return True
+    return False
+
+
+def _classified_conference_partitions() -> tuple[tuple[str, str], ...]:
+    """Return coverage keys produced by classified conference hydration."""
+    return tuple(
+        (
+            "/conferences",
+            canonical_filters(
+                _serialize_request(
+                    "/conferences",
+                    ConferencesRequest(
+                        classification=ConferenceClassification(classification.value)
+                    ),
+                )
+            ),
+        )
+        for classification in Classification
+    )
+
+
+def _classified_game_partitions(season: int) -> tuple[tuple[str, str], ...]:
+    """Return coverage keys produced by classified game hydration."""
+    return tuple(
+        (
+            "/games",
+            canonical_filters(
+                _serialize_request(
+                    "/games",
+                    GamesRequest(year=season, classification=classification),
+                )
+            ),
+        )
+        for classification in Classification
+    )
+
+
+def _classified_roster_partitions(season: int) -> tuple[tuple[str, str], ...]:
+    """Return coverage keys produced by classified roster hydration."""
+    return tuple(
+        (
+            "/roster",
+            canonical_filters(
+                _serialize_request(
+                    "/roster",
+                    RosterRequest(year=season, classification=classification),
+                )
+            ),
+        )
+        for classification in Classification
+    )
 
 
 async def _conference_matches(

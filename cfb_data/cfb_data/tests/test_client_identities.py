@@ -306,6 +306,7 @@ async def test_hydration_dry_run_resume_and_quota_call_formula(
 ) -> None:
     calls: list[tuple[str, str, str]] = []
     payloads: dict[str, object] = {
+        "/teams": [_team()],
         "/teams/fbs": [_team()],
         "/venues": [_venue()],
         "/conferences": [_conference()],
@@ -351,6 +352,18 @@ async def test_hydration_dry_run_resume_and_quota_call_formula(
                 max_concurrency=3,
             )
             assert completed.completed_calls == 11
+            assert len(calls) == 11
+
+            assert (await client.identities.teams.resolve("MICH")).id == 130
+            assert (await client.identities.conferences.resolve("B1G")).id == 5
+            assert (
+                await client.identities.games.resolve(game_id=401628347)
+            ).id == 401628347
+            assert (
+                await client.identities.athletes.resolve(
+                    name="Donovan Edwards", team="Michigan", season=2024
+                )
+            ).id == "4426385"
             assert len(calls) == 11
 
             resumed = await client.identities.hydrate(
