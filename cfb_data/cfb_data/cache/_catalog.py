@@ -536,6 +536,10 @@ class _ProjectionBuilder:
         away_team_id = _optional_int(data.get("away_id")) or _optional_int(
             data.get("away_team_id")
         )
+        if class_name in {"LiveGame", "TeamGameStats"}:
+            nested_home_team_id, nested_away_team_id = _nested_game_team_ids(data)
+            home_team_id = home_team_id or nested_home_team_id
+            away_team_id = away_team_id or nested_away_team_id
         venue_id = _optional_int(data.get("venue_id"))
         if class_name == "ScoreboardGame":
             home_team_id = _nested_int(data.get("home_team"), "id")
@@ -1200,6 +1204,7 @@ def _coverage_capabilities(endpoint: str) -> tuple[str, tuple[str, ...], int | N
             "game",
             (
                 "game.identity",
+                "game.team_relationships",
                 "drive.identity",
                 "play.identity",
                 "team.core_identity",
@@ -1327,6 +1332,27 @@ def _first_string(data: dict[str, object], *names: str) -> str | None:
         if value is not None:
             return value
     return None
+
+
+def _nested_game_team_ids(data: dict[str, object]) -> tuple[int | None, int | None]:
+    """Return home and away IDs from nested game-team rows."""
+    home_team_id: int | None = None
+    away_team_id: int | None = None
+    teams = data.get("teams")
+    if not isinstance(teams, list):
+        return home_team_id, away_team_id
+    for team in teams:
+        if not isinstance(team, dict):
+            continue
+        side = _optional_string(team.get("home_away"))
+        team_id = _optional_int(team.get("team_id"))
+        if team_id is None or team_id <= 0:
+            continue
+        if side == "home":
+            home_team_id = team_id
+        elif side == "away":
+            away_team_id = team_id
+    return home_team_id, away_team_id
 
 
 def _nested_int(value: object, name: str) -> int | None:

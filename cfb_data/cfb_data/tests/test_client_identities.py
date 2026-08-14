@@ -215,6 +215,57 @@ async def test_game_identity_find_uses_exact_team_abbreviation_with_fresh_covera
 
 
 @pytest.mark.asyncio
+async def test_team_stats_enrich_local_game_team_relationships(
+    api_server: ServerFactory,
+    tmp_path: Path,
+) -> None:
+    """Find a cached game by a team carried only in nested team-stat rows."""
+    payload = [
+        {
+            "id": 401628347,
+            "teams": [
+                {
+                    "teamId": 130,
+                    "team": "Michigan",
+                    "conference": "Big Ten",
+                    "homeAway": "home",
+                    "points": 12,
+                    "stats": [],
+                },
+                {
+                    "teamId": 251,
+                    "team": "Texas",
+                    "conference": "SEC",
+                    "homeAway": "away",
+                    "points": 31,
+                    "stats": [],
+                },
+            ],
+        }
+    ]
+
+    async def handler(request: web.Request) -> web.Response:
+        return web.json_response(payload)
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            cache=SQLiteCacheConfig(path=tmp_path / "cache.sqlite3"),
+        ) as client:
+            await client.games.team_stats(year=2024, team="Michigan")
+            matches = await client.identities.games.find(
+                season=2024,
+                team="Michigan",
+                freshness=FreshnessMode.local_only,
+            )
+
+    assert [
+        (match.id, match.home_team_id, match.away_team_id) for match in matches
+    ] == [(401628347, 130, 251)]
+
+
+@pytest.mark.asyncio
 async def test_incomplete_game_does_not_claim_a_scheduled_status(
     api_server: ServerFactory,
     game_response: dict[str, object],

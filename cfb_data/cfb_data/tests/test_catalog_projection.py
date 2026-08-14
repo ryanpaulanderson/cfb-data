@@ -6,10 +6,11 @@ from cfb_data.cache._catalog import CatalogProjection, project_catalog
 from cfb_data.coaches.models.pydantic.responses import CoachTenure
 from cfb_data.conferences.models.pydantic.responses import TeamConferenceChange
 from cfb_data.draft.models.pydantic.responses import DraftPick
+from cfb_data.games.models.pydantic.responses import TeamGameStats
 from cfb_data.metrics.models.pydantic.responses import PlayWinProbability
 from cfb_data.players.models.pydantic.responses import PlayerSearchResult
 from cfb_data.playoffs.models.pydantic.responses import PlayoffMatchupSlotSource
-from cfb_data.plays.models.pydantic.responses import Play
+from cfb_data.plays.models.pydantic.responses import LiveGame, Play
 from cfb_data.teams.models.pydantic.responses import Team
 from pydantic import BaseModel
 
@@ -79,6 +80,62 @@ def test_authoritative_team_projection_preserves_known_empty_aliases() -> None:
     projection = _project(team, "/teams", {})
 
     assert projection.teams[0].alternate_names == ()
+
+
+def test_team_game_stats_project_home_and_away_relationships() -> None:
+    """Project game-team relationships from nested team-stat rows."""
+    stats = TeamGameStats.model_validate(
+        {
+            "id": 401628347,
+            "teams": [
+                {
+                    "teamId": 130,
+                    "team": "Michigan",
+                    "conference": "Big Ten",
+                    "homeAway": "home",
+                    "points": 12,
+                    "stats": [],
+                },
+                {
+                    "teamId": 251,
+                    "team": "Texas",
+                    "conference": "SEC",
+                    "homeAway": "away",
+                    "points": 31,
+                    "stats": [],
+                },
+            ],
+        }
+    )
+
+    projection = _project(stats, "/games/teams", {})
+
+    assert [(game.home_team_id, game.away_team_id) for game in projection.games] == [
+        (130, 251)
+    ]
+
+
+def test_live_game_projects_home_and_away_relationships(
+    live_game_response: dict[str, object],
+) -> None:
+    """Project game-team relationships from nested live team aggregates."""
+    response = dict(live_game_response)
+    teams = response["teams"]
+    assert isinstance(teams, list)
+    assert isinstance(teams[0], dict)
+    away_team = dict(teams[0])
+    home_team = dict(away_team)
+    home_team.update({"teamId": 130, "team": "Michigan", "homeAway": "home"})
+    response["teams"] = [home_team, away_team]
+    live_game = LiveGame.model_validate(response)
+
+    projection = _project(live_game, "/live/plays", {})
+
+    assert [(game.home_team_id, game.away_team_id) for game in projection.games] == [
+        (130, 251)
+    ]
+    assert projection.coverage is not None
+    assert "game.team_relationships" in projection.coverage.capabilities
 
 
 def test_play_models_project_game_drive_play_type_and_team_relationships() -> None:
