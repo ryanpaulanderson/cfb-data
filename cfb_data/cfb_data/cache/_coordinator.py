@@ -573,7 +573,7 @@ class CacheCoordinator:
     ) -> _ValueT:
         """Refresh one record conditionally and apply permitted stale fallback."""
         conditional_headers: dict[str, str] = {}
-        if stale_record is not None:
+        if stale_record is not None and stale_value is not None:
             etag = _safe_validator(stale_record.etag)
             last_modified = _safe_validator(stale_record.last_modified)
             if etag is not None:

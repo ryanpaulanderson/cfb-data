@@ -385,6 +385,37 @@ async def test_corrupt_retained_record_is_evicted_and_refetched(
 
 
 @pytest.mark.asyncio
+async def test_corrupt_retained_record_drops_conditional_validator(
+    api_server: ServerFactory,
+    calendar_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Refetch unconditionally after evicting an invalid retained body."""
+    path = tmp_path / "cache.sqlite3"
+    validators: list[str | None] = []
+
+    async def handler(request: web.Request) -> web.Response:
+        validator = request.headers.get("If-None-Match")
+        validators.append(validator)
+        if validator == '"calendar-v1"':
+            return web.Response(status=304, headers={"ETag": '"calendar-v1"'})
+        return web.json_response([calendar_response], headers={"ETag": '"calendar-v1"'})
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient("key", base_url=base_url, cache=_sqlite(path)) as client:
+            await client.games.calendar(year=2024)
+
+        with sqlite3.connect(path) as connection:
+            connection.execute("UPDATE response_records SET body = ?", (b"not-json",))
+
+        async with CFBDClient("key", base_url=base_url, cache=_sqlite(path)) as client:
+            recovered = await client.games.calendar(year=2024)
+
+    assert len(recovered) == 1
+    assert validators == [None, None]
+
+
+@pytest.mark.asyncio
 async def test_backend_open_failure_fails_open_without_logging_secrets(
     api_server: ServerFactory,
     calendar_response: dict[str, object],
