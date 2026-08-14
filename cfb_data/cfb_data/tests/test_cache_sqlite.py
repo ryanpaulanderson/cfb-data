@@ -121,6 +121,42 @@ async def test_sqlite_atomically_persists_response_catalog_and_coverage(
 
 
 @pytest.mark.asyncio
+async def test_sqlite_partial_facts_preserve_richer_catalog_fields(
+    tmp_path: Path,
+) -> None:
+    """Keep known optional facts when a later source cannot observe them."""
+    now = datetime(2026, 8, 13, tzinfo=UTC)
+    record = _record(now)
+    backend = await SQLiteCacheBackend(
+        SQLiteCacheConfig(path=tmp_path / "cache.sqlite3")
+    ).open()
+    await backend.commit_response(record, _projection(now, record))
+
+    later = now + timedelta(minutes=1)
+    await backend.commit_response(
+        _record(later),
+        CatalogProjection(
+            teams=(TeamFact(130, "Michigan", None, None),),
+            conferences=(ConferenceFact(5, "Big Ten", None, None),),
+            venues=(VenueFact(365, "Michigan Stadium", None, None),),
+        ),
+    )
+
+    assert await backend.find_teams(130) == await backend.find_teams("Wolverines")
+    team = (await backend.find_teams(130))[0]
+    conference = (await backend.find_conferences(5))[0]
+    venue = (await backend.find_venues(365))[0]
+    assert (team.abbreviation, team.alternate_names) == (
+        "MICH",
+        ("Wolverines",),
+    )
+    assert (conference.abbreviation, conference.classification) == ("B1G", "fbs")
+    assert (venue.city, venue.state) == ("Ann Arbor", "MI")
+
+    await backend.close()
+
+
+@pytest.mark.asyncio
 async def test_sqlite_response_expiry_never_deletes_catalog_facts(
     tmp_path: Path,
 ) -> None:

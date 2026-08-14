@@ -27,7 +27,7 @@ class TeamFact:
     id: int
     school: str
     abbreviation: str | None
-    alternate_names: tuple[str, ...]
+    alternate_names: tuple[str, ...] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -388,10 +388,10 @@ class _ProjectionBuilder:
         if team_id is None or school is None:
             return
         aliases = data.get("alternate_names")
-        alternate_names = (
+        alternate_names: tuple[str, ...] | None = (
             tuple(item for item in aliases if isinstance(item, str))
             if isinstance(aliases, list)
-            else ()
+            else None
         )
         abbreviation = _optional_string(data.get("abbreviation"))
         existing = self.teams.get(team_id)
@@ -401,8 +401,11 @@ class _ProjectionBuilder:
                 school=school,
                 abbreviation=abbreviation
                 or (existing.abbreviation if existing else None),
-                alternate_names=alternate_names
-                or (existing.alternate_names if existing else ()),
+                alternate_names=(
+                    alternate_names
+                    if alternate_names is not None
+                    else (existing.alternate_names if existing else None)
+                ),
             )
         season = _optional_int(data.get("year")) or _optional_int(
             self._parameters.get("year")
@@ -447,7 +450,7 @@ class _ProjectionBuilder:
         self.affiliations[(team_id, conference_id, start_year)] = fact
         school = _optional_string(data.get("team"))
         if school is not None:
-            self.teams.setdefault(team_id, TeamFact(team_id, school, None, ()))
+            self.teams.setdefault(team_id, TeamFact(team_id, school, None, None))
         name = _optional_string(data.get("conference"))
         if name is not None:
             self.conferences.setdefault(
@@ -470,7 +473,7 @@ class _ProjectionBuilder:
         if team_id is None or effective_year is None:
             return
         if team_name is not None:
-            self.teams.setdefault(team_id, TeamFact(team_id, team_name, None, ()))
+            self.teams.setdefault(team_id, TeamFact(team_id, team_name, None, None))
         if from_id is not None:
             from_name = _optional_string(data.get("from_conference"))
             if from_name is not None:
@@ -888,7 +891,7 @@ class _ProjectionBuilder:
             team_id = _optional_int(data.get(id_field))
             team_name = _first_string(data, *name_fields)
             if team_id is not None and team_name is not None:
-                self.teams.setdefault(team_id, TeamFact(team_id, team_name, None, ()))
+                self.teams.setdefault(team_id, TeamFact(team_id, team_name, None, None))
 
     def _project_win_probability_play(self, data: dict[str, object]) -> None:
         """Project a play identity carried by a win-probability row."""
@@ -952,7 +955,7 @@ class _ProjectionBuilder:
                 )
             if home_name is not None:
                 self.teams.setdefault(
-                    home_team_id, TeamFact(home_team_id, home_name, None, ())
+                    home_team_id, TeamFact(home_team_id, home_name, None, None)
                 )
         if away_team_id is not None:
             away_name = _first_string(data, "away_team", "away")
@@ -962,7 +965,7 @@ class _ProjectionBuilder:
                 )
             if away_name is not None:
                 self.teams.setdefault(
-                    away_team_id, TeamFact(away_team_id, away_name, None, ())
+                    away_team_id, TeamFact(away_team_id, away_name, None, None)
                 )
 
     def _project_draft_team(self, data: dict[str, object]) -> None:
@@ -1002,7 +1005,7 @@ class _ProjectionBuilder:
         college_name = _optional_string(data.get("college_team"))
         if college_id is not None and college_name is not None:
             self.teams.setdefault(
-                college_id, TeamFact(college_id, college_name, None, ())
+                college_id, TeamFact(college_id, college_name, None, None)
             )
         nfl_athlete_id = _optional_int(data.get("nfl_athlete_id"))
         if nfl_athlete_id is not None and athlete_name is not None:

@@ -759,7 +759,8 @@ class SQLiteCacheBackend:
             "normalized_school=excluded.normalized_school, "
             "abbreviation=COALESCE(excluded.abbreviation, teams.abbreviation), "
             "normalized_abbreviation=COALESCE(excluded.normalized_abbreviation, "
-            "teams.normalized_abbreviation), alternate_names_json=excluded.alternate_names_json, "
+            "teams.normalized_abbreviation), alternate_names_json=CASE WHEN ? "
+            "THEN excluded.alternate_names_json ELSE teams.alternate_names_json END, "
             "last_seen_at=excluded.last_seen_at",
             [
                 (
@@ -768,9 +769,10 @@ class SQLiteCacheBackend:
                     _normalize(fact.school),
                     fact.abbreviation,
                     _normalize(fact.abbreviation) if fact.abbreviation else None,
-                    json.dumps(fact.alternate_names, separators=(",", ":")),
+                    json.dumps(fact.alternate_names or (), separators=(",", ":")),
                     observed_at,
                     observed_at,
+                    fact.alternate_names is not None,
                 )
                 for fact in projection.teams
             ],
@@ -781,7 +783,7 @@ class SQLiteCacheBackend:
             [
                 (fact.id, alias, _normalize(alias))
                 for fact in projection.teams
-                for alias in fact.alternate_names
+                for alias in (fact.alternate_names or ())
             ],
         )
         await connection.executemany(
@@ -805,9 +807,12 @@ class SQLiteCacheBackend:
         await connection.executemany(
             "INSERT INTO conferences VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1) "
             "ON CONFLICT(id) DO UPDATE SET name=excluded.name, "
-            "normalized_name=excluded.normalized_name, abbreviation=excluded.abbreviation, "
-            "normalized_abbreviation=excluded.normalized_abbreviation, "
-            "classification=excluded.classification, last_seen_at=excluded.last_seen_at",
+            "normalized_name=excluded.normalized_name, "
+            "abbreviation=COALESCE(excluded.abbreviation, conferences.abbreviation), "
+            "normalized_abbreviation=COALESCE(excluded.normalized_abbreviation, "
+            "conferences.normalized_abbreviation), "
+            "classification=COALESCE(excluded.classification, conferences.classification), "
+            "last_seen_at=excluded.last_seen_at",
             [
                 (
                     fact.id,
@@ -841,8 +846,10 @@ class SQLiteCacheBackend:
         await connection.executemany(
             "INSERT INTO venues VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1) "
             "ON CONFLICT(id) DO UPDATE SET name=excluded.name, "
-            "normalized_name=excluded.normalized_name, city=excluded.city, "
-            "state=excluded.state, last_seen_at=excluded.last_seen_at",
+            "normalized_name=excluded.normalized_name, "
+            "city=COALESCE(excluded.city, venues.city), "
+            "state=COALESCE(excluded.state, venues.state), "
+            "last_seen_at=excluded.last_seen_at",
             [
                 (
                     fact.id,

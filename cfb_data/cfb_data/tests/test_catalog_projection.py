@@ -10,6 +10,7 @@ from cfb_data.metrics.models.pydantic.responses import PlayWinProbability
 from cfb_data.players.models.pydantic.responses import PlayerSearchResult
 from cfb_data.playoffs.models.pydantic.responses import PlayoffMatchupSlotSource
 from cfb_data.plays.models.pydantic.responses import Play
+from cfb_data.teams.models.pydantic.responses import Team
 from pydantic import BaseModel
 
 
@@ -50,8 +51,34 @@ def test_conference_change_projects_team_conferences_and_affiliation() -> None:
     projection = _project(change, "/conferences/changes", {})
 
     assert [(fact.id, fact.school) for fact in projection.teams] == [(130, "Michigan")]
+    assert projection.teams[0].alternate_names is None
     assert {fact.id for fact in projection.conferences} == {5, 8}
     assert [fact.start_year for fact in projection.affiliations] == [1896]
+
+
+def test_authoritative_team_projection_preserves_known_empty_aliases() -> None:
+    """Distinguish an observed empty alias list from an unobserved field."""
+    team = Team.model_validate(
+        {
+            "id": 130,
+            "school": "Michigan",
+            "mascot": "Wolverines",
+            "abbreviation": "MICH",
+            "alternateNames": [],
+            "conference": "Big Ten",
+            "division": "East",
+            "classification": "fbs",
+            "color": "#00274C",
+            "alternateColor": "#FFCB05",
+            "logos": [],
+            "twitter": None,
+            "location": None,
+        }
+    )
+
+    projection = _project(team, "/teams", {})
+
+    assert projection.teams[0].alternate_names == ()
 
 
 def test_play_models_project_game_drive_play_type_and_team_relationships() -> None:

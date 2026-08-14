@@ -12,9 +12,11 @@ from aiohttp import web
 from cfb_data.cache._catalog import (
     CatalogProjection,
     CoachFact,
+    ConferenceFact,
     CoverageRecord,
     CoverageStatus,
     TeamFact,
+    VenueFact,
 )
 from cfb_data.cache._models import ResponseRecord
 from cfb_data.cache._redis import RedisCacheBackend
@@ -116,6 +118,70 @@ async def test_redis_retains_catalog_after_native_response_expiry(
 
     await backend.close()
     await client.aclose()
+
+
+@pytest.mark.redis
+@pytest.mark.asyncio
+async def test_redis_partial_facts_preserve_richer_catalog_fields(
+    redis_config: RedisCacheConfig,
+) -> None:
+    """Keep known aliases when a later source cannot observe them."""
+    now = datetime.now(UTC)
+    record = ResponseRecord(
+        key="e" * 64,
+        endpoint="/teams",
+        response_contract="Team:list:v1",
+        body=b"[]",
+        fetched_at=now,
+        fresh_until=now + timedelta(seconds=10),
+        retained_until=now + timedelta(seconds=30),
+        etag=None,
+        last_modified=None,
+        row_count=0,
+    )
+    backend = await RedisCacheBackend(redis_config).open()
+    await backend.commit_response(
+        record,
+        CatalogProjection(
+            teams=(TeamFact(130, "Michigan", "MICH", ("Wolverines",)),),
+            conferences=(ConferenceFact(5, "Big Ten", "B1G", "fbs"),),
+            venues=(VenueFact(365, "Michigan Stadium", "Ann Arbor", "MI"),),
+        ),
+    )
+
+    later = now + timedelta(seconds=1)
+    await backend.commit_response(
+        ResponseRecord(
+            key=record.key,
+            endpoint=record.endpoint,
+            response_contract=record.response_contract,
+            body=record.body,
+            fetched_at=later,
+            fresh_until=later + timedelta(seconds=10),
+            retained_until=later + timedelta(seconds=30),
+            etag=None,
+            last_modified=None,
+            row_count=0,
+        ),
+        CatalogProjection(
+            teams=(TeamFact(130, "Michigan", None, None),),
+            conferences=(ConferenceFact(5, "Big Ten", None, None),),
+            venues=(VenueFact(365, "Michigan Stadium", None, None),),
+        ),
+    )
+
+    team = (await backend.find_teams(130))[0]
+    conference = (await backend.find_conferences(5))[0]
+    venue = (await backend.find_venues(365))[0]
+    assert await backend.find_teams("Wolverines") == [team]
+    assert (team.abbreviation, team.alternate_names) == (
+        "MICH",
+        ("Wolverines",),
+    )
+    assert (conference.abbreviation, conference.classification) == ("B1G", "fbs")
+    assert (venue.city, venue.state) == ("Ann Arbor", "MI")
+
+    await backend.close()
 
 
 @pytest.mark.redis

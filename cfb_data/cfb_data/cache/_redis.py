@@ -386,14 +386,18 @@ class RedisCacheBackend:
                         "id": str(team_fact.id),
                         "school": team_fact.school,
                         "abbreviation": team_fact.abbreviation,
-                        "alternate_names": json.dumps(team_fact.alternate_names),
+                        "alternate_names": (
+                            json.dumps(team_fact.alternate_names)
+                            if team_fact.alternate_names is not None
+                            else None
+                        ),
                         "last_seen_at": observed_at,
                         "source_version": "1",
                         "schema_version": "1",
                     }
                 ),
             )
-            names = [team_fact.school, *team_fact.alternate_names]
+            names = [team_fact.school, *(team_fact.alternate_names or ())]
             if team_fact.abbreviation is not None:
                 names.append(team_fact.abbreviation)
             for name in names:
