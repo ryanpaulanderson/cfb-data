@@ -1,6 +1,7 @@
 """Exercise Redis caching against an explicitly configured real service."""
 
 import asyncio
+import json
 import os
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -13,6 +14,7 @@ from cfb_data.cache._catalog import (
     CatalogProjection,
     CoachFact,
     CoachTeamSeasonFact,
+    ConferenceAffiliationFact,
     ConferenceFact,
     CoverageRecord,
     CoverageStatus,
@@ -183,6 +185,50 @@ async def test_redis_partial_facts_preserve_richer_catalog_fields(
     assert (venue.city, venue.state) == ("Ann Arbor", "MI")
 
     await backend.close()
+
+
+@pytest.mark.redis
+@pytest.mark.asyncio
+async def test_redis_sparse_affiliation_preserves_known_end_year(
+    redis_config: RedisCacheConfig,
+) -> None:
+    """Keep a known affiliation interval when a later fact cannot observe its end."""
+    now = datetime.now(UTC)
+    record = ResponseRecord(
+        key="0" * 64,
+        endpoint="/conferences/affiliations",
+        response_contract="TeamConferenceAffiliation:list:v1",
+        body=b"[]",
+        fetched_at=now,
+        fresh_until=now + timedelta(seconds=10),
+        retained_until=now + timedelta(seconds=30),
+        etag=None,
+        last_modified=None,
+        row_count=0,
+    )
+    backend = await RedisCacheBackend(redis_config).open()
+    await backend.commit_response(
+        record,
+        CatalogProjection(
+            affiliations=(ConferenceAffiliationFact(130, 5, 1896, 1906),)
+        ),
+    )
+    await backend.commit_response(
+        record,
+        CatalogProjection(
+            affiliations=(ConferenceAffiliationFact(130, 5, 1896, None),)
+        ),
+    )
+
+    client = Redis.from_url(redis_config.url)
+    raw = await client.get(
+        f"{redis_config.key_prefix}:v1:catalog:affiliation:130:5:1896"
+    )
+    assert raw is not None
+    assert json.loads(raw)["end_year"] == 1906
+
+    await backend.close()
+    await client.aclose()
 
 
 @pytest.mark.redis

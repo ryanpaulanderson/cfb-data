@@ -12,6 +12,7 @@ from cfb_data.cache._catalog import (
     AthleteTeamSeasonFact,
     CatalogProjection,
     CoachTeamSeasonFact,
+    ConferenceAffiliationFact,
     ConferenceFact,
     CoverageRecord,
     CoverageStatus,
@@ -160,6 +161,36 @@ async def test_sqlite_partial_facts_preserve_richer_catalog_fields(
     assert (venue.city, venue.state) == ("Ann Arbor", "MI")
 
     await backend.close()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_sparse_affiliation_preserves_known_end_year(
+    tmp_path: Path,
+) -> None:
+    """Keep a known affiliation interval when a later fact cannot observe its end."""
+    now = datetime(2026, 8, 13, tzinfo=UTC)
+    path = tmp_path / "cache.sqlite3"
+    backend = await SQLiteCacheBackend(SQLiteCacheConfig(path=path)).open()
+    await backend.commit_response(
+        _record(now),
+        CatalogProjection(
+            affiliations=(ConferenceAffiliationFact(130, 5, 1896, 1906),)
+        ),
+    )
+    await backend.commit_response(
+        _record(now + timedelta(minutes=1)),
+        CatalogProjection(
+            affiliations=(ConferenceAffiliationFact(130, 5, 1896, None),)
+        ),
+    )
+    await backend.close()
+
+    with sqlite3.connect(path) as connection:
+        end_year = connection.execute(
+            "SELECT end_year FROM conference_affiliations "
+            "WHERE team_id = 130 AND conference_id = 5 AND start_year = 1896"
+        ).fetchone()
+    assert end_year == (1906,)
 
 
 @pytest.mark.asyncio

@@ -73,6 +73,32 @@ elseif redis.call('HEXISTS', KEYS[1], 'tenure_id') == 0 and ARGV[5] ~= '' then
 end
 return 1
 """
+_CONFERENCE_AFFILIATION_SCRIPT = """
+local end_year = nil
+if ARGV[4] ~= '' then
+  end_year = tonumber(ARGV[4])
+else
+  local current = redis.call('GET', KEYS[1])
+  if current then
+    local decoded = cjson.decode(current)
+    if decoded['end_year'] ~= cjson.null then
+      end_year = decoded['end_year']
+    end
+  end
+end
+local affiliation = {
+  team_id = tonumber(ARGV[1]),
+  conference_id = tonumber(ARGV[2]),
+  start_year = tonumber(ARGV[3]),
+  end_year = cjson.null,
+  last_seen_at = ARGV[5]
+}
+if end_year ~= nil then
+  affiliation['end_year'] = end_year
+end
+redis.call('SET', KEYS[1], cjson.encode(affiliation))
+return 1
+"""
 
 
 class RedisCacheBackend:
@@ -477,8 +503,9 @@ class RedisCacheBackend:
                         str(conference_fact.id),
                     )
         for affiliation_fact in projection.affiliations:
-            self._queue_json(
-                pipe,
+            pipe.eval(
+                _CONFERENCE_AFFILIATION_SCRIPT,
+                1,
                 self._key(
                     "catalog",
                     "affiliation",
@@ -486,13 +513,11 @@ class RedisCacheBackend:
                     str(affiliation_fact.conference_id),
                     str(affiliation_fact.start_year),
                 ),
-                {
-                    "team_id": affiliation_fact.team_id,
-                    "conference_id": affiliation_fact.conference_id,
-                    "start_year": affiliation_fact.start_year,
-                    "end_year": affiliation_fact.end_year,
-                    "last_seen_at": observed_at,
-                },
+                affiliation_fact.team_id,
+                affiliation_fact.conference_id,
+                affiliation_fact.start_year,
+                "" if affiliation_fact.end_year is None else affiliation_fact.end_year,
+                observed_at,
             )
 
     def _project_venues(
