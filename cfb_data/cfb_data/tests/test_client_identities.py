@@ -318,6 +318,46 @@ async def test_cacheless_game_identity_normalizes_unknown_relationships(
 
 
 @pytest.mark.asyncio
+async def test_zero_team_placeholder_is_not_persisted_as_an_identity(
+    api_server: ServerFactory,
+    tmp_path: Path,
+) -> None:
+    """Exclude unresolved zero team IDs from the public identity catalog."""
+    record = {"games": 0, "wins": 0, "losses": 0, "ties": 0}
+    payload = {
+        "year": 2024,
+        "teamId": 0,
+        "team": "Placeholder",
+        "classification": "fbs",
+        "conference": "Independent",
+        "division": "",
+        "expectedWins": None,
+        "total": record,
+        "conferenceGames": record,
+        "homeGames": record,
+        "awayGames": record,
+        "neutralSiteGames": record,
+        "regularSeason": record,
+        "postseason": record,
+    }
+
+    async def handler(request: web.Request) -> web.Response:
+        return web.json_response([payload])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            cache=SQLiteCacheConfig(path=tmp_path / "cache.sqlite3"),
+        ) as client:
+            await client.games.records(year=2024)
+            with pytest.raises(CFBDIdentityNotFoundError):
+                await client.identities.teams.resolve(
+                    "Placeholder", freshness=FreshnessMode.local_only
+                )
+
+
+@pytest.mark.asyncio
 async def test_identity_resolution_works_in_memory_without_persistence(
     api_server: ServerFactory,
 ) -> None:

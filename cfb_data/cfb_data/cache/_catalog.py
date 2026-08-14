@@ -378,7 +378,7 @@ class _ProjectionBuilder:
             self._project_player_game_stats(data)
 
     def _project_team(self, class_name: str, data: dict[str, object]) -> None:
-        team_id = _optional_int(data.get("team_id"))
+        team_id = _positive_int(data.get("team_id"))
         if team_id is None and class_name in {
             "Team",
             "ScoreboardTeam",
@@ -387,7 +387,7 @@ class _ProjectionBuilder:
             "CoachSeasonTeamReference",
             "CoachAlmaMater",
         }:
-            team_id = _optional_int(data.get("id"))
+            team_id = _positive_int(data.get("id"))
         school = _first_string(data, "school", "team", "name")
         if team_id is None or school is None:
             return
@@ -440,7 +440,7 @@ class _ProjectionBuilder:
         )
 
     def _project_affiliation(self, data: dict[str, object]) -> None:
-        team_id = _optional_int(data.get("team_id"))
+        team_id = _positive_int(data.get("team_id"))
         conference_id = _optional_int(data.get("conference_id"))
         start_year = _optional_int(data.get("start_year"))
         if team_id is None or conference_id is None or start_year is None:
@@ -469,7 +469,7 @@ class _ProjectionBuilder:
 
     def _project_conference_change(self, data: dict[str, object]) -> None:
         """Project both sides of a validated conference transition."""
-        team_id = _optional_int(data.get("team_id"))
+        team_id = _positive_int(data.get("team_id"))
         effective_year = _optional_int(data.get("effective_year"))
         from_id = _optional_int(data.get("from_conference_id"))
         to_id = _optional_int(data.get("to_conference_id"))
@@ -898,7 +898,7 @@ class _ProjectionBuilder:
             ("offense_id", ("offense", "offense_team")),
             ("defense_id", ("defense", "defense_team")),
         ):
-            team_id = _optional_int(data.get(id_field))
+            team_id = _positive_int(data.get(id_field))
             team_name = _first_string(data, *name_fields)
             if team_id is not None and team_name is not None:
                 self.teams.setdefault(team_id, TeamFact(team_id, team_name, None, None))
@@ -1011,7 +1011,7 @@ class _ProjectionBuilder:
                     _optional_string(data.get("position")),
                 ),
             )
-        college_id = _optional_int(data.get("college_id"))
+        college_id = _positive_int(data.get("college_id"))
         college_name = _optional_string(data.get("college_team"))
         if college_id is not None and college_name is not None:
             self.teams.setdefault(
