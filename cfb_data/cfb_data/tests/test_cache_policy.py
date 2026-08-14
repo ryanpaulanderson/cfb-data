@@ -100,3 +100,31 @@ def test_imminent_and_recent_games_use_shortest_applicable_policy(
 
     assert imminent_ttl == CacheTTL(timedelta(hours=24), timedelta(days=7))
     assert recent_ttl == CacheTTL(timedelta(hours=24), timedelta(days=30))
+
+
+def test_mixed_game_policy_is_independent_of_response_order(
+    game_response: dict[str, object],
+) -> None:
+    """Choose the shortest complete policy for every response ordering."""
+    now = datetime(2026, 8, 13, tzinfo=UTC)
+    game = Game.model_validate(game_response)
+    imminent = game.model_copy(
+        update={"completed": False, "start_date": now + timedelta(hours=12)}
+    )
+    recent = game.model_copy(
+        update={"completed": True, "start_date": now - timedelta(hours=12)}
+    )
+    expected = CacheTTL(timedelta(hours=24), timedelta(days=7))
+
+    for rows in ([imminent, recent], [recent, imminent]):
+        assert (
+            resolve_ttl(
+                profile=CacheProfile.schedule,
+                endpoint="/games",
+                parameters={"year": 2026},
+                value=rows,
+                policy=CachePolicyConfig(),
+                now=now,
+            )
+            == expected
+        )

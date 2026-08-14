@@ -151,7 +151,10 @@ def resolve_ttl(
                         retain_for=timedelta(days=30),
                     )
                 )
-    return min(refinements, key=lambda ttl: ttl.fresh_for)
+    return min(
+        refinements,
+        key=lambda ttl: (ttl.fresh_for, ttl.retain_for),
+    )
 
 
 def _is_closed_game(item: object, now: datetime) -> bool:
