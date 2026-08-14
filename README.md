@@ -145,6 +145,14 @@ Cache hits are decoded and revalidated through the current Pydantic response
 contract, and cache/backend failures fail open for ordinary API calls without
 silently changing backend types.
 
+Source-domain Pydantic models own the upstream fields and typed declarations
+that produce catalog facts. The catalog owns only normalized merge, coverage,
+provenance, persistence, and query semantics. With persistence disabled, the
+same projection path writes a client-local transient catalog; there is no
+separate response-to-identity fallback. Compact identity result types live in
+their team, conference, venue, game, and player domains, while
+`client.identities` remains the query and hydration facade.
+
 Per-operation modes are `default`, `refresh`, `bypass`, and `local_only`.
 `client.identities.hydrate(...)` supports dry-run, bounded-concurrency,
 resumable canonical hydration at `4 + 2S` calls for `S` seasons, or `7 + 2S`
@@ -412,7 +420,9 @@ make check
 contributors the complete Arrow/Parquet, DataFrame, and Redis-client test
 contract. `make redis-up` and `make test-redis` exercise the local shared
 backend; `make test-live` is an explicit credentialed check using untracked
-`.env` configuration.
+`.env` configuration. `make test-live-all` is the separately opted-in,
+quota-ledgered 74-route SQLite/Redis matrix and keeps the transport's normal
+bounded retries enabled.
 `make check` runs Ruff, strict mypy, a warning-free Sphinx build, and pytest
 under the same contract as CI. `make docs` writes the local HTML site to
 `docs/_build/html`. Package metadata and all dependency groups live only in

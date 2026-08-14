@@ -2,8 +2,9 @@
 
 `cfb-data` can persist validated API responses and the stable identities learned
 from them. Caching is opt-in: `cache=None`, the default, preserves network-only
-behavior. Choose SQLite for one machine or Redis for workers that need to share
-responses, catalog facts, and refresh leases.
+response behavior while keeping projected identities in a client-local
+transient catalog. Choose SQLite for one machine or Redis for workers that need
+to share responses, catalog facts, and refresh leases.
 
 This persistence has two distinct lifecycles:
 
@@ -18,6 +19,19 @@ Neither component is a workflow checkpoint, public data mirror, or replacement
 for the provider. Cache data remains private and rebuildable. Existing endpoint
 methods always return complete upstream-shaped results in upstream order; the
 cache never answers them by filtering a broader stored response.
+
+Source-domain Pydantic models own all upstream field expectations and their
+typed identity or relationship declarations. Context-dependent mappings such
+as roster seasons, player stints, and nested game/drive/play relationships are
+pure hooks beside those source models. The catalog owns normalized grains,
+three-state observations, merge behavior, provenance, coverage, and indexes;
+it does not copy upstream response models. Every identity lookup follows the
+same projection and catalog path with transient memory, SQLite, or Redis.
+
+Compact identity results live in their source domains and retain domain enums:
+`TeamIdentity`, `ConferenceIdentity`, `VenueIdentity`, `GameIdentity`, and
+`AthleteIdentity`. The `client.identities` namespace is the resolver and
+hydration facade, not a second schema namespace.
 
 ## Use SQLite locally
 
@@ -83,7 +97,7 @@ For a hosted service:
   hashes, sets, transactions, expiry, and the lease scripts;
 - keep finite connect and socket timeouts;
 - enable durable persistence for the non-expiring catalog; and
-- use an eviction policy such as `volatile-lfu`, which selects expiring
+- use an eviction policy such as `volatile-ttl`, which selects expiring
   response and lease keys instead of permanent catalog keys.
 
 Use a dedicated Redis deployment if a hosted plan cannot guarantee that
@@ -108,9 +122,12 @@ make redis-down
 
 `make redis-down` preserves the named volume. The supplied Redis configuration
 uses `appendonly yes`, `appendfsync everysec`, snapshotting, and
-`maxmemory-policy volatile-lfu`, so response expiry cannot directly delete the
-non-expiring catalog. Add authentication and network isolation before adapting
-the example beyond local development.
+`maxmemory-policy volatile-ttl`, so eviction targets the expiring entry with
+the shortest remaining lifetime and cannot directly select the non-expiring
+catalog. The Compose default bounds Redis at 4 GB; override it with
+`CFB_DATA_REDIS_MAXMEMORY` when the host allocation requires a different
+limit. Add authentication and network isolation before adapting the example
+beyond local development.
 
 ## Override freshness policy
 
@@ -189,7 +206,7 @@ async with CFBDClient(cache=cache) as client:
 - `bypass` neither reads nor populates persistence.
 - `local_only` forbids network I/O and raises `CFBDCacheMissError` when no
   retained validated response can answer. It also rejects operational routes
-  and a client with caching disabled.
+  and response calls on a client with persistence disabled.
 
 Modes use `contextvars`, so a mode is local to the current asynchronous task.
 Every hit is decoded and validated against the current Pydantic contract.
@@ -241,8 +258,8 @@ Freshness modes are:
   smallest canonical partition; a retryable API failure may use retained facts
   when stale-on-error policy permits it.
 - `allow_stale`: return a known fact without spending API quota.
-- `local_only`: forbid network access and fail explicitly if the catalog
-  backend cannot answer.
+- `local_only`: forbid network access and query only the configured catalog or
+  facts already projected into this client's transient catalog.
 
 Normal endpoint calls enrich the same catalog after response validation, so
 hydration is not the only source of identity facts.
@@ -286,7 +303,7 @@ interrupted attempt for diagnosis and clears that failure metadata when the
 partition later commits successfully. Player search is capped and is not used
 as a broad enumeration source.
 
-## Maintain, migrate, and observe
+## Maintain, rebuild, and observe
 
 Remove expired SQLite response bodies without deleting identities or coverage:
 
@@ -299,14 +316,14 @@ Redis expires response and temporary lease keys natively, so this method
 normally returns zero for Redis. Catalog pruning is deliberately separate and
 is not automatic.
 
-Keys, response records, and catalog schemas are versioned. An incompatible
-SQLite file or Redis namespace is rejected rather than interpreted. Normal
-endpoint calls fail open to the API with a redacted backend-failure event;
-strict local identity access fails explicitly. To rebuild after a migration,
-stop clients, preserve a backup if needed, remove the old SQLite cache file or
-the application's exact Redis key prefix, and hydrate again. Never delete a
-broad Redis database or directory when only one application namespace is in
-scope.
+The unreleased implementation starts with final SQLite and Redis version-1
+layouts; it contains no compatibility aliases or migration path for earlier
+experimental branch data. Normal endpoint calls fail open to the API with a
+redacted backend-failure event and mirror validated facts into transient
+memory. To rebuild, stop clients, preserve a backup if needed, remove the exact
+SQLite cache file or the application's exact Redis key prefix, and hydrate
+again. Never delete a broad Redis database or directory when only one
+application namespace is in scope.
 
 Debug logging distinguishes hits, misses, stale entries, revalidations,
 refreshes, bypasses, local followers, distributed-lease waits, backend
@@ -317,3 +334,8 @@ For repository verification, `make test` keeps external integrations skipped.
 `make test-redis` uses the local Compose service. `make test-live` loads
 `CFBD_API_KEY` from the repository's untracked `.env` and performs one bounded
 real `/teams` request followed by local-only response and identity checks.
+`make test-live-all` runs the opt-in 74-route matrix against both SQLite and the
+local Redis service. It uses the transport's normal bounded retry behavior and
+a process-locked ledger that reserves every attempt, including retries, before
+dispatch. Local reports, databases, and the ledger stay under ignored
+`.cfb-data-live/`; no response body or credential is written to the report.

@@ -54,11 +54,16 @@ responses.
 Caching is optional. SQLite is included for local and single-host persistence;
 the `redis` extra supplies a shared async Redis backend. Both store exact
 validated JSON responses separately from permanent normalized identity facts
-and capability-aware coverage. Response hits remain subject to the current
-Pydantic contract. Process-local single-flight and renewable backend leases
-coalesce concurrent refreshes. The public `client.identities` namespace
+and capability-aware coverage. Source-domain Pydantic models own the typed
+identity declarations and contextual projection hooks; the neutral catalog
+owns normalized grains, three-state merge semantics, provenance, and indexes.
+Cache-disabled calls use the same path through a client-local transient catalog
+rather than direct response converters. Response hits remain subject to the
+current Pydantic contract. Process-local single-flight and renewable backend
+leases coalesce concurrent refreshes. The public `client.identities` facade
 provides exact team, conference, venue, game, and scoped-athlete resolution
-plus dry-run, bounded, resumable canonical hydration.
+plus dry-run, bounded, resumable canonical hydration. Its compact result types
+live in those five source domains rather than a parallel identity-model module.
 
 Apache Arrow is the canonical representation for tabular endpoint results.
 Its explicit recursive schema preserves ordered structs, typed lists,
@@ -91,7 +96,7 @@ Parquet methods are not.
   revalidation, narrow stale-on-error behavior, and task-local cache modes.
 - Durable versioned identity facts and coverage that survive response expiry.
 - Process-local and cross-process refresh coalescing for SQLite and Redis.
-- Corruption, migration, cancellation, lease-expiry, backend-failure,
+- Corruption, projection-contract invalidation, cancellation, lease-expiry, backend-failure,
   multiprocess SQLite, real Redis, and opt-in bounded live-API verification.
 - Black-box tests through the installed client and a local HTTP boundary.
 - CI installation checks for base pandas and PyArrow and for the Polars extra
