@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter
 from cfb_data._executor import _EndpointExecutor, _serialize_request
 from cfb_data.cache._catalog import canonical_filters
 from cfb_data.cache._coordinator import CacheCoordinator
+from cfb_data.cache.config import CacheMode
 from cfb_data.conferences.models.pydantic.requests import (
     ConferenceAffiliationsRequest,
     ConferencesRequest,
@@ -25,6 +26,7 @@ from cfb_data.conferences.models.pydantic.responses import (
 from cfb_data.enums import Classification
 from cfb_data.errors import (
     CFBDCacheBackendError,
+    CFBDCacheMissError,
     CFBDIdentityAmbiguityError,
     CFBDIdentityNotFoundError,
 )
@@ -120,10 +122,14 @@ class TeamIdentities:
             capability="team.core_identity",
         )
         if not coverage_fresh and matches:
-            coverage_fresh = await _has_any_fresh_coverage(
+            match_ids = {match.id for match in matches}
+            coverage_fresh = await _has_matching_fresh_coverage(
+                self._executor,
                 self._coordinator,
-                partitions=(("/teams/fbs", ""),),
+                partitions=(("/teams/fbs", FBSTeamsRequest()),),
+                response_adapter=_TEAM_ROWS,
                 capability="team.core_identity",
+                matches=lambda row: row.id in match_ids,
             )
         if coverage_fresh:
             return _one("Team", matches)
@@ -187,10 +193,14 @@ class ConferenceIdentities:
             capability="conference.identity",
         )
         if not coverage_fresh and matches:
-            coverage_fresh = await _has_any_fresh_coverage(
+            match_ids = {match.id for match in matches}
+            coverage_fresh = await _has_matching_fresh_coverage(
+                self._executor,
                 self._coordinator,
                 partitions=_classified_conference_partitions(),
+                response_adapter=_CONFERENCE_ROWS,
                 capability="conference.identity",
+                matches=lambda row: row.id in match_ids,
             )
         if coverage_fresh:
             return _one("Conference", matches)
@@ -294,10 +304,13 @@ class GameIdentities:
             and match is not None
             and match.season is not None
         ):
-            scoped_fresh = await _has_any_fresh_coverage(
+            scoped_fresh = await _has_matching_fresh_coverage(
+                self._executor,
                 self._coordinator,
                 partitions=_classified_game_partitions(match.season),
+                response_adapter=_GAME_ROWS,
                 capability="game.identity",
+                matches=lambda row: row.id == game_id,
             )
         if broad_fresh or exact_fresh or scoped_fresh:
             return _one("Game", [match] if match is not None else [])
@@ -402,10 +415,14 @@ class AthleteIdentities:
             and season is not None
             and isinstance(request, RosterRequest)
         ):
-            coverage_fresh = await _has_any_fresh_coverage(
+            match_ids = {match.id for match in matches}
+            coverage_fresh = await _has_matching_fresh_coverage(
+                self._executor,
                 self._coordinator,
                 partitions=_classified_roster_partitions(season),
+                response_adapter=_ROSTER_ROWS,
                 capability=capability,
+                matches=lambda row: row.id in match_ids,
             )
         if coverage_fresh:
             return _one_athlete(matches)
@@ -702,68 +719,77 @@ async def _team_matches(
     return await coordinator.find_teams(query, strict=strict)
 
 
-async def _has_any_fresh_coverage(
+async def _has_matching_fresh_coverage[RowT: BaseModel](
+    executor: _EndpointExecutor,
     coordinator: CacheCoordinator,
     *,
-    partitions: Sequence[tuple[str, str]],
+    partitions: Sequence[tuple[str, BaseModel]],
+    response_adapter: TypeAdapter[list[RowT]],
     capability: str,
+    matches: Callable[[RowT], bool],
 ) -> bool:
-    """Return whether any compatible hydration partition is fresh."""
-    for endpoint, filters in partitions:
-        if await coordinator.has_fresh_coverage(
+    """Return whether a fresh partition's validated response contains the match.
+
+    :param executor: Shared endpoint execution boundary.
+    :param coordinator: Cache and catalog coordinator.
+    :param partitions: Candidate endpoint requests ordered by hydration preference.
+    :param response_adapter: Validated response contract for every candidate request.
+    :param capability: Catalog capability each partition must establish.
+    :param matches: Predicate proving that a response row represents the identity.
+    :return: Whether a fresh compatible partition contains the matched identity.
+    """
+    for endpoint, request in partitions:
+        filters = canonical_filters(_serialize_request(endpoint, request))
+        if not await coordinator.has_fresh_coverage(
             endpoint=endpoint,
             canonical_filters=filters,
             capability=capability,
         ):
+            continue
+        try:
+            with coordinator.mode_scope(CacheMode.local_only):
+                rows = await executor.fetch_many(
+                    endpoint=endpoint,
+                    request=request,
+                    response_adapter=response_adapter,
+                )
+        except CFBDCacheMissError:
+            continue
+        if any(matches(row) for row in rows):
             return True
     return False
 
 
-def _classified_conference_partitions() -> tuple[tuple[str, str], ...]:
-    """Return coverage keys produced by classified conference hydration."""
+def _classified_conference_partitions() -> tuple[tuple[str, BaseModel], ...]:
+    """Return requests produced by classified conference hydration."""
     return tuple(
         (
             "/conferences",
-            canonical_filters(
-                _serialize_request(
-                    "/conferences",
-                    ConferencesRequest(
-                        classification=ConferenceClassification(classification.value)
-                    ),
-                )
+            ConferencesRequest(
+                classification=ConferenceClassification(classification.value)
             ),
         )
         for classification in Classification
     )
 
 
-def _classified_game_partitions(season: int) -> tuple[tuple[str, str], ...]:
-    """Return coverage keys produced by classified game hydration."""
+def _classified_game_partitions(season: int) -> tuple[tuple[str, BaseModel], ...]:
+    """Return requests produced by classified game hydration."""
     return tuple(
         (
             "/games",
-            canonical_filters(
-                _serialize_request(
-                    "/games",
-                    GamesRequest(year=season, classification=classification),
-                )
-            ),
+            GamesRequest(year=season, classification=classification),
         )
         for classification in Classification
     )
 
 
-def _classified_roster_partitions(season: int) -> tuple[tuple[str, str], ...]:
-    """Return coverage keys produced by classified roster hydration."""
+def _classified_roster_partitions(season: int) -> tuple[tuple[str, BaseModel], ...]:
+    """Return requests produced by classified roster hydration."""
     return tuple(
         (
             "/roster",
-            canonical_filters(
-                _serialize_request(
-                    "/roster",
-                    RosterRequest(year=season, classification=classification),
-                )
-            ),
+            RosterRequest(year=season, classification=classification),
         )
         for classification in Classification
     )

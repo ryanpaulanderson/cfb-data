@@ -442,6 +442,55 @@ async def test_fresh_complete_coverage_proves_absence_without_another_call(
 
 
 @pytest.mark.asyncio
+async def test_classified_coverage_must_contain_the_matched_team(
+    api_server: ServerFactory,
+    tmp_path: Path,
+) -> None:
+    """Refresh a partition capable of updating a stale matched identity."""
+    path = tmp_path / "cache.sqlite3"
+    broad_calls = 0
+
+    def team(team_id: int, school: str, classification: str) -> dict[str, object]:
+        payload = _team(team_id=team_id, school=school, alias="Mascot")
+        payload["classification"] = classification
+        payload["conference"] = "Ivy" if classification == "fcs" else "Big Ten"
+        return payload
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal broad_calls
+        if request.path == "/teams/fbs":
+            return web.json_response([team(130, "Michigan", "fbs")])
+        assert request.path == "/teams"
+        broad_calls += 1
+        school = "Harvard" if broad_calls == 1 else "Harvard Crimson"
+        return web.json_response([team(108, school, "fcs")])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key", base_url=base_url, cache=SQLiteCacheConfig(path=path)
+        ) as client:
+            await client.teams.list()
+            past = datetime(2000, 1, 1, tzinfo=UTC).isoformat()
+            with sqlite3.connect(path) as connection:
+                connection.execute(
+                    "UPDATE coverage SET fresh_until = ? "
+                    "WHERE endpoint = '/teams' AND canonical_filters = ''",
+                    (past,),
+                )
+                connection.execute(
+                    "UPDATE response_records SET fresh_until = ? "
+                    "WHERE endpoint = '/teams'",
+                    (past,),
+                )
+            await client.teams.fbs()
+
+            identity = await client.identities.teams.resolve(108)
+
+    assert identity.school == "Harvard Crimson"
+    assert broad_calls == 2
+
+
+@pytest.mark.asyncio
 async def test_hydration_dry_run_resume_and_quota_call_formula(
     api_server: ServerFactory,
     game_response: dict[str, object],
