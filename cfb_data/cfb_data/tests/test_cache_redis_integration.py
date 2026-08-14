@@ -5,13 +5,15 @@ import json
 import os
 import uuid
 from collections.abc import AsyncIterator, Callable
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
 from aiohttp import web
-from cfb_data.cache._catalog import (
+from cfb_data._catalog.models import (
     AthleteFact,
+    AthleteTeamSeasonFact,
     CatalogProjection,
     CoachFact,
     CoachTeamSeasonFact,
@@ -19,9 +21,17 @@ from cfb_data.cache._catalog import (
     ConferenceFact,
     CoverageRecord,
     CoverageStatus,
+    DriveFact,
+    GameFact,
+    PlayFact,
+    PlayoffMatchupFact,
+    RecruitFact,
     TeamFact,
+    TeamSeasonFact,
     VenueFact,
+    VocabularyFact,
 )
+from cfb_data._catalog.projection import CatalogSink, ObservationAuthority
 from cfb_data.cache._models import ResponseRecord
 from cfb_data.cache._redis import RedisCacheBackend
 from cfb_data.errors import CFBDCacheBackendError
@@ -30,6 +40,23 @@ from redis.asyncio import Redis
 from cfb_data import CFBDClient, RedisCacheConfig
 
 ServerFactory = Callable[[Callable[[web.Request], object]], object]
+
+
+def _team_observation(
+    observed_at: datetime, *, abbreviation: str | None, aliases: tuple[str, ...]
+) -> CatalogProjection:
+    """Return one authoritative team observation with sparse abbreviation nulls."""
+    sink = CatalogSink(observed_at)
+    observed = {"id", "school", "alternate_names"}
+    if abbreviation is not None:
+        observed.add("abbreviation")
+    sink.add(
+        TeamFact(130, "Michigan", abbreviation, aliases),
+        authority=ObservationAuthority.authoritative,
+        source="teams.Team",
+        observed_fields=frozenset(observed),
+    )
+    return sink.projection()
 
 
 @pytest_asyncio.fixture
@@ -116,12 +143,121 @@ async def test_redis_retains_catalog_after_native_response_expiry(
     ] == []
 
     assert [team.id for team in await backend.find_teams("wolverines")] == [130]
+    counts = await backend.catalog_counts()
+    assert counts.teams == 1
     await asyncio.sleep(1.1)
     assert await backend.get_response(record.key, datetime.now(UTC)) is None
     assert [team.id for team in await backend.find_teams(130)] == [130]
 
     await backend.close()
+    reopened = await RedisCacheBackend(config).open()
+    assert [team.id for team in await reopened.find_teams("Wolverines")] == [130]
+    assert await reopened.catalog_counts() == counts
+    await reopened.close()
     await client.aclose()
+
+
+@pytest.mark.redis
+@pytest.mark.asyncio
+async def test_redis_counts_and_reopens_every_canonical_grain(
+    redis_config: RedisCacheConfig,
+) -> None:
+    """Persist and inspect all fifteen explicit catalog grains."""
+    now = datetime.now(UTC)
+    record = ResponseRecord(
+        key="6" * 64,
+        endpoint="/catalog-contract",
+        response_contract="CatalogContract:v1",
+        body=b"[]",
+        fetched_at=now,
+        fresh_until=now + timedelta(seconds=10),
+        retained_until=now + timedelta(seconds=30),
+        etag=None,
+        last_modified=None,
+        row_count=0,
+    )
+    projection = CatalogProjection(
+        teams=(TeamFact(130, "Michigan", "MICH", ("Wolverines",)),),
+        team_seasons=(TeamSeasonFact(130, 2024, "Big Ten", 365),),
+        conferences=(ConferenceFact(5, "Big Ten", "B1G", "fbs"),),
+        affiliations=(ConferenceAffiliationFact(130, 5, 1896, None),),
+        venues=(VenueFact(365, "Michigan Stadium", "Ann Arbor", "MI"),),
+        games=(GameFact(99, 2024, 1, "regular"),),
+        athletes=(AthleteFact("42", "Test Athlete", "QB"),),
+        athlete_team_seasons=(AthleteTeamSeasonFact("42", "Michigan", 2024),),
+        recruits=(RecruitFact("recruit-1", "42", "Test Athlete", 2024),),
+        coaches=(CoachFact(1, "Test Coach"),),
+        coach_team_seasons=(CoachTeamSeasonFact(1, 130, 2024, None, 1),),
+        drives=(DriveFact("drive-1", 99, 130, "Michigan", None, None),),
+        plays=(PlayFact("play-1", 99, "drive-1", 1, "Rush"),),
+        vocabularies=(VocabularyFact("play_type", "1", "Rush"),),
+        playoff_matchups=(PlayoffMatchupFact(1, 2024, 99),),
+    )
+    backend = await RedisCacheBackend(redis_config).open()
+    await backend.commit_response(record, projection)
+    await backend.commit_response(record, projection)
+    counts = await backend.catalog_counts()
+    assert len(asdict(counts)) == 15
+    assert all(value == 1 for value in asdict(counts).values())
+    await backend.close()
+
+    reopened = await RedisCacheBackend(redis_config).open()
+    assert await reopened.catalog_counts() == counts
+    await reopened.close()
+
+
+@pytest.mark.redis
+@pytest.mark.asyncio
+async def test_redis_high_cardinality_athletes_use_bounded_hash_structures(
+    redis_config: RedisCacheConfig,
+) -> None:
+    """Keep large rosters out of one-key-per-fact Redis layouts."""
+    now = datetime.now(UTC)
+    record = ResponseRecord(
+        key="5" * 64,
+        endpoint="/roster",
+        response_contract="RosterPlayer:list:v1",
+        body=b"[]",
+        fetched_at=now,
+        fresh_until=now + timedelta(seconds=10),
+        retained_until=now + timedelta(seconds=30),
+        etag=None,
+        last_modified=None,
+        row_count=2_000,
+    )
+    athletes = tuple(
+        AthleteFact(str(index), f"Player {index}", "QB") for index in range(1, 2_001)
+    )
+    memberships = tuple(
+        AthleteTeamSeasonFact(str(index), "Michigan", 2024) for index in range(1, 2_001)
+    )
+    backend = await RedisCacheBackend(redis_config).open()
+    await backend.commit_response(
+        record,
+        CatalogProjection(
+            athletes=athletes,
+            athlete_team_seasons=memberships,
+        ),
+    )
+
+    counts = await backend.catalog_counts()
+    resolved = await backend.find_athletes(
+        name="Player 2000", team="Michigan", season=2024
+    )
+    client = Redis.from_url(redis_config.url)
+    catalog_keys = [
+        key
+        async for key in client.scan_iter(
+            match=f"{redis_config.key_prefix}:v1:catalog:*"
+        )
+    ]
+
+    assert (counts.athletes, counts.athlete_team_seasons) == (2_000, 2_000)
+    assert [athlete.id for athlete in resolved] == ["2000"]
+    assert len(catalog_keys) == 2
+
+    await client.aclose()
+    await backend.close()
 
 
 @pytest.mark.redis
@@ -218,6 +354,48 @@ async def test_redis_authoritative_alias_removal_updates_lookup_index(
     )
 
     assert await backend.find_teams("Wolverines") == []
+    await backend.close()
+
+
+@pytest.mark.redis
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reverse", [False, True])
+async def test_redis_catalog_merge_is_ingestion_order_independent(
+    redis_config: RedisCacheConfig,
+    reverse: bool,
+) -> None:
+    """Select canonical fields by evidence rather than commit order."""
+    older = datetime.now(UTC)
+    newer = older + timedelta(seconds=1)
+
+    def record(observed_at: datetime) -> ResponseRecord:
+        return ResponseRecord(
+            key="7" * 64,
+            endpoint="/teams",
+            response_contract="Team:list:v1",
+            body=b"[]",
+            fetched_at=observed_at,
+            fresh_until=observed_at + timedelta(seconds=10),
+            retained_until=observed_at + timedelta(seconds=30),
+            etag=None,
+            last_modified=None,
+            row_count=0,
+        )
+
+    states = (
+        (
+            record(older),
+            _team_observation(older, abbreviation="MICH", aliases=("Wolverines",)),
+        ),
+        (record(newer), _team_observation(newer, abbreviation=None, aliases=())),
+    )
+    backend = await RedisCacheBackend(redis_config).open()
+    for response, projection in reversed(states) if reverse else states:
+        await backend.commit_response(response, projection)
+
+    result = (await backend.find_teams(130))[0]
+    assert result.abbreviation == "MICH"
+    assert result.alternate_names == ()
     await backend.close()
 
 
