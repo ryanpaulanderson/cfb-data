@@ -211,6 +211,9 @@ class CoachTenure(_ResponseModel):
             ),
             authority=ObservationAuthority.authoritative,
             source=f"{type(self).__module__}.{type(self).__qualname__}",
+            observed_fields=frozenset(
+                ("coach_id", "team_id", "start_year", "end_year", "tenure_id")
+            ),
         )
 
 

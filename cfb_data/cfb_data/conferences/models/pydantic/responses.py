@@ -110,6 +110,9 @@ class TeamConferenceAffiliation(_ResponseModel):
             ),
             authority=ObservationAuthority.authoritative,
             source=source,
+            observed_fields=frozenset(
+                ("team_id", "conference_id", "start_year", "end_year")
+            ),
         )
 
 

@@ -3,10 +3,19 @@
 from datetime import UTC, datetime, timedelta
 
 from cfb_data._catalog.merge import merge_catalog_observations
-from cfb_data._catalog.models import CatalogProjection, ObservationState, RecruitFact
+from cfb_data._catalog.models import (
+    CatalogProjection,
+    CoachTeamSeasonFact,
+    ConferenceAffiliationFact,
+    ObservationState,
+    RecruitFact,
+)
 from cfb_data.cache._catalog import project_catalog
 from cfb_data.coaches.models.pydantic.responses import CoachTenure
-from cfb_data.conferences.models.pydantic.responses import TeamConferenceChange
+from cfb_data.conferences.models.pydantic.responses import (
+    TeamConferenceAffiliation,
+    TeamConferenceChange,
+)
 from cfb_data.draft.models.pydantic.responses import DraftPick
 from cfb_data.games.models.pydantic.responses import Game, TeamGameStats
 from cfb_data.metrics.models.pydantic.responses import PlayWinProbability
@@ -92,6 +101,110 @@ def test_authoritative_recruit_null_clears_a_prior_athlete_link() -> None:
     assert field.value.state is ObservationState.null
     assert isinstance(merged.fact, RecruitFact)
     assert merged.fact.athlete_id is None
+
+
+def test_authoritative_coach_tenure_null_clears_a_prior_end_year() -> None:
+    """Treat an open-ended authoritative coaching tenure as observed state."""
+    payload: dict[str, object] = {
+        "id": 44,
+        "coach": {"id": 1, "firstName": "Jim", "lastName": "Coach"},
+        "team": {"id": 130, "school": "Michigan"},
+        "hireDate": "2020-01-01",
+        "startYear": 2020,
+        "endYear": 2024,
+        "effectiveStart": "2020-01-01T00:00:00Z",
+        "effectiveEnd": "2024-12-31T00:00:00Z",
+        "isInterim": False,
+        "active": False,
+        "seasons": 5,
+        "record": {
+            "games": 60,
+            "wins": 50,
+            "losses": 10,
+            "ties": 0,
+            "winPercentage": 0.833,
+        },
+        "attributionComplete": True,
+    }
+    older = datetime(2026, 8, 13, tzinfo=UTC)
+    closed = _project(
+        CoachTenure.model_validate(payload),
+        "/coaches/tenures",
+        {},
+        observed_at=older,
+    )
+    payload["endYear"] = None
+    payload["effectiveEnd"] = None
+    payload["active"] = True
+    opened = _project(
+        CoachTenure.model_validate(payload),
+        "/coaches/tenures",
+        {},
+        observed_at=older + timedelta(minutes=1),
+    )
+    closed_observation = next(
+        item
+        for item in closed.observations
+        if isinstance(item.fact, CoachTeamSeasonFact)
+    )
+    opened_observation = next(
+        item
+        for item in opened.observations
+        if isinstance(item.fact, CoachTeamSeasonFact)
+    )
+
+    field = next(item for item in opened_observation.fields if item.field == "end_year")
+    merged = merge_catalog_observations(closed_observation, opened_observation)
+
+    assert field.value.state is ObservationState.null
+    assert isinstance(merged.fact, CoachTeamSeasonFact)
+    assert merged.fact.end_year is None
+
+
+def test_authoritative_affiliation_null_clears_a_prior_end_year() -> None:
+    """Treat an open-ended authoritative affiliation as observed state."""
+    payload: dict[str, object] = {
+        "teamId": 130,
+        "team": "Michigan",
+        "conferenceId": 5,
+        "conference": "Big Ten",
+        "conferenceAbbreviation": "B1G",
+        "classification": "fbs",
+        "conferenceDivision": None,
+        "startYear": 1896,
+        "endYear": 1906,
+    }
+    older = datetime(2026, 8, 13, tzinfo=UTC)
+    closed = _project(
+        TeamConferenceAffiliation.model_validate(payload),
+        "/conferences/teams",
+        {},
+        observed_at=older,
+    )
+    payload["endYear"] = None
+    opened = _project(
+        TeamConferenceAffiliation.model_validate(payload),
+        "/conferences/teams",
+        {},
+        observed_at=older + timedelta(minutes=1),
+    )
+    closed_observation = next(
+        item
+        for item in closed.observations
+        if isinstance(item.fact, ConferenceAffiliationFact)
+    )
+    opened_observation = next(
+        item
+        for item in opened.observations
+        if isinstance(item.fact, ConferenceAffiliationFact)
+    )
+
+    field = next(item for item in opened_observation.fields if item.field == "end_year")
+    merged = merge_catalog_observations(closed_observation, opened_observation)
+
+    assert field.value.state is ObservationState.null
+    assert isinstance(merged.fact, ConferenceAffiliationFact)
+    assert merged.fact.end_year is None
 
 
 def test_conference_change_projects_team_conferences_and_affiliation() -> None:
