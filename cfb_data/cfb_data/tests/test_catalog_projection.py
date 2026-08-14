@@ -9,6 +9,7 @@ from cfb_data._catalog.models import (
     ConferenceAffiliationFact,
     ObservationState,
     RecruitFact,
+    TeamSeasonFact,
 )
 from cfb_data.cache._catalog import project_catalog
 from cfb_data.coaches.models.pydantic.responses import CoachTenure
@@ -395,6 +396,71 @@ def test_team_placeholder_venue_does_not_become_season_relationship() -> None:
 
     assert [fact.venue_id for fact in projection.team_seasons] == [None]
     assert projection.venues == ()
+
+
+def test_authoritative_team_season_nulls_clear_prior_relationships() -> None:
+    """Treat null conference and zero venue placeholders as observed absence."""
+    location: dict[str, object] = {
+        "id": 365,
+        "name": "Michigan Stadium",
+        "city": "Ann Arbor",
+        "state": "MI",
+        "zip": None,
+        "countryCode": "US",
+        "timezone": "America/Detroit",
+        "latitude": None,
+        "longitude": None,
+        "elevation": None,
+        "capacity": 107601,
+        "constructionYear": 1927,
+        "grass": False,
+        "dome": False,
+    }
+    payload: dict[str, object] = {
+        "id": 130,
+        "school": "Michigan",
+        "mascot": "Wolverines",
+        "abbreviation": "MICH",
+        "alternateNames": [],
+        "conference": "Big Ten",
+        "division": None,
+        "classification": "fbs",
+        "color": "#00274C",
+        "alternateColor": "#FFCB05",
+        "logos": [],
+        "twitter": None,
+        "location": location,
+    }
+    older = datetime(2026, 8, 13, tzinfo=UTC)
+    known = _project(
+        Team.model_validate(payload),
+        "/teams",
+        {"year": 2024},
+        observed_at=older,
+    )
+    payload["conference"] = None
+    location["id"] = 0
+    location["name"] = None
+    cleared = _project(
+        Team.model_validate(payload),
+        "/teams",
+        {"year": 2024},
+        observed_at=older + timedelta(minutes=1),
+    )
+    known_observation = next(
+        item for item in known.observations if isinstance(item.fact, TeamSeasonFact)
+    )
+    cleared_observation = next(
+        item for item in cleared.observations if isinstance(item.fact, TeamSeasonFact)
+    )
+    fields = {item.field: item.value.state for item in cleared_observation.fields}
+    merged = merge_catalog_observations(known_observation, cleared_observation)
+
+    assert fields["conference_name"] is ObservationState.null
+    assert fields["venue_id"] is ObservationState.null
+    assert isinstance(merged.fact, TeamSeasonFact)
+    assert merged.fact.conference_name is None
+    assert merged.fact.venue_id is None
 
 
 def test_play_models_project_game_drive_play_type_and_team_relationships() -> None:

@@ -247,13 +247,12 @@ class CacheCoordinator:
                 default=[],
                 strict=True,
             )
-        answered, persistent = await self._catalog_call(
+        return await self._identity_catalog_rows(
             "team_identity_read",
             self._backend.find_teams(query),
+            self._transient.find_teams(query),
+            key=lambda identity: identity.id,
         )
-        if answered:
-            return persistent or []
-        return await self._transient.find_teams(query)
 
     async def find_conferences(
         self, query: str | int, *, strict: bool = False
@@ -274,13 +273,12 @@ class CacheCoordinator:
                 default=[],
                 strict=True,
             )
-        answered, persistent = await self._catalog_call(
+        return await self._identity_catalog_rows(
             "conference_identity_read",
             self._backend.find_conferences(query),
+            self._transient.find_conferences(query),
+            key=lambda identity: identity.id,
         )
-        if answered:
-            return persistent or []
-        return await self._transient.find_conferences(query)
 
     async def find_venues(
         self, query: str | int, *, strict: bool = False
@@ -301,13 +299,12 @@ class CacheCoordinator:
                 default=[],
                 strict=True,
             )
-        answered, persistent = await self._catalog_call(
+        return await self._identity_catalog_rows(
             "venue_identity_read",
             self._backend.find_venues(query),
+            self._transient.find_venues(query),
+            key=lambda identity: identity.id,
         )
-        if answered:
-            return persistent or []
-        return await self._transient.find_venues(query)
 
     async def find_game(
         self, game_id: int, *, strict: bool = False
@@ -329,12 +326,12 @@ class CacheCoordinator:
                 strict=True,
             )
         answered, persistent = await self._catalog_call(
-            "game_identity_read",
-            self._backend.find_game(game_id),
+            "game_identity_read", self._backend.find_game(game_id)
         )
-        if answered:
-            return persistent
-        return await self._transient.find_game(game_id)
+        transient = await self._transient.find_game(game_id)
+        if transient is not None:
+            return transient
+        return persistent if answered else None
 
     async def find_games(
         self,
@@ -362,13 +359,12 @@ class CacheCoordinator:
                 default=[],
                 strict=True,
             )
-        answered, persistent = await self._catalog_call(
+        return await self._identity_catalog_rows(
             "game_identity_search",
             self._backend.find_games(season=season, week=week, team=team),
+            self._transient.find_games(season=season, week=week, team=team),
+            key=lambda identity: identity.id,
         )
-        if answered:
-            return persistent or []
-        return await self._transient.find_games(season=season, week=week, team=team)
 
     async def find_athletes(
         self,
@@ -396,13 +392,33 @@ class CacheCoordinator:
                 default=[],
                 strict=True,
             )
-        answered, persistent = await self._catalog_call(
+        return await self._identity_catalog_rows(
             "athlete_identity_read",
             self._backend.find_athletes(name=name, team=team, season=season),
+            self._transient.find_athletes(name=name, team=team, season=season),
+            key=lambda identity: identity.id,
         )
-        if answered:
-            return persistent or []
-        return await self._transient.find_athletes(name=name, team=team, season=season)
+
+    async def _identity_catalog_rows[IdentityT, IdentityKeyT](
+        self,
+        operation: str,
+        persistent_awaitable: Awaitable[list[IdentityT]],
+        transient_awaitable: Awaitable[list[IdentityT]],
+        *,
+        key: Callable[[IdentityT], IdentityKeyT],
+    ) -> list[IdentityT]:
+        """Overlay current transient identities on durable catalog results."""
+        answered, persistent = await self._catalog_call(operation, persistent_awaitable)
+        transient = await transient_awaitable
+        if not answered:
+            return transient
+        transient_by_key = {key(identity): identity for identity in transient}
+        combined = [
+            transient_by_key.pop(key(identity), identity)
+            for identity in (persistent or [])
+        ]
+        combined.extend(transient_by_key.values())
+        return combined
 
     async def cleanup_responses(self) -> int:
         """Remove expired response entries without deleting catalog facts."""

@@ -101,6 +101,9 @@ class Team(_ResponseModel):
             ),
             authority=ObservationAuthority.authoritative,
             source=f"{type(self).__module__}.{type(self).__qualname__}",
+            observed_fields=frozenset(
+                ("team_id", "season", "conference_name", "venue_id")
+            ),
         )
 
 

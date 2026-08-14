@@ -443,6 +443,37 @@ async def test_identity_resolution_works_in_memory_without_persistence(
 
 
 @pytest.mark.asyncio
+async def test_identity_resolution_uses_transient_facts_after_failed_commit(
+    api_server: ServerFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Read facts projected in memory when the durable commit fails open."""
+
+    async def handler(request: web.Request) -> web.Response:
+        return web.json_response([_team()])
+
+    async def fail_commit(
+        backend: SQLiteCacheBackend,
+        record: ResponseRecord,
+        projection: CatalogProjection,
+    ) -> None:
+        del backend, record, projection
+        raise RuntimeError("commit failed")
+
+    monkeypatch.setattr(SQLiteCacheBackend, "commit_response", fail_commit)
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            cache=SQLiteCacheConfig(path=tmp_path / "cache.sqlite3"),
+        ) as client:
+            identity = await client.identities.teams.resolve("Michigan")
+
+    assert identity.id == 130
+
+
+@pytest.mark.asyncio
 async def test_local_only_uses_the_transient_catalog_without_network(
     api_server: ServerFactory,
 ) -> None:
