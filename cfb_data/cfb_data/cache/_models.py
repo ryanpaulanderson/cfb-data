@@ -22,12 +22,3 @@ class ResponseRecord:
     etag: str | None
     last_modified: str | None
     row_count: int
-
-
-@dataclass(frozen=True, slots=True)
-class Lease:
-    """Identify ownership and expiry of a distributed refresh lease."""
-
-    key: str
-    owner_token: str
-    expires_at: datetime
