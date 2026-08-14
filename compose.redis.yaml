@@ -1,0 +1,12 @@
+services:
+  redis:
+    build:
+      context: ./docker/redis
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - cfb-data-redis:/data
+    restart: unless-stopped
+
+volumes:
+  cfb-data-redis:

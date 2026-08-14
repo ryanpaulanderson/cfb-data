@@ -15,6 +15,54 @@ Retry policy
 .. autoclass:: cfb_data.RetryPolicy
    :members:
 
+Cache configuration
+-------------------
+
+.. autoclass:: cfb_data.SQLiteCacheConfig
+   :members:
+
+.. autoclass:: cfb_data.RedisCacheConfig
+   :members:
+
+.. autoclass:: cfb_data.CachePolicyConfig
+   :members:
+
+.. autoclass:: cfb_data.CacheTTL
+   :members:
+
+.. autoclass:: cfb_data.CacheProfile
+   :members:
+   :show-inheritance:
+
+.. autoclass:: cfb_data.CacheMode
+   :members:
+   :show-inheritance:
+
+Identity results
+----------------
+
+.. autoclass:: cfb_data.TeamIdentity
+   :members:
+
+.. autoclass:: cfb_data.ConferenceIdentity
+   :members:
+
+.. autoclass:: cfb_data.VenueIdentity
+   :members:
+
+.. autoclass:: cfb_data.GameIdentity
+   :members:
+
+.. autoclass:: cfb_data.AthleteIdentity
+   :members:
+
+.. autoclass:: cfb_data.HydrationPlan
+   :members:
+
+.. autoclass:: cfb_data.FreshnessMode
+   :members:
+   :show-inheritance:
+
 Exceptions
 ----------
 
@@ -27,6 +75,26 @@ Exceptions
    :show-inheritance:
 
 .. autoclass:: cfb_data.CFBDOptionalDependencyError
+   :members:
+   :show-inheritance:
+
+.. autoclass:: cfb_data.CFBDCacheError
+   :members:
+   :show-inheritance:
+
+.. autoclass:: cfb_data.CFBDCacheBackendError
+   :members:
+   :show-inheritance:
+
+.. autoclass:: cfb_data.CFBDCacheMissError
+   :members:
+   :show-inheritance:
+
+.. autoclass:: cfb_data.CFBDIdentityNotFoundError
+   :members:
+   :show-inheritance:
+
+.. autoclass:: cfb_data.CFBDIdentityAmbiguityError
    :members:
    :show-inheritance:
 

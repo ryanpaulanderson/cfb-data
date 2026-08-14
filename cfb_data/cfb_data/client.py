@@ -23,12 +23,25 @@ from cfb_data._transport import (
 )
 from cfb_data.adjusted_metrics.resource import AdjustedMetricsResource
 from cfb_data.betting.resource import BettingResource
+from cfb_data.cache._backend import CacheBackend
+from cfb_data.cache._coordinator import CacheCoordinator, CacheModeScope
+from cfb_data.cache._key import credential_scope_digest
+from cfb_data.cache._null import NullCacheBackend
+from cfb_data.cache._sqlite import SQLiteCacheBackend
+from cfb_data.cache.config import (
+    CacheConfig,
+    CacheMode,
+    CachePolicyConfig,
+    RedisCacheConfig,
+    SQLiteCacheConfig,
+)
 from cfb_data.coaches.resource import CoachesResource
 from cfb_data.conferences.resource import ConferencesResource
 from cfb_data.draft.resource import DraftResource
 from cfb_data.drives.resource import DrivesResource
-from cfb_data.errors import CFBDConfigurationError
+from cfb_data.errors import CFBDConfigurationError, CFBDOptionalDependencyError
 from cfb_data.games.resource import GamesResource
+from cfb_data.identities.resource import IdentitiesResource
 from cfb_data.info.resource import InfoResource
 from cfb_data.metrics.resource import MetricsResource
 from cfb_data.players.resource import PlayersResource
@@ -65,6 +78,8 @@ class CFBDClient[FrameT]:
         base_url: str = "https://api.collegefootballdata.com",
         timeout_seconds: float = 30.0,
         retry_policy: RetryPolicy | None = None,
+        cache: CacheConfig | None = None,
+        cache_policy: CachePolicyConfig | None = None,
     ) -> None: ...
 
     @overload
@@ -76,6 +91,8 @@ class CFBDClient[FrameT]:
         base_url: str = "https://api.collegefootballdata.com",
         timeout_seconds: float = 30.0,
         retry_policy: RetryPolicy | None = None,
+        cache: CacheConfig | None = None,
+        cache_policy: CachePolicyConfig | None = None,
     ) -> None: ...
 
     @overload
@@ -87,6 +104,8 @@ class CFBDClient[FrameT]:
         base_url: str = "https://api.collegefootballdata.com",
         timeout_seconds: float = 30.0,
         retry_policy: RetryPolicy | None = None,
+        cache: CacheConfig | None = None,
+        cache_policy: CachePolicyConfig | None = None,
     ) -> None: ...
 
     def __init__(
@@ -97,6 +116,8 @@ class CFBDClient[FrameT]:
         base_url: str = "https://api.collegefootballdata.com",
         timeout_seconds: float = 30.0,
         retry_policy: RetryPolicy | None = None,
+        cache: CacheConfig | None = None,
+        cache_policy: CachePolicyConfig | None = None,
     ) -> None:
         """Initialize a one-shot client without opening its HTTP session.
 
@@ -105,6 +126,8 @@ class CFBDClient[FrameT]:
         :param base_url: API origin and optional base path.
         :param timeout_seconds: Finite total timeout for each HTTP attempt.
         :param retry_policy: Custom retry behavior, or defaults when omitted.
+        :param cache: Optional SQLite or Redis cache and catalog backend.
+        :param cache_policy: Optional immutable profile TTL overrides.
         :raises CFBDConfigurationError: If client configuration is invalid.
         """
         if dataframe_backend not in {"pandas", "polars"}:
@@ -112,13 +135,23 @@ class CFBDClient[FrameT]:
                 "dataframe_backend must be either 'pandas' or 'polars'"
             )
 
+        resolved_api_key = _resolve_api_key(api_key)
         transport = _HTTPTransport(
-            api_key=_resolve_api_key(api_key),
+            api_key=resolved_api_key,
             base_url=_validate_base_url(base_url),
             timeout_seconds=_validate_timeout(timeout_seconds),
             retry_policy=retry_policy or RetryPolicy(),
         )
-        executor = _EndpointExecutor(transport)
+        cache_backend, cache_timeout = _cache_backend(cache)
+        cache_coordinator = CacheCoordinator(
+            transport=transport,
+            backend=cache_backend,
+            enabled=cache is not None,
+            credential_scope=credential_scope_digest(resolved_api_key),
+            policy=cache_policy or CachePolicyConfig(),
+            io_timeout_seconds=cache_timeout,
+        )
+        executor = _EndpointExecutor(transport, cache_coordinator)
         concrete_adapter = (
             _PandasAdapter() if dataframe_backend == "pandas" else _PolarsAdapter()
         )
@@ -126,6 +159,7 @@ class CFBDClient[FrameT]:
         adapter = cast(_DataFrameAdapter[FrameT], concrete_adapter)
 
         self._transport = transport
+        self._cache_coordinator = cache_coordinator
         self._games = GamesResource(executor, adapter)
         self._drives = DrivesResource(executor, adapter)
         self._plays = PlaysResource(executor, adapter)
@@ -144,6 +178,7 @@ class CFBDClient[FrameT]:
         self._playoffs = PlayoffsResource(executor, adapter)
         self._adjusted_metrics = AdjustedMetricsResource(executor, adapter)
         self._info = InfoResource(executor)
+        self._identities = IdentitiesResource(executor, cache_coordinator)
 
     @property
     def games(self) -> GamesResource[FrameT]:
@@ -289,8 +324,38 @@ class CFBDClient[FrameT]:
         """
         return self._info
 
+    @property
+    def identities(self) -> IdentitiesResource:
+        """Return compact identity resolution and hydration operations.
+
+        :return: Backend-neutral identity namespace bound to this client.
+        """
+        return self._identities
+
+    async def cleanup_cache(self) -> int:
+        """Delete expired response records without pruning catalog facts.
+
+        :return: Number of response records explicitly removed by the backend.
+        :raises CFBDCacheBackendError: If no configured backend can answer.
+        """
+        return await self._cache_coordinator.cleanup_responses()
+
+    def cache_mode(self, mode: CacheMode | str) -> CacheModeScope:
+        """Return a task-local context for one call's cache behavior.
+
+        :param mode: ``default``, ``refresh``, ``bypass``, or ``local_only``.
+        :return: Synchronous context manager scoped through ``contextvars``.
+        :raises ValueError: If the mode string is not supported.
+        """
+        return self._cache_coordinator.mode_scope(CacheMode(mode))
+
     async def __aenter__(self) -> Self:
         await self._transport.open()
+        try:
+            await self._cache_coordinator.open()
+        except BaseException:
+            await self._transport.close()
+            raise
         return self
 
     async def __aexit__(
@@ -299,7 +364,28 @@ class CFBDClient[FrameT]:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        await self._transport.close()
+        try:
+            await self._cache_coordinator.close()
+        finally:
+            await self._transport.close()
+
+
+def _cache_backend(cache: CacheConfig | None) -> tuple[CacheBackend, float]:
+    """Build the selected backend without silently changing its configured type."""
+    if cache is None:
+        return NullCacheBackend(), 2.0
+    if isinstance(cache, SQLiteCacheConfig):
+        return SQLiteCacheBackend(cache), cache.io_timeout_seconds
+    if isinstance(cache, RedisCacheConfig):
+        try:
+            from cfb_data.cache._redis import RedisCacheBackend
+        except ImportError as exc:
+            raise CFBDOptionalDependencyError(
+                "Redis caching requires the 'cfb-data[redis]' extra"
+            ) from exc
+
+        return RedisCacheBackend(cache), cache.io_timeout_seconds
+    raise AssertionError("CacheConfig union contains an unsupported backend")
 
 
 __all__ = ["CFBDClient", "DataFrameBackend"]

@@ -1,8 +1,9 @@
 # Project status
 
-> Status as of August 13, 2026: version 0.4.1 implements the supported public
-> CFBD v5.24.0 REST endpoint surface. Dataset and workflow coverage remains
-> future work.
+> Status as of August 13, 2026: version 0.5.0 implements the supported public
+> CFBD v5.24.0 REST endpoint surface plus the accepted validated-response cache
+> and durable identity catalog. Dataset and workflow coverage remains future
+> work.
 
 ## Current product surface
 
@@ -50,6 +51,15 @@ implements `/wepa/team/season`, `/wepa/players/passing`,
 Patreon Tier 1. Info implements `/info` and `/info/usage` as operational model
 responses.
 
+Caching is optional. SQLite is included for local and single-host persistence;
+the `redis` extra supplies a shared async Redis backend. Both store exact
+validated JSON responses separately from permanent normalized identity facts
+and capability-aware coverage. Response hits remain subject to the current
+Pydantic contract. Process-local single-flight and renewable backend leases
+coalesce concurrent refreshes. The public `client.identities` namespace
+provides exact team, conference, venue, game, and scoped-athlete resolution
+plus dry-run, bounded, resumable canonical hydration.
+
 Apache Arrow is the canonical representation for tabular endpoint results.
 Its explicit recursive schema preserves ordered structs, typed lists,
 nullability, and UTC timestamps for populated, empty, and all-null responses.
@@ -77,6 +87,12 @@ Parquet methods are not.
   persistence, including empty and all-null tables.
 - Atomic internal Parquet writes and strict version, row-model, logical-schema,
   physical-schema, and tagged-scalar validation on reads.
+- Optional validated-response caching with typed TTL profiles, conditional
+  revalidation, narrow stale-on-error behavior, and task-local cache modes.
+- Durable versioned identity facts and coverage that survive response expiry.
+- Process-local and cross-process refresh coalescing for SQLite and Redis.
+- Corruption, migration, cancellation, lease-expiry, backend-failure,
+  multiprocess SQLite, real Redis, and opt-in bounded live-API verification.
 - Black-box tests through the installed client and a local HTTP boundary.
 - CI installation checks for base pandas and PyArrow and for the Polars extra
   on Python 3.12 and 3.13.
@@ -88,14 +104,13 @@ generic route decorator, public path router, Pandera schemas, and Pandera
 dependency have been removed. Raw JSON and general response-model return modes
 are not part of the supported client.
 
-## Deliberately not included in 0.4.1
+## Deliberately not included in 0.5.0
 
 - Internal authentication routes and the deliberately hidden rolling
   player-passing PPA route.
-- Credentialed live-API tests; deterministic tests use a local HTTP server.
 - Polars `LazyFrame` results.
-- Public save/load methods and cache keys, locations, expiration, eviction,
-  request hashing, remote filesystems, and partitioned Parquet datasets.
+- Public workflow-checkpoint save/load methods, direct cache-record access,
+  remote filesystems, and partitioned Parquet datasets.
 - Automatic flattening, exploding, or ML feature generation from nested
   endpoint data.
 - Public dataset or workflow namespaces.
@@ -110,10 +125,11 @@ recorded in
 [`architecture/0001-validated-models-before-dataframes.md`](architecture/0001-validated-models-before-dataframes.md)
 and
 [`architecture/0003-canonical-arrow-parquet.md`](architecture/0003-canonical-arrow-parquet.md).
-The accepted response-cache, identity-catalog, coverage-ledger, and hydration
-design is recorded separately in
+The implemented response-cache, identity-catalog, coverage-ledger, and
+hydration design is recorded separately in
 [`architecture/0004-api-cache-identity-catalog.md`](architecture/0004-api-cache-identity-catalog.md);
-it is not implemented in version 0.4.1.
+the operational surface is documented in
+[`guides/cache-and-identities.md`](guides/cache-and-identities.md).
 
 ## Development contract
 
@@ -127,7 +143,8 @@ make check
 ```
 
 `make install` installs the complete contributor environment, including
-PyArrow and both DataFrame backends. `make docs` performs the same strict
+PyArrow, both DataFrame backends, and the Redis integration client. `make docs`
+performs the same strict
 Sphinx HTML build used for publication. GitHub Actions runs the shared quality
 contract on Python 3.12 and 3.13, separately smoke-tests base and Polars
 installations, and deploys documentation from `main` to GitHub Pages. The

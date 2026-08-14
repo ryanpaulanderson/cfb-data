@@ -38,6 +38,26 @@ class CFBDOptionalDependencyError(CFBDError, ImportError):
     """Report that a selected optional feature is not installed."""
 
 
+class CFBDCacheError(CFBDError):
+    """Report a cache or identity-catalog operation failure."""
+
+
+class CFBDCacheBackendError(CFBDCacheError):
+    """Report that the configured persistence backend could not answer."""
+
+
+class CFBDCacheMissError(CFBDCacheError):
+    """Report that local-only cache access has no usable validated record."""
+
+
+class CFBDIdentityNotFoundError(CFBDCacheError, LookupError):
+    """Report that an identity query could not resolve one entity."""
+
+
+class CFBDIdentityAmbiguityError(CFBDCacheError, LookupError):
+    """Report that exact identity normalization matched multiple entities."""
+
+
 class CFBDClientStateError(CFBDError, RuntimeError):
     """Report an operation that violates the one-shot client lifecycle."""
 
@@ -217,11 +237,16 @@ class CFBDDataFrameConversionError(_EndpointError):
 __all__ = [
     "CFBDAuthenticationError",
     "CFBDAuthorizationError",
+    "CFBDCacheBackendError",
+    "CFBDCacheError",
+    "CFBDCacheMissError",
     "CFBDClientStateError",
     "CFBDConfigurationError",
     "CFBDDataFrameConversionError",
     "CFBDError",
     "CFBDHTTPError",
+    "CFBDIdentityAmbiguityError",
+    "CFBDIdentityNotFoundError",
     "CFBDOptionalDependencyError",
     "CFBDRateLimitError",
     "CFBDRequestValidationError",

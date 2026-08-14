@@ -2,6 +2,7 @@
 
 import asyncio
 import builtins
+import json
 import logging
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
@@ -491,6 +492,31 @@ async def test_truncated_payload_is_retried_for_safe_get(
 
     assert result.empty
     assert attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_streamed_json_body_is_read_to_eof_before_decoding(
+    api_server: ServerFactory,
+    calendar_response: dict[str, object],
+) -> None:
+    """Do not mistake the first available response chunk for a complete body."""
+    payload = json.dumps([calendar_response]).encode()
+
+    async def handler(request: web.Request) -> web.StreamResponse:
+        response = web.StreamResponse(headers={"Content-Type": "application/json"})
+        await response.prepare(request)
+        midpoint = len(payload) // 2
+        await response.write(payload[:midpoint])
+        await asyncio.sleep(0.05)
+        await response.write(payload[midpoint:])
+        await response.write_eof()
+        return response
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient("key", base_url=base_url) as client:
+            result = await client.games.calendar(year=2024)
+
+    assert len(result) == 1
 
 
 @pytest.mark.asyncio

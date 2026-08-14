@@ -12,9 +12,10 @@ make docs
 make check
 ```
 
-`make install` creates `.venv` and installs `.[dev,polars]` so the contributor
+`make install` creates `.venv` and installs `.[dev,polars,redis]` so the contributor
 environment exercises the canonical PyArrow layer, default pandas backend,
-and optional Polars backend. `make check` is the shared local and CI contract:
+optional Polars backend, and Redis integration client. `make check` is the
+shared local and CI contract:
 Ruff lint/format checks, strict mypy, a warning-free Sphinx HTML build, and the
 complete pytest suite. `make docs` writes the site to `docs/_build/html`. CI
 runs the shared contract on Python 3.12 and 3.13, separately smoke-tests base
@@ -36,8 +37,10 @@ Read
 [`docs/architecture/0001-validated-models-before-dataframes.md`](docs/architecture/0001-validated-models-before-dataframes.md)
 and
 [`docs/architecture/0003-canonical-arrow-parquet.md`](docs/architecture/0003-canonical-arrow-parquet.md)
-before changing endpoint, validation, Arrow, DataFrame, Parquet, dataset, or
-workflow code.
+and
+[`docs/architecture/0004-api-cache-identity-catalog.md`](docs/architecture/0004-api-cache-identity-catalog.md)
+before changing endpoint, validation, Arrow, DataFrame, Parquet, cache,
+identity, dataset, or workflow code.
 
 - Pydantic models own external request and response contracts.
 - The transport owns HTTP resources and retries; domain resources do not.
@@ -74,6 +77,22 @@ compatibility fixture. Request tests must prove invalid input stops before
 HTTP. Transport tests must be deterministic and must not expose credentials,
 query parameters, or response payloads in failure text.
 
+The default suite skips external services. Use the repository-owned local
+Redis configuration for integration verification:
+
+```sh
+make redis-up
+make test-redis
+make redis-down
+```
+
+`make test-live` is opt-in, loads `CFBD_API_KEY` from the untracked `.env`, and
+spends one bounded real API call. Report it separately from the deterministic
+suite. Cache changes must cover safe serialization, corrupt and incompatible
+records, TTL and stale behavior, cancellation, lease ownership and expiry,
+backend failure, redaction, exact quota call counts, multiprocess SQLite, and
+real Redis where relevant.
+
 ## Static type checking
 
 Production modules run under mypy strict mode with the Pydantic plugin. The
@@ -87,9 +106,10 @@ Localize and explain any unavoidable third-party boundary.
 
 ## Dependencies and Git
 
-`pyproject.toml` is the only dependency and package-metadata source. pandas and
-PyArrow are core dependencies; Polars belongs only to the `polars` extra;
-development tools and third-party typing stubs belong to `dev`.
+`pyproject.toml` is the only dependency and package-metadata source. pandas,
+PyArrow, and aiosqlite are core dependencies; Polars belongs only to the
+`polars` extra, Redis belongs only to the `redis` extra, and development tools
+and third-party typing stubs belong to `dev`.
 
 Use the branch names and detailed Conventional Commits defined in `AGENTS.md`.
 Do not commit directly to `main`, and do not merge unless the shared quality
