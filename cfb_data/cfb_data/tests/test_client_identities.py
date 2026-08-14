@@ -364,6 +364,19 @@ async def test_hydration_dry_run_resume_and_quota_call_formula(
                     name="Donovan Edwards", team="Michigan", season=2024
                 )
             ).id == "4426385"
+            assert (
+                await client.identities.athletes.resolve(
+                    name="Donovan Edwards",
+                    freshness=FreshnessMode.local_only,
+                )
+            ).id == "4426385"
+            assert (
+                await client.identities.athletes.resolve(
+                    name="Donovan Edwards",
+                    team="Michigan",
+                    freshness=FreshnessMode.local_only,
+                )
+            ).id == "4426385"
             assert len(calls) == 11
 
             resumed = await client.identities.hydrate(

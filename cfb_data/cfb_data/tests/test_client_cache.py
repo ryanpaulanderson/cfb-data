@@ -246,6 +246,46 @@ async def test_explicit_cache_modes_refresh_bypass_and_local_only(
 
 
 @pytest.mark.asyncio
+async def test_distributed_refresh_follower_waits_for_new_record(
+    api_server: ServerFactory,
+    calendar_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Do not satisfy forced refresh from the retained pre-refresh record."""
+    calls = 0
+    refresh_started = asyncio.Event()
+    release_refresh = asyncio.Event()
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            refresh_started.set()
+            await release_refresh.wait()
+        return web.json_response([calendar_response])
+
+    path = tmp_path / "cache.sqlite3"
+    async with api_server(handler) as base_url:
+        async with (
+            CFBDClient("key", base_url=base_url, cache=_sqlite(path)) as leader,
+            CFBDClient("key", base_url=base_url, cache=_sqlite(path)) as follower,
+        ):
+            await leader.games.calendar(year=2024)
+            with leader.cache_mode("refresh"):
+                leader_task = asyncio.create_task(leader.games.calendar(year=2024))
+            await refresh_started.wait()
+            with follower.cache_mode("refresh"):
+                follower_task = asyncio.create_task(follower.games.calendar(year=2024))
+            await asyncio.sleep(0.1)
+            follower_finished_early = follower_task.done()
+            release_refresh.set()
+            await asyncio.gather(leader_task, follower_task)
+
+    assert not follower_finished_early
+    assert calls == 2
+
+
+@pytest.mark.asyncio
 async def test_local_only_rejects_disabled_and_operational_caching(
     api_server: ServerFactory,
     tmp_path: Path,

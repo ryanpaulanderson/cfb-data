@@ -376,7 +376,7 @@ class AthleteIdentities:
             name=name, team=team, season=season, strict=strict
         )
         if freshness is not FreshnessMode.ensure_fresh:
-            return _one("Athlete", matches)
+            return _one_athlete(matches)
 
         if season is not None:
             request: BaseModel = RosterRequest(year=season, team=team)
@@ -404,7 +404,7 @@ class AthleteIdentities:
                 capability=capability,
             )
         if coverage_fresh:
-            return _one("Athlete", matches)
+            return _one_athlete(matches)
 
         try:
             if isinstance(request, RosterRequest):
@@ -422,12 +422,12 @@ class AthleteIdentities:
         except Exception as exc:
             if matches and self._coordinator.allows_identity_stale(exc):
                 _LOGGER.warning("CFBD identity stale-if-error namespace=athlete")
-                return _one("Athlete", matches)
+                return _one_athlete(matches)
             raise
         matches = await self._coordinator.find_athletes(
             name=name, team=team, season=season
         )
-        return _one("Athlete", matches or in_memory)
+        return _one_athlete(matches or in_memory)
 
 
 class IdentitiesResource:
@@ -797,6 +797,34 @@ def _one[IdentityT](label: str, matches: Sequence[IdentityT]) -> IdentityT:
             f"{label} identity is ambiguous among: {summaries}"
         )
     return matches[0]
+
+
+def _one_athlete(matches: Sequence[AthleteIdentity]) -> AthleteIdentity:
+    """Return one provider athlete while collapsing membership projections."""
+    if not matches:
+        raise CFBDIdentityNotFoundError("Athlete identity was not found")
+    by_id: dict[str, list[AthleteIdentity]] = {}
+    for match in matches:
+        by_id.setdefault(match.id, []).append(match)
+    if len(by_id) > 1:
+        return _one("Athlete", [memberships[0] for memberships in by_id.values()])
+
+    memberships = next(iter(by_id.values()))
+    first = memberships[0]
+    teams = {membership.team for membership in memberships}
+    seasons = {membership.season for membership in memberships}
+    positions = {
+        membership.position
+        for membership in memberships
+        if membership.position is not None
+    }
+    return AthleteIdentity(
+        id=first.id,
+        name=first.name,
+        position=next(iter(positions)) if len(positions) == 1 else first.position,
+        team=next(iter(teams)) if len(teams) == 1 else None,
+        season=next(iter(seasons)) if len(seasons) == 1 else None,
+    )
 
 
 def _safe_summary(value: object) -> str:

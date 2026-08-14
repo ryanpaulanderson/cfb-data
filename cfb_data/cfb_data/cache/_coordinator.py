@@ -431,6 +431,7 @@ class CacheCoordinator:
         rechecked_value = await self._validated_record(
             rechecked, response_contract, validate
         )
+        refresh_baseline = rechecked
         if (
             not force_refresh
             and rechecked is not None
@@ -489,6 +490,7 @@ class CacheCoordinator:
                 retained is not None
                 and value is not None
                 and retained.fresh_until > now
+                and (not force_refresh or retained != refresh_baseline)
             ):
                 return value
             if asyncio.get_running_loop().time() >= deadline:
@@ -504,10 +506,10 @@ class CacheCoordinator:
             retained = await self._read_record(key, now)
             value = await self._validated_record(retained, response_contract, validate)
             if (
-                not force_refresh
-                and retained is not None
+                retained is not None
                 and value is not None
                 and retained.fresh_until > now
+                and (not force_refresh or retained != refresh_baseline)
             ):
                 return value
             if retained is not None and value is not None:
