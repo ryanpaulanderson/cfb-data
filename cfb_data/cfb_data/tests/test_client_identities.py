@@ -179,6 +179,42 @@ async def test_identity_namespaces_resolve_without_dataframe_materialization(
 
 
 @pytest.mark.asyncio
+async def test_game_identity_find_uses_exact_team_abbreviation_with_fresh_coverage(
+    api_server: ServerFactory,
+    game_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Return SQLite game matches for every supported exact team identity."""
+    calls: list[str] = []
+    game = dict(game_response)
+    game.update(
+        {
+            "homeId": 130,
+            "homeTeam": "Michigan",
+            "homeConference": "Big Ten",
+        }
+    )
+    payloads: dict[str, object] = {"/teams": [_team()], "/games": [game]}
+
+    async def handler(request: web.Request) -> web.Response:
+        calls.append(request.path)
+        return web.json_response(payloads[request.path])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            cache=SQLiteCacheConfig(path=tmp_path / "cache.sqlite3"),
+        ) as client:
+            await client.teams.list()
+            await client.games.list(year=2024, team="MICH")
+            matches = await client.identities.games.find(season=2024, team="MICH")
+
+    assert [match.id for match in matches] == [401628347]
+    assert calls == ["/teams", "/games"]
+
+
+@pytest.mark.asyncio
 async def test_identity_resolution_works_in_memory_without_persistence(
     api_server: ServerFactory,
 ) -> None:

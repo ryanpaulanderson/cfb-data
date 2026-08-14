@@ -670,14 +670,21 @@ class SQLiteCacheBackend:
             clauses.append("g.week = ?")
             arguments.append(week)
         if team is not None:
-            clauses.append("(home.normalized_school = ? OR away.normalized_school = ?)")
-            normalized = _normalize(team)
-            arguments.extend([normalized, normalized])
+            team_ids = tuple(
+                identity.id for identity in await self._find_teams_unlocked(team)
+            )
+            if not team_ids:
+                return []
+            placeholders = ", ".join("?" for _ in team_ids)
+            clauses.append(
+                f"(g.home_team_id IN ({placeholders}) "
+                f"OR g.away_team_id IN ({placeholders}))"
+            )
+            arguments.extend(team_ids)
+            arguments.extend(team_ids)
         cursor = await self._active_connection().execute(
             "SELECT g.id, g.season, g.week, g.season_type, g.start_date, g.status, "
-            "g.home_team_id, g.away_team_id, g.venue_id FROM games g "
-            "LEFT JOIN teams home ON home.id = g.home_team_id "
-            "LEFT JOIN teams away ON away.id = g.away_team_id WHERE "
+            "g.home_team_id, g.away_team_id, g.venue_id FROM games g WHERE "
             + " AND ".join(clauses)
             + " ORDER BY g.start_date, g.id",
             arguments,

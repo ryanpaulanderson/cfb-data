@@ -106,10 +106,11 @@ async def test_sqlite_atomically_persists_response_catalog_and_coverage(
         365
     ]
     assert (await backend.find_game(401628347)).home_team_id == 130  # type: ignore[union-attr]
-    assert [
-        game.id
-        for game in await backend.find_games(season=2024, week=1, team="Michigan")
-    ] == [401628347]
+    for team_query in ("Michigan", "MICH", "Wolverines"):
+        assert [
+            game.id
+            for game in await backend.find_games(season=2024, week=1, team=team_query)
+        ] == [401628347]
     athletes = await backend.find_athletes(
         name="zeke berry", team="Michigan", season=2024
     )
