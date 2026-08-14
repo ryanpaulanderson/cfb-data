@@ -2,7 +2,8 @@
 
 from datetime import UTC, datetime, timedelta
 
-from cfb_data._catalog.models import CatalogProjection
+from cfb_data._catalog.merge import merge_catalog_observations
+from cfb_data._catalog.models import CatalogProjection, ObservationState, RecruitFact
 from cfb_data.cache._catalog import project_catalog
 from cfb_data.coaches.models.pydantic.responses import CoachTenure
 from cfb_data.conferences.models.pydantic.responses import TeamConferenceChange
@@ -12,15 +13,20 @@ from cfb_data.metrics.models.pydantic.responses import PlayWinProbability
 from cfb_data.players.models.pydantic.responses import PlayerSearchResult
 from cfb_data.playoffs.models.pydantic.responses import PlayoffMatchupSlotSource
 from cfb_data.plays.models.pydantic.responses import LiveGame, Play
+from cfb_data.recruiting.models.pydantic.responses import Recruit
 from cfb_data.teams.models.pydantic.responses import RosterPlayer, Team
 from pydantic import BaseModel
 
 
 def _project(
-    value: BaseModel, endpoint: str, parameters: dict[str, int]
+    value: BaseModel,
+    endpoint: str,
+    parameters: dict[str, str | int | float | bool],
+    *,
+    observed_at: datetime | None = None,
 ) -> CatalogProjection:
     """Project one validated model with deterministic observation metadata."""
-    now = datetime(2026, 8, 13, tzinfo=UTC)
+    now = observed_at or datetime(2026, 8, 13, tzinfo=UTC)
     return project_catalog(
         endpoint=endpoint,
         parameters=parameters,
@@ -30,6 +36,62 @@ def _project(
         fresh_until=now + timedelta(days=1),
         retained_until=now + timedelta(days=30),
     )
+
+
+def test_authoritative_recruit_null_clears_a_prior_athlete_link() -> None:
+    """Treat an explicit null athlete link as authoritative observed state."""
+    payload: dict[str, object] = {
+        "id": "12345",
+        "athleteId": "4426385",
+        "recruitType": "HighSchool",
+        "year": 2024,
+        "ranking": 25,
+        "name": "Test Recruit",
+        "school": "Test High",
+        "committedTo": "Michigan",
+        "position": "RB",
+        "height": 72.5,
+        "weight": 205,
+        "stars": 4,
+        "rating": 0.95,
+        "city": "Ann Arbor",
+        "stateProvince": "MI",
+        "country": "USA",
+        "hometownInfo": {
+            "latitude": 42.28,
+            "longitude": -83.74,
+            "fipsCode": "26161",
+        },
+    }
+    older = datetime(2026, 8, 13, tzinfo=UTC)
+    linked = _project(
+        Recruit.model_validate(payload),
+        "/recruiting/players",
+        {},
+        observed_at=older,
+    )
+    payload["athleteId"] = None
+    unlinked = _project(
+        Recruit.model_validate(payload),
+        "/recruiting/players",
+        {},
+        observed_at=older + timedelta(minutes=1),
+    )
+    linked_observation = next(
+        item for item in linked.observations if isinstance(item.fact, RecruitFact)
+    )
+    unlinked_observation = next(
+        item for item in unlinked.observations if isinstance(item.fact, RecruitFact)
+    )
+
+    field = next(
+        item for item in unlinked_observation.fields if item.field == "athlete_id"
+    )
+    merged = merge_catalog_observations(linked_observation, unlinked_observation)
+
+    assert field.value.state is ObservationState.null
+    assert isinstance(merged.fact, RecruitFact)
+    assert merged.fact.athlete_id is None
 
 
 def test_conference_change_projects_team_conferences_and_affiliation() -> None:

@@ -638,6 +638,7 @@ async def test_hydration_dry_run_resume_and_quota_call_formula(
     api_server: ServerFactory,
     game_response: dict[str, object],
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[str, str, str]] = []
     payloads: dict[str, object] = {
@@ -720,8 +721,25 @@ async def test_hydration_dry_run_resume_and_quota_call_formula(
                 include_vocabularies=True,
                 dry_run=True,
             )
+            assert resumed.planned_calls == 0
 
-    assert resumed.planned_calls == 0
+            async def fail_coverage_read(
+                backend: SQLiteCacheBackend, **kwargs: object
+            ) -> bool:
+                del backend, kwargs
+                raise RuntimeError("coverage read failed")
+
+            monkeypatch.setattr(
+                SQLiteCacheBackend, "has_fresh_coverage", fail_coverage_read
+            )
+            with pytest.raises(CFBDCacheBackendError, match="could not answer"):
+                await client.identities.hydrate(
+                    seasons=[2023, 2024],
+                    classification=Classification.fbs,
+                    include_vocabularies=True,
+                    dry_run=True,
+                )
+
     assert len([call for call in calls if call[0] == "/games"]) == 2
     assert len([call for call in calls if call[0] == "/roster"]) == 2
     assert all(

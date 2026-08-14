@@ -553,6 +553,7 @@ class IdentitiesResource:
                 endpoint=call.endpoint,
                 canonical_filters=call.canonical_filters,
                 capability=call.capability,
+                strict=True,
             ):
                 pending.append(call)
         endpoints = tuple(call.endpoint for call in pending)

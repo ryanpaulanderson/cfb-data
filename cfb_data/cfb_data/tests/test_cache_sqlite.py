@@ -121,6 +121,20 @@ def _team_observation(
     return sink.projection()
 
 
+def _recruit_observation(
+    observed_at: datetime, *, athlete_id: str | None
+) -> CatalogProjection:
+    """Return an authoritative recruit observation including a nullable link."""
+    sink = CatalogSink(observed_at)
+    sink.add(
+        RecruitFact("recruit-1", athlete_id, "Zeke Berry", 2022),
+        authority=ObservationAuthority.authoritative,
+        source="recruiting.Recruit",
+        observed_fields=frozenset(("id", "athlete_id", "name", "year")),
+    )
+    return sink.projection()
+
+
 @pytest.mark.asyncio
 async def test_sqlite_atomically_persists_response_catalog_and_coverage(
     tmp_path: Path,
@@ -228,6 +242,31 @@ async def test_sqlite_authoritative_alias_removal_updates_lookup_index(
 
     assert await backend.find_teams("Wolverines") == []
     await backend.close()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_authoritative_null_clears_recruit_athlete_link(
+    tmp_path: Path,
+) -> None:
+    """Persist an explicit authoritative null over an older recruit link."""
+    now = datetime(2026, 8, 13, tzinfo=UTC)
+    path = tmp_path / "cache.sqlite3"
+    backend = await SQLiteCacheBackend(SQLiteCacheConfig(path=path)).open()
+    await backend.commit_response(
+        _record(now), _recruit_observation(now, athlete_id="4794102")
+    )
+    later = now + timedelta(minutes=1)
+    await backend.commit_response(
+        _record(later), _recruit_observation(later, athlete_id=None)
+    )
+    await backend.close()
+
+    with sqlite3.connect(path) as connection:
+        row = connection.execute(
+            sqlite_test_sql("select_recruit_athlete_id.sql")
+        ).fetchone()
+
+    assert row == (None,)
 
 
 @pytest.mark.asyncio

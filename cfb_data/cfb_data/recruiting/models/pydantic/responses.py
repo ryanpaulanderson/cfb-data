@@ -54,6 +54,7 @@ class Recruit(_ResponseModel):
             RecruitFact(self.id, self.athlete_id, self.name, self.year),
             authority=ObservationAuthority.authoritative,
             source=source,
+            observed_fields=frozenset(("id", "athlete_id", "name", "year")),
         )
         if self.athlete_id:
             observe_athlete(

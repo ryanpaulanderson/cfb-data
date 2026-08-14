@@ -5,7 +5,7 @@ import json
 import os
 import uuid
 from collections.abc import AsyncIterator, Callable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -55,6 +55,20 @@ def _team_observation(
         authority=ObservationAuthority.authoritative,
         source="teams.Team",
         observed_fields=frozenset(observed),
+    )
+    return sink.projection()
+
+
+def _recruit_observation(
+    observed_at: datetime, *, athlete_id: str | None
+) -> CatalogProjection:
+    """Return an authoritative recruit observation including a nullable link."""
+    sink = CatalogSink(observed_at)
+    sink.add(
+        RecruitFact("recruit-1", athlete_id, "Zeke Berry", 2022),
+        authority=ObservationAuthority.authoritative,
+        source="recruiting.Recruit",
+        observed_fields=frozenset(("id", "athlete_id", "name", "year")),
     )
     return sink.projection()
 
@@ -355,6 +369,50 @@ async def test_redis_authoritative_alias_removal_updates_lookup_index(
 
     assert await backend.find_teams("Wolverines") == []
     await backend.close()
+
+
+@pytest.mark.redis
+@pytest.mark.asyncio
+async def test_redis_authoritative_null_clears_recruit_athlete_link(
+    redis_config: RedisCacheConfig,
+) -> None:
+    """Persist an explicit authoritative null in the compact recruit layout."""
+    now = datetime.now(UTC)
+    record = ResponseRecord(
+        key="4" * 64,
+        endpoint="/recruiting/players",
+        response_contract="Recruit:list:v1",
+        body=b"[]",
+        fetched_at=now,
+        fresh_until=now + timedelta(seconds=10),
+        retained_until=now + timedelta(seconds=30),
+        etag=None,
+        last_modified=None,
+        row_count=0,
+    )
+    backend = await RedisCacheBackend(redis_config).open()
+    await backend.commit_response(
+        record, _recruit_observation(now, athlete_id="4794102")
+    )
+    later = now + timedelta(minutes=1)
+    later_record = replace(
+        record,
+        fetched_at=later,
+        fresh_until=later + timedelta(seconds=10),
+        retained_until=later + timedelta(seconds=30),
+    )
+    await backend.commit_response(
+        later_record, _recruit_observation(later, athlete_id=None)
+    )
+    await backend.close()
+
+    client = Redis.from_url(redis_config.url)
+    payloads = await client.hvals(f"{redis_config.key_prefix}:v1:catalog:recruit")
+    await client.aclose()
+    assert len(payloads) == 1
+    payload: object = json.loads(payloads[0])
+    assert isinstance(payload, dict)
+    assert payload["athlete_id"] is None
 
 
 @pytest.mark.redis
