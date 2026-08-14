@@ -404,6 +404,9 @@ class SQLiteCacheBackend:
                 )
                 await self._commit_projection(connection, projection, observed_at)
                 await connection.commit()
+            except asyncio.CancelledError:
+                await connection.rollback()
+                raise
             except Exception as exc:
                 await connection.rollback()
                 raise CFBDCacheBackendError("SQLite cache commit failed") from exc
@@ -509,6 +512,9 @@ class SQLiteCacheBackend:
                 await cursor.close()
                 await connection.commit()
                 return acquired
+            except asyncio.CancelledError:
+                await connection.rollback()
+                raise
             except Exception as exc:
                 await connection.rollback()
                 raise CFBDCacheBackendError("SQLite lease acquisition failed") from exc
@@ -782,6 +788,14 @@ class SQLiteCacheBackend:
                     fact.alternate_names is not None,
                 )
                 for fact in projection.teams
+            ],
+        )
+        await connection.executemany(
+            "DELETE FROM team_aliases WHERE team_id = ?",
+            [
+                (fact.id,)
+                for fact in projection.teams
+                if fact.alternate_names is not None
             ],
         )
         await connection.executemany(

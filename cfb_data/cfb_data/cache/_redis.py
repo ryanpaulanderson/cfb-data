@@ -281,10 +281,12 @@ class RedisCacheBackend:
         """Return exact provider-ID, school, abbreviation, or alias matches."""
         if isinstance(query, int):
             ids = {str(query)}
+            normalized_query = None
         else:
-            ids = await self._index_members("team", _normalize(query))
+            normalized_query = _normalize(query)
+            ids = await self._index_members("team", normalized_query)
         records = await self._hash_records("team", ids)
-        return [
+        identities = [
             TeamIdentity(
                 id=_required_int(record, "id"),
                 school=_required_text(record, "school"),
@@ -294,6 +296,22 @@ class RedisCacheBackend:
                 ),
             )
             for record in records
+        ]
+        if normalized_query is None:
+            return identities
+        return [
+            identity
+            for identity in identities
+            if normalized_query
+            in {
+                _normalize(identity.school),
+                *(
+                    [_normalize(identity.abbreviation)]
+                    if identity.abbreviation is not None
+                    else []
+                ),
+                *(_normalize(alias) for alias in identity.alternate_names),
+            }
         ]
 
     async def find_conferences(self, query: str | int) -> list[ConferenceIdentity]:

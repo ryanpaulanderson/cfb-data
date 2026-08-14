@@ -1,5 +1,6 @@
 """Test the real SQLite cache, catalog, coverage, and lease backend."""
 
+import asyncio
 import json
 import sqlite3
 import stat
@@ -160,6 +161,61 @@ async def test_sqlite_partial_facts_preserve_richer_catalog_fields(
     assert (conference.abbreviation, conference.classification) == ("B1G", "fbs")
     assert (venue.city, venue.state) == ("Ann Arbor", "MI")
 
+    await backend.close()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_authoritative_alias_removal_updates_lookup_index(
+    tmp_path: Path,
+) -> None:
+    """Stop resolving an alias removed by a later authoritative team response."""
+    now = datetime(2026, 8, 13, tzinfo=UTC)
+    backend = await SQLiteCacheBackend(
+        SQLiteCacheConfig(path=tmp_path / "cache.sqlite3")
+    ).open()
+    await backend.commit_response(
+        _record(now),
+        CatalogProjection(teams=(TeamFact(130, "Michigan", "MICH", ("Wolverines",)),)),
+    )
+    await backend.commit_response(
+        _record(now + timedelta(minutes=1)),
+        CatalogProjection(teams=(TeamFact(130, "Michigan", "MICH", ()),)),
+    )
+
+    assert await backend.find_teams("Wolverines") == []
+    await backend.close()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_cancelled_commit_rolls_back_open_transaction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Allow a later commit after cancellation interrupts an open transaction."""
+    now = datetime(2026, 8, 13, tzinfo=UTC)
+    backend = await SQLiteCacheBackend(
+        SQLiteCacheConfig(path=tmp_path / "cache.sqlite3")
+    ).open()
+    original_commit_projection = backend._commit_projection
+    projection_started = asyncio.Event()
+
+    async def blocked_projection(*_: object) -> None:
+        projection_started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(backend, "_commit_projection", blocked_projection)
+    interrupted = asyncio.create_task(
+        backend.commit_response(_record(now), CatalogProjection())
+    )
+    await projection_started.wait()
+    interrupted.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await interrupted
+
+    monkeypatch.setattr(backend, "_commit_projection", original_commit_projection)
+    await backend.commit_response(
+        _record(now + timedelta(minutes=1)), CatalogProjection()
+    )
     await backend.close()
 
 

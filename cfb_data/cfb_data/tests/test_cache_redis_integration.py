@@ -189,6 +189,39 @@ async def test_redis_partial_facts_preserve_richer_catalog_fields(
 
 @pytest.mark.redis
 @pytest.mark.asyncio
+async def test_redis_authoritative_alias_removal_updates_lookup_index(
+    redis_config: RedisCacheConfig,
+) -> None:
+    """Stop resolving an alias removed by a later authoritative team response."""
+    now = datetime.now(UTC)
+    record = ResponseRecord(
+        key="9" * 64,
+        endpoint="/teams",
+        response_contract="Team:list:v1",
+        body=b"[]",
+        fetched_at=now,
+        fresh_until=now + timedelta(seconds=10),
+        retained_until=now + timedelta(seconds=30),
+        etag=None,
+        last_modified=None,
+        row_count=0,
+    )
+    backend = await RedisCacheBackend(redis_config).open()
+    await backend.commit_response(
+        record,
+        CatalogProjection(teams=(TeamFact(130, "Michigan", "MICH", ("Wolverines",)),)),
+    )
+    await backend.commit_response(
+        record,
+        CatalogProjection(teams=(TeamFact(130, "Michigan", "MICH", ()),)),
+    )
+
+    assert await backend.find_teams("Wolverines") == []
+    await backend.close()
+
+
+@pytest.mark.redis
+@pytest.mark.asyncio
 async def test_redis_sparse_affiliation_preserves_known_end_year(
     redis_config: RedisCacheConfig,
 ) -> None:
