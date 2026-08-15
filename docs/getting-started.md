@@ -54,12 +54,13 @@ its context, or enter the same instance twice.
 import asyncio
 
 from cfb_data import CFBDClient
+from cfb_data.enums import teams
 
 
 async def main() -> None:
     async with CFBDClient() as client:
-        games = await client.games.list(year=2024, team="Michigan")
-        records = await client.games.records(year=2024, team="Michigan")
+        games = await client.games.list(year=2024, team=teams.Michigan)
+        records = await client.games.records(year=2024, team=teams.Michigan)
 
     print(games[["week", "home_team", "away_team", "home_points", "away_points"]])
     print(records)
@@ -90,12 +91,14 @@ print(high_scoring[["home_team", "away_team", "total_points"]].head())
 Methods are grouped by subject on the client. For example:
 
 ```python
+from cfb_data.enums import conferences, teams
+
 async with CFBDClient() as client:
-    games = await client.games.list(year=2024, conference="SEC")
-    drives = await client.drives.list(year=2024, team="Georgia")
-    plays = await client.plays.list(year=2024, week=1, team="Georgia")
-    team_stats = await client.stats.team_season(year=2024, team="Georgia")
-    elo = await client.ratings.elo(year=2024, team="Georgia")
+    games = await client.games.list(year=2024, conference=conferences.SEC)
+    drives = await client.drives.list(year=2024, team=teams.Georgia)
+    plays = await client.plays.list(year=2024, week=1, team=teams.Georgia)
+    team_stats = await client.stats.team_season(year=2024, team=teams.Georgia)
+    elo = await client.ratings.elo(year=2024, team=teams.Georgia)
 ```
 
 The [endpoint index](cfbd_api/README.md) lists every supported namespace and
@@ -109,11 +112,12 @@ request model. The two styles produce the same request and cannot be mixed.
 
 ```python
 from cfb_data import CFBDClient, GamesRequest, SeasonType
+from cfb_data.enums import conferences
 
 request = GamesRequest(
     year=2024,
     season_type=SeasonType.regular,
-    conference="Big Ten",
+    conference=conferences.BIGTEN,
 )
 
 async with CFBDClient() as client:
@@ -175,10 +179,11 @@ and persists both responses and compact identity facts:
 
 ```python
 from cfb_data import CFBDClient, SQLiteCacheConfig
+from cfb_data.enums import teams
 
 async with CFBDClient(cache=SQLiteCacheConfig()) as client:
     games = await client.games.list(year=2025)
-    michigan = await client.identities.teams.resolve("MICH")
+    michigan = await client.identities.teams.resolve(teams.Michigan)
     game = await client.identities.games.resolve(game_id=401628347)
 ```
 

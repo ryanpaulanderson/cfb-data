@@ -125,9 +125,10 @@ useful when one endpoint uses a name and another expects a provider ID:
 
 ```python
 from cfb_data import CFBDClient, SQLiteCacheConfig
+from cfb_data.enums import teams
 
 async with CFBDClient(cache=SQLiteCacheConfig()) as client:
-    michigan = await client.identities.teams.resolve("MICH")
+    michigan = await client.identities.teams.resolve(teams.Michigan)
     stadium = await client.identities.venues.resolve("Michigan Stadium")
     game = await client.identities.games.resolve(game_id=401628347)
 
@@ -141,10 +142,12 @@ names. Athlete names often need a team and season to distinguish people with
 the same name:
 
 ```python
+from cfb_data.enums import teams
+
 async with CFBDClient(cache=SQLiteCacheConfig()) as client:
     athlete = await client.identities.athletes.resolve(
         name="Example Player",
-        team="Michigan",
+        team=teams.Michigan,
         season=2025,
     )
 ```

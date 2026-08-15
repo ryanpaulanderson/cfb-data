@@ -153,6 +153,17 @@ Exceptions
 Allowed values
 --------------
 
+.. autoclass:: cfb_data.TeamName
+   :members:
+   :show-inheritance:
+
+.. autoclass:: cfb_data.ConferenceName
+   :members:
+   :show-inheritance:
+
+The same classes are available through the lowercase aliases ``teams`` and
+``conferences`` in :mod:`cfb_data.enums`.
+
 .. autoclass:: cfb_data.SeasonType
    :members:
    :show-inheritance:

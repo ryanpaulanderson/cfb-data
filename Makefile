@@ -5,7 +5,7 @@ PRE_COMMIT := $(VENV)/bin/pre-commit
 RUFF := $(VENV)/bin/ruff
 SPHINXBUILD := $(VENV)/bin/sphinx-build
 
-.PHONY: help install hooks format docs check test build redis-up redis-down test-redis test-live test-live-all
+.PHONY: help install hooks format docs check test build update-reference-enums redis-up redis-down test-redis test-live test-live-all
 
 help:
 	@echo "make install  Create .venv and install runtime + development dependencies"
@@ -15,6 +15,7 @@ help:
 	@echo "make check    Run the complete local/CI quality contract"
 	@echo "make test     Run the test suite"
 	@echo "make build    Build and validate release distributions"
+	@echo "make update-reference-enums Regenerate team and conference enums from live API data"
 	@echo "make redis-up Build and start the local persistent Redis service"
 	@echo "make redis-down Stop the local Redis service without deleting its volume"
 	@echo "make test-redis Run integration tests against the local Redis service"
@@ -62,3 +63,7 @@ test-live-all:
 build:
 	$(VENV_PYTHON) -m build
 	$(VENV_PYTHON) -m twine check --strict dist/*
+
+update-reference-enums:
+	test -n "$(REFERENCE_YEAR)" || (echo "Set REFERENCE_YEAR to the season to generate" && exit 1)
+	set -a; . ./.env; set +a; $(VENV_PYTHON) scripts/generate_reference_enums.py --year $(REFERENCE_YEAR)

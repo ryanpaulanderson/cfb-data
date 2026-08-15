@@ -6,7 +6,7 @@ also fans learning pandas, Polars, or sports analytics. The library is built
 carefully, while the user-facing API and documentation are still being shaped
 around what is most useful in real analyses.
 
-The current package version is 0.5.0 and the endpoint reference was checked
+The current package version is 0.5.1 and the endpoint reference was checked
 against CFBD API v5.24.0 on August 13, 2026. The Python API and local cache
 format may still change during pre-alpha development.
 

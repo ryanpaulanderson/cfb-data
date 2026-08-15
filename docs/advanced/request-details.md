@@ -23,6 +23,12 @@ Strings are case-sensitive.
 {class}`cfb_data.TransferEligibility` describes response values:
 `Withdrawn`, `TBD`, `PendingAppeal`, `SittingOne`, and `Immediate`.
 
+The season-specific reference catalog is exposed as
+{class}`cfb_data.TeamName` and {class}`cfb_data.ConferenceName`, with the
+ergonomic aliases `teams` and `conferences` in {mod}`cfb_data.enums`. The
+snapshot season is {data}`cfb_data.enums.REFERENCE_SEASON`; historical values
+outside that snapshot remain valid ordinary strings.
+
 Live-play response enums use:
 
 - `home` or `away` for {class}`cfb_data.HomeAway`;
