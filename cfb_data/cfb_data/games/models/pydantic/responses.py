@@ -129,6 +129,19 @@ class Game(_ResponseModel):
             venue_id=self.venue_id,
             authority=ObservationAuthority.authoritative,
             source=source,
+            observed_fields=frozenset(
+                (
+                    "id",
+                    "season",
+                    "week",
+                    "season_type",
+                    "start_date",
+                    "status",
+                    "home_team_id",
+                    "away_team_id",
+                    "venue_id",
+                )
+            ),
         )
         observe_team(sink, id=self.home_id, school=self.home_team, source=source)
         observe_team(sink, id=self.away_id, school=self.away_team, source=source)

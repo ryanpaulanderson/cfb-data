@@ -7,6 +7,7 @@ from cfb_data._catalog.models import (
     CatalogProjection,
     CoachTeamSeasonFact,
     ConferenceAffiliationFact,
+    GameFact,
     ObservationState,
     RecruitFact,
     TeamSeasonFact,
@@ -355,6 +356,43 @@ def test_game_placeholder_ids_do_not_become_catalog_relationships(
         (fact.home_team_id, fact.away_team_id, fact.venue_id)
         for fact in projection.games
     ] == [(None, None, None)]
+
+
+def test_authoritative_game_placeholders_clear_prior_relationships(
+    game_response: dict[str, object],
+) -> None:
+    """Treat zero relationship placeholders as observed authoritative absence."""
+    older = datetime(2026, 8, 13, tzinfo=UTC)
+    known = _project(
+        Game.model_validate(game_response),
+        "/games",
+        {"year": 2024},
+        observed_at=older,
+    )
+    response = dict(game_response)
+    response.update({"homeId": 0, "awayId": 0, "venueId": 0})
+    cleared = _project(
+        Game.model_validate(response),
+        "/games",
+        {"year": 2024},
+        observed_at=older + timedelta(minutes=1),
+    )
+    known_observation = next(
+        item for item in known.observations if isinstance(item.fact, GameFact)
+    )
+    cleared_observation = next(
+        item for item in cleared.observations if isinstance(item.fact, GameFact)
+    )
+    fields = {item.field: item.value.state for item in cleared_observation.fields}
+    merged = merge_catalog_observations(known_observation, cleared_observation)
+
+    assert fields["home_team_id"] is ObservationState.null
+    assert fields["away_team_id"] is ObservationState.null
+    assert fields["venue_id"] is ObservationState.null
+    assert isinstance(merged.fact, GameFact)
+    assert merged.fact.home_team_id is None
+    assert merged.fact.away_team_id is None
+    assert merged.fact.venue_id is None
 
 
 def test_team_placeholder_venue_does_not_become_season_relationship() -> None:

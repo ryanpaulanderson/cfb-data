@@ -537,6 +537,7 @@ def observe_game(
     away_team_id: int | None = None,
     venue_id: int | None = None,
     authority: ObservationAuthority = ObservationAuthority.sparse,
+    observed_fields: frozenset[str] | None = None,
 ) -> None:
     """Add a valid game and normalize placeholder relationships."""
     from datetime import datetime
@@ -557,6 +558,7 @@ def observe_game(
         ),
         authority=authority,
         source=source,
+        observed_fields=observed_fields,
     )
 
 
