@@ -179,6 +179,7 @@ class CoachProfile(_ResponseModel):
             CoachFact(self.id, name, self.wikidata_id),
             authority=ObservationAuthority.authoritative,
             source=f"{type(self).__module__}.{type(self).__qualname__}",
+            observed_fields=frozenset(("id", "name", "wikidata_id")),
         )
 
 

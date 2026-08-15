@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from cfb_data._catalog.merge import merge_catalog_observations
 from cfb_data._catalog.models import (
     CatalogProjection,
+    CoachFact,
     CoachTeamSeasonFact,
     ConferenceAffiliationFact,
     GameFact,
@@ -13,7 +14,7 @@ from cfb_data._catalog.models import (
     TeamSeasonFact,
 )
 from cfb_data.cache._catalog import project_catalog
-from cfb_data.coaches.models.pydantic.responses import CoachTenure
+from cfb_data.coaches.models.pydantic.responses import CoachProfile, CoachTenure
 from cfb_data.conferences.models.pydantic.responses import (
     TeamConferenceAffiliation,
     TeamConferenceChange,
@@ -161,6 +162,62 @@ def test_authoritative_coach_tenure_null_clears_a_prior_end_year() -> None:
     assert field.value.state is ObservationState.null
     assert isinstance(merged.fact, CoachTeamSeasonFact)
     assert merged.fact.end_year is None
+
+
+def test_authoritative_coach_profile_null_clears_prior_wikidata_id() -> None:
+    """Treat a null authoritative profile link as observed state."""
+    payload: dict[str, object] = {
+        "id": 24,
+        "firstName": "Sherrone",
+        "lastName": "Moore",
+        "displayName": "Sherrone Moore",
+        "currentTeam": {"id": 130, "school": "Michigan", "conference": "Big Ten"},
+        "career": {
+            "games": 15,
+            "wins": 8,
+            "losses": 7,
+            "ties": 0,
+            "winPercentage": 0.533,
+            "seasons": 1,
+            "teams": 1,
+            "firstYear": 2024,
+            "lastYear": 2024,
+        },
+        "birthDate": "1986-02-03",
+        "almaMater": {"id": 2305, "school": "Oklahoma"},
+        "graduationYear": 2008,
+        "wikidataId": "Q124000000",
+        "hallOfFameYear": None,
+    }
+    older = datetime(2026, 8, 13, tzinfo=UTC)
+    linked = _project(
+        CoachProfile.model_validate(payload),
+        "/coaches/profile",
+        {"coachId": 24},
+        observed_at=older,
+    )
+    payload["wikidataId"] = None
+    unlinked = _project(
+        CoachProfile.model_validate(payload),
+        "/coaches/profile",
+        {"coachId": 24},
+        observed_at=older + timedelta(minutes=1),
+    )
+    linked_observation = next(
+        item for item in linked.observations if isinstance(item.fact, CoachFact)
+    )
+    unlinked_observation = next(
+        item for item in unlinked.observations if isinstance(item.fact, CoachFact)
+    )
+
+    field = next(
+        item for item in unlinked_observation.fields if item.field == "wikidata_id"
+    )
+    merged = merge_catalog_observations(linked_observation, unlinked_observation)
+
+    assert field.value.state is ObservationState.null
+    assert isinstance(merged.fact, CoachFact)
+    assert merged.fact.wikidata_id is None
 
 
 def test_authoritative_affiliation_null_clears_a_prior_end_year() -> None:
