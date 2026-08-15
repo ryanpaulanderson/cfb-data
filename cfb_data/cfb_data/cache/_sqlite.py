@@ -173,7 +173,7 @@ class SQLiteCacheBackend:
 
     async def commit_response(
         self, record: ResponseRecord, projection: CatalogProjection
-    ) -> None:
+    ) -> CatalogProjection:
         """Atomically upsert response, catalog facts, and coverage."""
         async with self._operation_lock:
             connection = self._active_connection()
@@ -200,15 +200,30 @@ class SQLiteCacheBackend:
                     projection,
                     observed_at=record.fetched_at,
                     source=record.endpoint,
+                    persist=True,
                 )
                 await self._commit_projection(connection, projection, observed_at)
                 await connection.commit()
+                return projection
             except asyncio.CancelledError:
                 await connection.rollback()
                 raise
             except Exception as exc:
                 await connection.rollback()
                 raise CFBDCacheBackendError("SQLite cache commit failed") from exc
+
+    async def merge_catalog_projection(
+        self, record: ResponseRecord, projection: CatalogProjection
+    ) -> CatalogProjection:
+        """Merge a projection with durable observations without writing it."""
+        async with self._operation_lock:
+            return await self._merge_projection(
+                self._active_connection(),
+                projection,
+                observed_at=record.fetched_at,
+                source=record.endpoint,
+                persist=False,
+            )
 
     async def delete_response(self, key: str) -> None:
         """Delete one invalid or expired response record."""
@@ -544,8 +559,9 @@ class SQLiteCacheBackend:
         *,
         observed_at: datetime,
         source: str,
+        persist: bool,
     ) -> CatalogProjection:
-        """Merge typed observations and persist their provenance transactionally."""
+        """Merge typed observations and optionally persist their provenance."""
         candidates = projection_observations(
             projection, observed_at=observed_at, source=source
         )
@@ -577,16 +593,17 @@ class SQLiteCacheBackend:
             merge_catalog_observations(stored.get(key), candidate)
             for key, candidate in keyed
         )
-        await connection.executemany(
-            self._sql.render("upsert_catalog_observation.sql"),
-            (
+        if persist:
+            await connection.executemany(
+                self._sql.render("upsert_catalog_observation.sql"),
                 (
-                    *observation_storage_key(observation),
-                    encode_catalog_observation(observation),
-                )
-                for observation in merged
-            ),
-        )
+                    (
+                        *observation_storage_key(observation),
+                        encode_catalog_observation(observation),
+                    )
+                    for observation in merged
+                ),
+            )
         return projection_from_observations(merged, original=projection)
 
     async def _commit_projection(

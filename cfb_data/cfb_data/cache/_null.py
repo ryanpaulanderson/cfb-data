@@ -32,6 +32,10 @@ from cfb_data._catalog.models import (
 )
 from cfb_data._catalog.projection import catalog_fact_key
 from cfb_data._catalog.sources import projection_contract
+from cfb_data.cache._catalog_codecs import (
+    projection_from_observations,
+    projection_observations,
+)
 from cfb_data.cache._identity_codecs import (
     athlete_identity,
     conference_identity,
@@ -79,12 +83,15 @@ class NullCacheBackend:
 
     async def commit_response(
         self, record: ResponseRecord, projection: CatalogProjection
-    ) -> None:
+    ) -> CatalogProjection:
         """Merge canonical facts and coverage while discarding response bytes."""
         self._require_open()
+        merged_observations: tuple[CatalogObservation, ...] = ()
         if projection.observations:
-            for observation in projection.observations:
+            merged_observations = tuple(
                 self._merge_observation(observation)
+                for observation in projection.observations
+            )
         else:
             for collection in (
                 projection.teams,
@@ -108,6 +115,32 @@ class NullCacheBackend:
         if projection.coverage is not None:
             coverage = projection.coverage
             self._coverage[(coverage.endpoint, coverage.canonical_filters)] = coverage
+        if not merged_observations:
+            return projection
+        return projection_from_observations(
+            merged_observations,
+            original=projection,
+        )
+
+    async def merge_catalog_projection(
+        self, record: ResponseRecord, projection: CatalogProjection
+    ) -> CatalogProjection:
+        """Merge a projection with current observations without writing it."""
+        candidates = projection_observations(
+            projection,
+            observed_at=record.fetched_at,
+            source=record.endpoint,
+        )
+        merged = tuple(
+            merge_catalog_observations(
+                self._observations.get(type(candidate.fact), {}).get(
+                    catalog_fact_key(candidate.fact)
+                ),
+                candidate,
+            )
+            for candidate in candidates
+        )
+        return projection_from_observations(merged, original=projection)
 
     async def delete_response(self, key: str) -> None:
         """Delete no response because response bytes are never retained."""
@@ -320,7 +353,7 @@ class NullCacheBackend:
         }
         collection[key] = replace(existing, **values)
 
-    def _merge_observation(self, candidate: CatalogObservation) -> None:
+    def _merge_observation(self, candidate: CatalogObservation) -> CatalogObservation:
         """Merge one fact through the backend-neutral precedence contract."""
         fact_type = type(candidate.fact)
         key = catalog_fact_key(candidate.fact)
@@ -328,6 +361,7 @@ class NullCacheBackend:
         merged = merge_catalog_observations(collection.get(key), candidate)
         collection[key] = merged
         self._facts.setdefault(fact_type, {})[key] = merged.fact
+        return merged
 
     def _values[FactT: CatalogFact](self, fact_type: type[FactT]) -> list[FactT]:
         """Return transient facts of one type in stable key order."""

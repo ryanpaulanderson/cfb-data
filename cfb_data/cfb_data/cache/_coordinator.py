@@ -838,13 +838,7 @@ class CacheCoordinator:
             fresh_until=record.fresh_until,
             retained_until=record.retained_until,
         )
-        await self._transient.commit_response(record, projection)
-        await self._backend_call(
-            "commit",
-            self._backend.commit_response(record, projection),
-            default=None,
-            timeout_seconds=self._catalog_commit_timeout(projection),
-        )
+        await self._commit_catalog_response("commit", record, projection)
         return value
 
     async def _network_only(
@@ -926,13 +920,28 @@ class CacheCoordinator:
             fresh_until=record.fresh_until,
             retained_until=record.retained_until,
         )
-        await self._transient.commit_response(record, projection)
-        await self._backend_call(
-            "reproject",
+        await self._commit_catalog_response("reproject", record, projection)
+
+    async def _commit_catalog_response(
+        self,
+        operation: str,
+        record: ResponseRecord,
+        projection: CatalogProjection,
+    ) -> None:
+        """Commit durably and mirror the canonical merged state in memory."""
+        answered, merged = await self._catalog_call(
+            operation,
             self._backend.commit_response(record, projection),
-            default=None,
             timeout_seconds=self._catalog_commit_timeout(projection),
         )
+        if not answered:
+            answered, durable_merge = await self._catalog_call(
+                f"{operation}_merge_read",
+                self._backend.merge_catalog_projection(record, projection),
+            )
+            if answered:
+                merged = durable_merge
+        await self._transient.commit_response(record, merged or projection)
 
     async def _read_record(self, key: str, now: datetime) -> ResponseRecord | None:
         """Read a retained record with fail-open backend behavior."""
@@ -1037,7 +1046,11 @@ class CacheCoordinator:
             return default
 
     async def _catalog_call[ResultT](
-        self, operation: str, awaitable: Awaitable[ResultT]
+        self,
+        operation: str,
+        awaitable: Awaitable[ResultT],
+        *,
+        timeout_seconds: float | None = None,
     ) -> tuple[bool, ResultT | None]:
         """Return whether the persistent catalog answered and its result."""
         if not self._backend_available:
@@ -1045,7 +1058,7 @@ class CacheCoordinator:
                 awaitable.close()
             return False, None
         try:
-            async with asyncio.timeout(self._io_timeout_seconds):
+            async with asyncio.timeout(timeout_seconds or self._io_timeout_seconds):
                 return True, await awaitable
         except asyncio.CancelledError:
             raise

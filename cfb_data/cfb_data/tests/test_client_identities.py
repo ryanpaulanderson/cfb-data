@@ -474,6 +474,44 @@ async def test_identity_resolution_uses_transient_facts_after_failed_commit(
 
 
 @pytest.mark.asyncio
+async def test_sparse_transient_projection_preserves_durable_identity_fields(
+    api_server: ServerFactory,
+    game_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Mirror the canonical durable merge instead of a sparse response row."""
+    cache_path = tmp_path / "cache.sqlite3"
+    payloads: dict[str, object] = {
+        "/teams": [_team()],
+        "/games": [game_response],
+    }
+
+    async def handler(request: web.Request) -> web.Response:
+        return web.json_response(payloads[request.path])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            cache=SQLiteCacheConfig(path=cache_path),
+        ) as client:
+            await client.teams.list()
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            cache=SQLiteCacheConfig(path=cache_path),
+        ) as client:
+            await client.games.list(year=2024)
+            identity = await client.identities.teams.resolve(
+                130,
+                freshness=FreshnessMode.allow_stale,
+            )
+
+    assert identity.abbreviation == "MICH"
+    assert identity.alternate_names == ("Wolverines",)
+
+
+@pytest.mark.asyncio
 async def test_local_only_uses_the_transient_catalog_without_network(
     api_server: ServerFactory,
 ) -> None:

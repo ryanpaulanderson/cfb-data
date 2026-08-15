@@ -157,7 +157,7 @@ class RedisCacheBackend:
 
     async def commit_response(
         self, record: ResponseRecord, projection: CatalogProjection
-    ) -> None:
+    ) -> CatalogProjection:
         """Atomically store response, projected facts, indexes, and coverage."""
         client = self._active_client()
         ttl_seconds = max(
@@ -233,8 +233,21 @@ class RedisCacheBackend:
                     if projection.coverage is not None:
                         self._project_coverage(pipeline, projection.coverage)
                     await pipeline.execute()
+                return projection
         except TimeoutError as exc:
             raise CFBDCacheBackendError("Redis catalog commit lock timed out") from exc
+
+    async def merge_catalog_projection(
+        self, record: ResponseRecord, projection: CatalogProjection
+    ) -> CatalogProjection:
+        """Merge a projection with durable observations without writing it."""
+        merged, _, _ = await self._merge_projection(
+            self._active_client(),
+            projection,
+            observed_at=record.fetched_at,
+            source=record.endpoint,
+        )
+        return merged
 
     async def delete_response(self, key: str) -> None:
         """Delete one invalid response record without catalog pruning."""

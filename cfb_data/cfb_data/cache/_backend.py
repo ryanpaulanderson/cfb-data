@@ -49,8 +49,14 @@ class CatalogWriter(Protocol):
 
     async def commit_response(
         self, record: ResponseRecord, projection: CatalogProjection
-    ) -> None:
-        """Store a response, catalog observations, and coverage atomically."""
+    ) -> CatalogProjection:
+        """Store a response and return the merged canonical projection."""
+        ...
+
+    async def merge_catalog_projection(
+        self, record: ResponseRecord, projection: CatalogProjection
+    ) -> CatalogProjection:
+        """Merge a projection with stored observations without writing it."""
         ...
 
 
