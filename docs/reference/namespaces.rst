@@ -113,3 +113,28 @@ Info
 
 .. autoclass:: cfb_data.info.resource.InfoResource
    :members:
+
+Identities
+----------
+
+The identity namespace returns compact validated models rather than
+DataFrames. See :doc:`../guides/cache-and-identities` for freshness and
+hydration behavior.
+
+.. autoclass:: cfb_data.identities.resource.IdentitiesResource
+   :members:
+
+.. autoclass:: cfb_data.identities.resource.TeamIdentities
+   :members:
+
+.. autoclass:: cfb_data.identities.resource.ConferenceIdentities
+   :members:
+
+.. autoclass:: cfb_data.identities.resource.VenueIdentities
+   :members:
+
+.. autoclass:: cfb_data.identities.resource.GameIdentities
+   :members:
+
+.. autoclass:: cfb_data.identities.resource.AthleteIdentities
+   :members:

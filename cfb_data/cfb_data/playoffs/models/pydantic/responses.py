@@ -7,6 +7,13 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from cfb_data._catalog.models import PlayoffMatchupFact, VenueFact
+from cfb_data._catalog.projection import (
+    CatalogSink,
+    ProjectionContext,
+    observe_game,
+    observe_team,
+)
 from cfb_data.enums import PlayoffCompetition, PlayoffRound
 
 
@@ -63,6 +70,15 @@ class PlayoffTeam(_ResponseModel):
     school: str
     conference: str | None
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one provider team referenced by the bracket."""
+        observe_team(
+            sink,
+            id=self.id,
+            school=self.school,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
+
 
 class PlayoffParticipant(_ResponseModel):
     """Represent one team selected for a College Football Playoff."""
@@ -85,6 +101,13 @@ class PlayoffMatchupSlotSource(_ResponseModel):
     matchup_id: int = Field(alias="matchupId", gt=0)
     bracket_slot: str = Field(alias="bracketSlot")
     outcome: PlayoffSlotOutcome
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Retain one referenced prior matchup."""
+        sink.add(
+            PlayoffMatchupFact(self.matchup_id, _playoff_season(context)),
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class PlayoffMatchupSlot(_ResponseModel):
@@ -109,6 +132,23 @@ class PlayoffLinkedGame(_ResponseModel):
     venue_id: int | None = Field(alias="venueId", gt=0)
     venue: str | None
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one linked game, teams, and venue."""
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        observe_game(
+            sink,
+            id=self.id,
+            season=_playoff_season(context),
+            start_date=self.start_date,
+            status="completed" if self.completed else None,
+            home_team_id=self.home_team.id,
+            away_team_id=self.away_team.id,
+            venue_id=self.venue_id,
+            source=source,
+        )
+        if self.venue_id is not None and self.venue:
+            sink.add(VenueFact(self.venue_id, self.venue), source=source)
+
 
 class PlayoffAdvancement(_ResponseModel):
     """Represent the next bracket position awarded to a matchup winner."""
@@ -116,6 +156,13 @@ class PlayoffAdvancement(_ResponseModel):
     matchup_id: int = Field(alias="matchupId", gt=0)
     bracket_slot: str = Field(alias="bracketSlot")
     position: int = Field(gt=0)
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Retain the referenced next matchup."""
+        sink.add(
+            PlayoffMatchupFact(self.matchup_id, _playoff_season(context)),
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class PlayoffMatchup(_ResponseModel):
@@ -132,6 +179,17 @@ class PlayoffMatchup(_ResponseModel):
     slots: list[PlayoffMatchupSlot]
     game: PlayoffLinkedGame | None
     advances_to: PlayoffAdvancement | None = Field(alias="advancesTo")
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one bracket matchup and its linked game."""
+        sink.add(
+            PlayoffMatchupFact(
+                self.id,
+                _playoff_season(context),
+                self.game.id if self.game is not None else None,
+            ),
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class PlayoffRoundRecord(_ResponseModel):
@@ -154,6 +212,15 @@ class CfpPlayoff(_ResponseModel):
     participants: list[PlayoffParticipant]
     rounds: list[PlayoffRoundRecord]
     champion: PlayoffTeam | None
+
+
+def _playoff_season(context: ProjectionContext) -> int | None:
+    """Return season from the enclosing bracket or validated request."""
+    bracket = context.parent(CfpPlayoff)
+    if isinstance(bracket, CfpPlayoff):
+        return bracket.season
+    year = context.parameters.get("year")
+    return year if isinstance(year, int) and not isinstance(year, bool) else None
 
 
 __all__ = [

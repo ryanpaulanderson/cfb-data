@@ -38,6 +38,26 @@ class CFBDOptionalDependencyError(CFBDError, ImportError):
     """Report that a selected optional feature is not installed."""
 
 
+class CFBDCacheError(CFBDError):
+    """Report a cache or identity-catalog operation failure."""
+
+
+class CFBDCacheBackendError(CFBDCacheError):
+    """Report that the configured persistence backend could not answer."""
+
+
+class CFBDCacheMissError(CFBDCacheError):
+    """Report that local-only cache access has no usable validated record."""
+
+
+class CFBDIdentityNotFoundError(CFBDCacheError, LookupError):
+    """Report that an identity query could not resolve one entity."""
+
+
+class CFBDIdentityAmbiguityError(CFBDCacheError, LookupError):
+    """Report that exact identity normalization matched multiple entities."""
+
+
 class CFBDClientStateError(CFBDError, RuntimeError):
     """Report an operation that violates the one-shot client lifecycle."""
 
@@ -185,6 +205,24 @@ class CFBDResponseDecodeError(_EndpointError):
         )
 
 
+class CFBDNoContentError(_EndpointError):
+    """Report an undocumented empty success from a JSON endpoint."""
+
+    attempts: int
+
+    def __init__(self, *, endpoint: str, attempts: int) -> None:
+        """Initialize a strict no-content response error.
+
+        :param endpoint: Fixed endpoint path without query parameters.
+        :param attempts: Total attempts made.
+        """
+        self.attempts = attempts
+        super().__init__(
+            f"HTTP 204 returned no JSON after {attempts} attempt(s)",
+            endpoint=endpoint,
+        )
+
+
 class CFBDResponseValidationError(_EndpointError):
     """Report a decoded response that violates its Pydantic contract."""
 
@@ -217,12 +255,18 @@ class CFBDDataFrameConversionError(_EndpointError):
 __all__ = [
     "CFBDAuthenticationError",
     "CFBDAuthorizationError",
+    "CFBDCacheBackendError",
+    "CFBDCacheError",
+    "CFBDCacheMissError",
     "CFBDClientStateError",
     "CFBDConfigurationError",
     "CFBDDataFrameConversionError",
     "CFBDError",
     "CFBDHTTPError",
+    "CFBDIdentityAmbiguityError",
+    "CFBDIdentityNotFoundError",
     "CFBDOptionalDependencyError",
+    "CFBDNoContentError",
     "CFBDRateLimitError",
     "CFBDRequestValidationError",
     "CFBDResponseDecodeError",

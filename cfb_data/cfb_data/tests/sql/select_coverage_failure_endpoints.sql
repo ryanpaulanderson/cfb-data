@@ -1,0 +1,2 @@
+SELECT endpoint
+FROM coverage_failures

@@ -7,6 +7,15 @@ from .adjusted_metrics.models.pydantic.requests import (
     KickerPAARRequest,
 )
 from .betting.models.pydantic.requests import BettingLinesRequest
+from .cache import (
+    CacheConfig,
+    CacheMode,
+    CachePolicyConfig,
+    CacheProfile,
+    CacheTTL,
+    RedisCacheConfig,
+    SQLiteCacheConfig,
+)
 from .client import CFBDClient, DataFrameBackend
 from .coaches.models.pydantic.requests import (
     CoachesRequest,
@@ -14,6 +23,7 @@ from .coaches.models.pydantic.requests import (
     CoachSeasonsRequest,
     CoachTenuresRequest,
 )
+from .conferences.models.pydantic.identity import ConferenceIdentity
 from .conferences.models.pydantic.requests import (
     ConferenceAffiliationsRequest,
     ConferenceChangesRequest,
@@ -36,11 +46,17 @@ from .enums import (
 from .errors import (
     CFBDAuthenticationError,
     CFBDAuthorizationError,
+    CFBDCacheBackendError,
+    CFBDCacheError,
+    CFBDCacheMissError,
     CFBDClientStateError,
     CFBDConfigurationError,
     CFBDDataFrameConversionError,
     CFBDError,
     CFBDHTTPError,
+    CFBDIdentityAmbiguityError,
+    CFBDIdentityNotFoundError,
+    CFBDNoContentError,
     CFBDOptionalDependencyError,
     CFBDRateLimitError,
     CFBDRequestValidationError,
@@ -51,6 +67,7 @@ from .errors import (
     CFBDTLSError,
     CFBDTransportError,
 )
+from .games.models.pydantic.identity import GameIdentity
 from .games.models.pydantic.requests import (
     AdvancedBoxScoreRequest,
     CalendarRequest,
@@ -63,6 +80,7 @@ from .games.models.pydantic.requests import (
     TeamGameStatsRequest,
 )
 from .games.models.pydantic.responses import AdvancedBoxScore
+from .identities import FreshnessMode, HydrationPlan
 from .info.models.pydantic.requests import InfoUsageRequest
 from .info.models.pydantic.responses import UserInfo, UserUsage
 from .metrics.models.pydantic.requests import (
@@ -74,6 +92,7 @@ from .metrics.models.pydantic.requests import (
     TeamSeasonPPARequest,
     WinProbabilityRequest,
 )
+from .players.models.pydantic.identity import AthleteIdentity
 from .players.models.pydantic.requests import (
     PlayerSearchRequest,
     PlayerSeasonOverviewRequest,
@@ -118,6 +137,7 @@ from .stats.models.pydantic.requests import (
     PlayerSeasonSuccessRequest,
     TeamSeasonStatsRequest,
 )
+from .teams.models.pydantic.identity import TeamIdentity
 from .teams.models.pydantic.requests import (
     FBSTeamsRequest,
     RosterRequest,
@@ -126,29 +146,42 @@ from .teams.models.pydantic.requests import (
     TeamMatchupRequest,
     TeamsRequest,
 )
+from .venues.models.pydantic.identity import VenueIdentity
 
 __all__ = [
     "AdjustedPlayerPassingRequest",
     "AdjustedPlayerRushingRequest",
     "AdjustedTeamMetricsRequest",
+    "AthleteIdentity",
     "AdvancedBoxScoreRequest",
     "AdvancedBoxScore",
     "AdvancedGameStatsRequest",
     "AdvancedSeasonStatsRequest",
     "BettingLinesRequest",
     "CalendarRequest",
+    "CacheConfig",
+    "CacheMode",
+    "CachePolicyConfig",
+    "CacheProfile",
+    "CacheTTL",
     "CfpGamesRequest",
     "CfpParticipantsRequest",
     "CfpPlayoff",
     "CfpPlayoffRequest",
     "CFBDAuthenticationError",
     "CFBDAuthorizationError",
+    "CFBDCacheBackendError",
+    "CFBDCacheError",
+    "CFBDCacheMissError",
     "CFBDClient",
     "CFBDClientStateError",
     "CFBDConfigurationError",
     "CFBDDataFrameConversionError",
     "CFBDError",
     "CFBDHTTPError",
+    "CFBDIdentityAmbiguityError",
+    "CFBDIdentityNotFoundError",
+    "CFBDNoContentError",
     "CFBDOptionalDependencyError",
     "CFBDRateLimitError",
     "CFBDRequestValidationError",
@@ -166,6 +199,7 @@ __all__ = [
     "ConferenceAffiliationsRequest",
     "ConferenceChangesRequest",
     "ConferenceClassification",
+    "ConferenceIdentity",
     "ConferencesRequest",
     "ConferenceSPRatingsRequest",
     "CoreRatingsRequest",
@@ -175,12 +209,15 @@ __all__ = [
     "EloRatingsRequest",
     "ExpandedSRSRatingsRequest",
     "FPIRatingsRequest",
+    "FreshnessMode",
     "GameMediaRequest",
+    "GameIdentity",
     "GamesRequest",
     "GameWeatherRequest",
     "GameHavocRequest",
     "FBSTeamsRequest",
     "HomeAway",
+    "HydrationPlan",
     "InfoUsageRequest",
     "KickerPAARRequest",
     "LiveGame",
@@ -208,6 +245,7 @@ __all__ = [
     "RecruitingGroupsRequest",
     "RecruitingPlayersRequest",
     "RecruitingTeamsRequest",
+    "RedisCacheConfig",
     "RetryPolicy",
     "RosterRequest",
     "ReturningProductionRequest",
@@ -216,7 +254,9 @@ __all__ = [
     "SeasonType",
     "SPRatingsRequest",
     "SRSRatingsRequest",
+    "SQLiteCacheConfig",
     "TeamGamePPARequest",
+    "TeamIdentity",
     "TeamGameStatsRequest",
     "TeamSeasonStatsRequest",
     "TeamSeasonPPARequest",
@@ -229,6 +269,7 @@ __all__ = [
     "UserInfo",
     "UserUsage",
     "UserUsageApi",
+    "VenueIdentity",
     "WinProbabilityRequest",
     "DownType",
 ]

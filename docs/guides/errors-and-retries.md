@@ -10,7 +10,11 @@ other secrets.
 | Exception | Meaning | Typical action |
 | --- | --- | --- |
 | {class}`cfb_data.CFBDConfigurationError` | API key, backend, base URL, timeout, or other client configuration is invalid | Correct configuration before opening the client |
-| {class}`cfb_data.CFBDOptionalDependencyError` | The requested optional backend is not installed | Install `cfb-data[polars]` or select pandas |
+| {class}`cfb_data.CFBDOptionalDependencyError` | A requested optional backend is not installed | Install `cfb-data[polars]` or `cfb-data[redis]`, or select an installed backend |
+| {class}`cfb_data.CFBDCacheBackendError` | Strict cache or identity-catalog access could not be answered | Restore the configured backend or choose non-strict API access |
+| {class}`cfb_data.CFBDCacheMissError` | Local-only response access has no retained validated record | Hydrate or fetch while network access is permitted |
+| {class}`cfb_data.CFBDIdentityNotFoundError` | Exact identity resolution found no candidate | Correct the identifier/name or hydrate the relevant partition |
+| {class}`cfb_data.CFBDIdentityAmbiguityError` | Multiple identities matched the same exact normalized value | Add team, season, or another supported scope |
 | {class}`cfb_data.CFBDClientStateError` | The one-shot async lifecycle was violated | Create and enter a fresh client |
 | {class}`cfb_data.CFBDRequestValidationError` | Keyword filters violate the endpoint request model | Correct field names, values, or selector combinations |
 | {class}`cfb_data.CFBDTimeoutError` | A finite request attempt timed out | Retry according to application policy or investigate service/network health |
@@ -32,7 +36,7 @@ for safe GET requests. It retries connection failures, timeouts, truncated
 payloads, and HTTP `408`, `429`, `500`, `502`, `503`, and `504` with capped
 exponential full-jitter backoff.
 
-Valid numeric and HTTP-date `Retry-After` values are honored up to 30 seconds.
+Valid numeric and HTTP-date `Retry-After` values are honored up to 90 seconds.
 A longer server-requested delay fails immediately and remains available as
 `retry_after_seconds` on the resulting HTTP error. Redirects are disabled,
 TLS verification remains enabled, every attempt has a finite timeout, and

@@ -30,6 +30,7 @@ getting-started
 guides/requests
 guides/results
 guides/errors-and-retries
+guides/cache-and-identities
 cfbd_api/README
 ```
 
@@ -66,5 +67,7 @@ notices-of-decision/0001-canonical-nested-tabular-representation
 - Each client owns one connection-pooled session and closes it deterministically.
 - Requests have finite timeouts, bounded retries, TLS verification, and safe
   exception messages that do not expose credentials or response payloads.
+- Optional SQLite or Redis persistence caches only validated responses and
+  maintains a durable, locally queryable identity catalog.
 
 The project is not affiliated with CollegeFootballData.com.

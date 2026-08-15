@@ -2,6 +2,13 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cfb_data._catalog.projection import (
+    CatalogSink,
+    ProjectionContext,
+    observe_athlete,
+    observe_team,
+)
+
 
 class _ResponseModel(BaseModel):
     """Apply the upstream closed-object contract to adjusted metric responses."""
@@ -52,6 +59,15 @@ class AdjustedTeamMetrics(_ResponseModel):
     explosiveness: float
     explosiveness_allowed: float = Field(alias="explosivenessAllowed")
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the provider team carried by adjusted metrics."""
+        observe_team(
+            sink,
+            id=self.team_id,
+            school=self.team,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
+
 
 class PlayerWeightedEPA(_ResponseModel):
     """Represent opponent-adjusted player EPA for one season."""
@@ -65,6 +81,18 @@ class PlayerWeightedEPA(_ResponseModel):
     wepa: float
     plays: int = Field(ge=0)
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the adjusted player's season membership."""
+        observe_athlete(
+            sink,
+            id=self.athlete_id,
+            name=self.athlete_name,
+            position=self.position,
+            team=self.team,
+            season=self.year,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
+
 
 class KickerPAAR(_ResponseModel):
     """Represent a kicker's Points Added Above Replacement rating."""
@@ -76,6 +104,17 @@ class KickerPAAR(_ResponseModel):
     conference: str
     paar: float
     attempts: int = Field(ge=0)
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the kicker's season membership."""
+        observe_athlete(
+            sink,
+            id=self.athlete_id,
+            name=self.athlete_name,
+            team=self.team,
+            season=self.year,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 __all__ = [

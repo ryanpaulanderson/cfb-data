@@ -1,5 +1,6 @@
 """Export Pydantic models for Conferences endpoints."""
 
+from .identity import ConferenceIdentity
 from .requests import (
     ConferenceAffiliationsRequest,
     ConferenceChangesRequest,
@@ -17,6 +18,7 @@ __all__ = [
     "ConferenceAffiliationsRequest",
     "ConferenceChangesRequest",
     "ConferenceClassification",
+    "ConferenceIdentity",
     "ConferencesRequest",
     "TeamConferenceAffiliation",
     "TeamConferenceChange",

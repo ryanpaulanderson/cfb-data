@@ -2,6 +2,7 @@
 
 import asyncio
 import builtins
+import json
 import logging
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
@@ -19,6 +20,7 @@ from cfb_data import (
     CFBDClientStateError,
     CFBDConfigurationError,
     CFBDHTTPError,
+    CFBDNoContentError,
     CFBDOptionalDependencyError,
     CFBDRateLimitError,
     CFBDRequestValidationError,
@@ -494,6 +496,31 @@ async def test_truncated_payload_is_retried_for_safe_get(
 
 
 @pytest.mark.asyncio
+async def test_streamed_json_body_is_read_to_eof_before_decoding(
+    api_server: ServerFactory,
+    calendar_response: dict[str, object],
+) -> None:
+    """Do not mistake the first available response chunk for a complete body."""
+    payload = json.dumps([calendar_response]).encode()
+
+    async def handler(request: web.Request) -> web.StreamResponse:
+        response = web.StreamResponse(headers={"Content-Type": "application/json"})
+        await response.prepare(request)
+        midpoint = len(payload) // 2
+        await response.write(payload[:midpoint])
+        await asyncio.sleep(0.05)
+        await response.write(payload[midpoint:])
+        await response.write_eof()
+        return response
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient("key", base_url=base_url) as client:
+            result = await client.games.calendar(year=2024)
+
+    assert len(result) == 1
+
+
+@pytest.mark.asyncio
 async def test_invalid_url_is_not_retried() -> None:
     async with CFBDClient("key", base_url="http://127.0.0.1:not-a-port") as client:
         with pytest.raises(CFBDTransportError) as exc_info:
@@ -523,6 +550,29 @@ async def test_invalid_json_is_not_retried(api_server: ServerFactory) -> None:
         category="JSONDecodeError",
         sensitive_values=("not json",),
     )
+
+
+@pytest.mark.asyncio
+async def test_undocumented_no_content_is_distinct_and_not_retried(
+    api_server: ServerFactory,
+) -> None:
+    """Distinguish an empty 204 success from malformed response JSON."""
+    attempts = 0
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal attempts
+        attempts += 1
+        return web.Response(status=204)
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient("key", base_url=base_url) as client:
+            with pytest.raises(CFBDNoContentError) as exc_info:
+                await client.players.season_overview(year=2024, player_id=1)
+
+    assert attempts == 1
+    assert exc_info.value.attempts == 1
+    assert exc_info.value.endpoint == "/player/season/overview"
+    assert exc_info.value.__cause__ is None
 
 
 @pytest.mark.asyncio

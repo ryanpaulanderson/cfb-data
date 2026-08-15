@@ -85,14 +85,18 @@ cache coordinator
         │                       ▼                            │
         └────────────── Pydantic response validation ◄───────┘
                                 │
-                    ┌───────────┴───────────┐
-                    ▼                       ▼
-          response-cache write     identity projection
-                                            │
-                                  catalog + coverage commit
-                                            │
-                                            ▼
-                                Arrow / pandas / Polars
+                                ▼
+                  source-owned typed declarations
+                    or colocated contextual hook
+                                │
+                                ▼
+                    canonical observation batch
+                      ┌─────────┴─────────┐
+                      ▼                   ▼
+          response-cache write   transient / SQLite / Redis
+                                          │
+                                          ▼
+                             domain-owned identity view
 
 typed identity query
         │
@@ -103,8 +107,60 @@ identity planner
         └──► minimum-cost hydration request
                     │
                     ▼
-            compact identity model
+            compact domain identity model
 ```
+
+### Authority boundary and singular projection path
+
+The upstream response contract and the library's normalized catalog contract
+have different owners. Each source-domain Pydantic model is the single owner
+of every upstream field expectation and of the declaration that maps those
+validated attributes to catalog meaning. Simple mappings use typed
+`Annotated` declarations. Contextual mappings use a pure typed hook colocated
+with the source model and receive validated request and ancestor context.
+Roster season, player stints, dynamic game roles, nested game/drive/play
+relationships, and derived status are contextual rather than inferred from
+field names.
+
+The neutral catalog layer owns only library-defined semantics: entity and
+relationship grains, three-state observations, authority and merge rules,
+indexes, coverage, provenance, codecs, and compact read views. It never owns
+a copied upstream response schema. Central projection therefore has no domain
+class-name registry, dumped-dictionary lookup, field-name guessing, or domain
+branch. Actual model classes and validated attributes connect declarations to
+the generic compiler.
+
+There is one data path for every configuration:
+
+```text
+validated Pydantic response
+    -> source-owned declaration or typed hook
+    -> canonical observation batch
+    -> transient, SQLite, or Redis catalog
+    -> domain-owned compact identity
+```
+
+Disabling response persistence selects the transient in-memory catalog; it
+does not select a second response-to-identity converter. A configured backend
+is mirrored to the transient catalog after validation so a successful network
+response can still answer identity intent if persistence fails. The transient
+catalog is client-scoped and disappears when the client closes. Explicit
+hydration still requires durable SQLite or Redis because a resumable hydration
+run must preserve progress.
+
+The five public normalized read views live with their owning domains:
+`TeamIdentity`, `ConferenceIdentity`, `VenueIdentity`, `GameIdentity`, and
+`AthleteIdentity`. `client.identities` remains the intent-oriented resolver and
+hydration facade, but it is not a parallel schema namespace. Normalized views
+reuse domain enums such as `ConferenceClassification`, `SeasonType`, and
+`GameStatus` instead of widening them to arbitrary strings.
+
+Every projected field has one of three presence states: unobserved, observed
+null, or observed value. Zero or invalid provider placeholders never create an
+entity or relationship. Sparse observations preserve richer values;
+authoritative nulls and empty collections may clear them. Higher authority
+wins conflicts. Equal authority uses observation time followed by a stable
+source tie-break, making ingestion-order permutations deterministic.
 
 ### Placement and validation
 
@@ -143,13 +199,13 @@ change row ordering or other observable endpoint semantics.
 
 The library supplies three implementations behind small async protocols:
 
-- a null implementation for explicitly disabled caching;
+- a transient in-memory identity catalog for disabled or failed persistence;
 - SQLite through `aiosqlite`, recommended for local and single-host use; and
 - Redis through `redis.asyncio`, recommended for multiple workers, containers,
   or hosts.
 
-The protocols separately express response-record operations, identity and
-coverage transactions, and refresh-lease operations. They do not expose
+The protocols separately express lifecycle, response-record, catalog-write,
+coverage, identity-read, and refresh-lease operations. They do not expose
 backend-specific handles to endpoint or domain code. The configured backend is
 opened and closed with the client and owns its connection or pool.
 
@@ -159,6 +215,14 @@ explicit path override. It enables WAL, uses a finite busy timeout and
 multi-host or network-filesystem coordination mechanism. `aiosqlite` becomes a
 normal runtime dependency so the recommended lightweight backend requires no
 feature extra.
+
+SQLite DDL and statements are installed as dedicated `.sql` resources rather
+than embedded in Python modules. One strict Jinja handler owns package-relative
+loading and rendering. Jinja substitutions are limited to validated structural
+values that SQLite cannot bind, such as a repeated predicate count or a pragma
+integer; response, identity, and filter data always use SQLite bound
+parameters. The explicit SQL files therefore remain the reviewable source of
+truth for schema and query behavior without weakening injection boundaries.
 
 Redis accepts an explicit `redis://` or `rediss://` location and uses one
 pooled async client. The `redis` Python package remains an optional `redis`
@@ -182,8 +246,9 @@ backend to SQLite.
 
 ### Cache configuration
 
-Caching remains optional but is strongly recommended. `cache=None` preserves a
-network-only client. `SQLiteCacheConfig()` selects the no-service local option;
+Caching remains optional but is strongly recommended. `cache=None` preserves
+network-only response behavior while validated responses enrich a client-local
+transient identity catalog. `SQLiteCacheConfig()` selects the no-service local option;
 `RedisCacheConfig(url=...)` selects Redis. Backend selection and cache policy
 are independent so changing the backend does not change freshness behavior.
 
@@ -328,22 +393,29 @@ cross-process duplication is possible until the backend recovers. The
 implementation does not report a backend failure as a cache miss without also
 recording the failure category.
 
+Ordinary response and identity operations use the configured two-second cache
+deadline. An atomic response-plus-catalog commit may contain tens of thousands
+of validated observations, so its deadline scales with batch size and remains
+bounded at 30 seconds. This separates an expected bulk-commit cost from the
+latency contract for ordinary reads without making either operation unbounded.
+
 A retained response may be served after the normal HTTP retry policy is
 exhausted only for retryable transport failures or HTTP `408`, `429`, and
 `5xx` responses and only before `retain_for` expires. Stale data never masks
 authentication, authorization, invalid-request, redirect, decode, or response-
 validation failures.
 
-Identity `ENSURE_FRESH` queries may project and return a validated in-memory
+Identity `ENSURE_FRESH` queries may project and return a validated transient
 identity if the API succeeds while catalog persistence is unavailable.
-`LOCAL_ONLY` identity queries instead fail explicitly when the catalog backend
-cannot answer. Backend failure behavior remains observable and configurable
-for applications that prefer a strict failure mode to fail-open API access.
+`LOCAL_ONLY` identity queries use only facts already present in the configured
+or client-local transient catalog and never contact the API. Backend failure
+behavior remains observable; it does not activate a second conversion path.
 
 ### Identity catalog
 
-The identity catalog uses typed, normalized entity and relationship schemas,
-not an entity-attribute-value table. It preserves provider identifiers as
+The identity catalog uses explicit typed entity and relationship schemas, not
+an entity-attribute-value table and not persistence generated from response
+models. It preserves provider identifiers as
 opaque source identifiers and records enough provenance to rebuild or
 reconcile them. Athlete identifiers remain strings internally even where an
 upstream request happens to accept an integer.
@@ -367,18 +439,32 @@ projectors for every stable or reusable identifier it exposes, including:
 - draft-team and draft-position IDs; and
 - playoff-matchup and linked game IDs.
 
-Adding an identifier-bearing endpoint requires its projector and coverage
-capabilities in the same change. Normal endpoint responses enrich the catalog
-opportunistically after validation; hydration is not the only ingestion path.
+Adding an identifier-bearing endpoint requires source-owned declarations or a
+typed hook plus its typed identity-source endpoint specification in the same
+change. Endpoint specs own response capability, completeness, known caps, and
+hydration meaning; unrelated routes do not enter a universal registry. Normal
+endpoint responses enrich the catalog opportunistically after validation;
+hydration is not the only ingestion path.
 
-Entity records retain source and schema versions plus `first_seen_at` and
+The projection compiler rejects missing fact targets, conflicting
+declarations, and invalid non-catalog explanations. Contract tests enforce
+source ownership and prevent class-name or dumped-field dispatch from
+returning. A deterministic contract digest covers endpoint capabilities,
+declarations, hooks, target grains, placeholder rules, authority, presence,
+and merge meaning. Coverage is valid only for the current digest. A retained
+response that still validates is reprojected locally when projection metadata
+changes, without spending another API call.
+
+Entity records retain source provenance plus `first_seen_at` and
 `last_seen_at`. Time-varying relationships are represented by seasons or
 validity intervals instead of overwriting history. A source refresh may add or
 supersede observed facts, but response expiration alone never deletes them.
-Catalog facts are removed only by an explicit prune operation, incompatible
-schema migration, user deletion, or complete backend loss. Because upstream
-does not guarantee ID stability, the catalog remains versioned and
-rebuildable rather than being treated as an independent authority.
+Catalog facts are removed only by an explicit prune operation, user deletion,
+or complete backend loss. Because this implementation is unreleased, SQLite
+DDL in the packaged SQL resources and Redis keys are the final version-1 layout
+and no compatibility aliases, experimental migrations, or dual projectors
+exist. Future released format changes may use a new namespace or deliberate
+rebuild contract, but experimental branch layouts are not preserved.
 
 ### Coverage ledger
 

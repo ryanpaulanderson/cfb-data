@@ -6,6 +6,12 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from cfb_data._catalog.projection import (
+    CatalogSink,
+    ProjectionContext,
+    observe_game,
+    observe_team,
+)
 from cfb_data.enums import Classification, SeasonType
 
 
@@ -57,6 +63,23 @@ class BettingGame(_ResponseModel):
     away_classification: Classification | None = Field(alias="awayClassification")
     away_score: int | None = Field(alias="awayScore", ge=0)
     lines: list[GameLine]
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one betting game and both provider team identities."""
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        observe_game(
+            sink,
+            id=self.id,
+            season=self.season,
+            week=self.week,
+            season_type=self.season_type,
+            start_date=self.start_date,
+            home_team_id=self.home_team_id,
+            away_team_id=self.away_team_id,
+            source=source,
+        )
+        observe_team(sink, id=self.home_team_id, school=self.home_team, source=source)
+        observe_team(sink, id=self.away_team_id, school=self.away_team, source=source)
 
 
 __all__ = ["BettingGame", "GameLine"]

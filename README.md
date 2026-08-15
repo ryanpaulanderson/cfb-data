@@ -1,6 +1,6 @@
 # College Football Data Python Toolkit
 
-`cfb-data` 0.4.1 is an asynchronous, validated client for the public
+`cfb-data` 0.5.0 is an asynchronous, validated client for the public
 [CollegeFootballData API](https://collegefootballdata.com/) REST endpoint
 groups. It returns eager pandas DataFrames by default and can return the same
 logical tables as Polars DataFrames. Irreducibly nested analytical responses
@@ -35,8 +35,15 @@ Install the optional Polars backend with:
 python -m pip install "cfb-data[polars]"
 ```
 
+SQLite caching and identity lookup are available in the base installation.
+Install the optional shared Redis backend with:
+
+```sh
+python -m pip install "cfb-data[redis]"
+```
+
 Python 3.12 and 3.13 are supported. DataFrames are eager; Polars
-`LazyFrame` results are not part of the 0.4.1 contract.
+`LazyFrame` results are not part of the 0.5.0 contract.
 
 ## Authentication and lifecycle
 
@@ -105,6 +112,56 @@ async with CFBDClient(dataframe_backend="polars") as client:
 
 Type checkers infer `pandas.DataFrame` for the default client and
 `polars.DataFrame` when the literal backend is `"polars"`.
+
+## Response caching and identities
+
+Caching is opt-in. `SQLiteCacheConfig()` provides a private per-user local
+response cache and durable identity catalog without another service:
+
+```python
+from cfb_data import CFBDClient, FreshnessMode, SQLiteCacheConfig
+
+async with CFBDClient(cache=SQLiteCacheConfig()) as client:
+    games = await client.games.list(year=2025)
+    repeated = await client.games.list(year=2025)  # validated exact cache hit
+
+    team = await client.identities.teams.resolve("MICH")
+    game = await client.identities.games.resolve(game_id=401628347)
+
+    with client.cache_mode("local_only"):
+        offline = await client.games.list(year=2025)
+
+    retained = await client.identities.teams.resolve(
+        "Michigan",
+        freshness=FreshnessMode.allow_stale,
+    )
+```
+
+Use `RedisCacheConfig(url=...)` for multiple workers or hosts. Validated
+response records expire according to college-football-specific TTL profiles;
+normalized identity facts and their coverage ledger remain until explicitly
+pruned or rebuilt. Operational account and usage routes are never cached.
+Cache hits are decoded and revalidated through the current Pydantic response
+contract, and cache/backend failures fail open for ordinary API calls without
+silently changing backend types.
+
+Source-domain Pydantic models own the upstream fields and typed declarations
+that produce catalog facts. The catalog owns only normalized merge, coverage,
+provenance, persistence, and query semantics. The SQLite schema and queries
+live in packaged `.sql` resources rendered through a strict Jinja handler;
+runtime data continues to use bound SQLite parameters. With persistence
+disabled, the same projection path writes a client-local transient catalog;
+there is no separate response-to-identity fallback. Compact identity result
+types live in their team, conference, venue, game, and player domains, while
+`client.identities` remains the query and hydration facade.
+
+Per-operation modes are `default`, `refresh`, `bypass`, and `local_only`.
+`client.identities.hydrate(...)` supports dry-run, bounded-concurrency,
+resumable canonical hydration at `4 + 2S` calls for `S` seasons, or `7 + 2S`
+with vocabularies, with an optional division-classification scope. See the complete
+[response caching and identity guide](docs/guides/cache-and-identities.md) for
+TTL defaults, ambiguity behavior, maintenance, Redis Docker/Compose setup, and
+hosted-service security requirements.
 
 ## Endpoints
 
@@ -336,7 +393,7 @@ Use the typed namespace method and either its request model or keyword filters.
 
 ## Datasets and workflows
 
-Version 0.4.1 does not expose `client.datasets` or `client.workflows`. The
+Version 0.5.0 does not expose `client.datasets` or `client.workflows`. The
 accepted architecture reserves two higher layers:
 
 - datasets compose validated endpoint results and validated subdatasets
@@ -361,8 +418,13 @@ make docs
 make check
 ```
 
-`make install` creates `.venv` and installs `.[dev,polars]`, giving
-contributors the complete Arrow/Parquet and two-backend test contract.
+`make install` creates `.venv` and installs `.[dev,polars,redis]`, giving
+contributors the complete Arrow/Parquet, DataFrame, and Redis-client test
+contract. `make redis-up` and `make test-redis` exercise the local shared
+backend; `make test-live` is an explicit credentialed check using untracked
+`.env` configuration. `make test-live-all` is the separately opted-in,
+quota-ledgered 74-route SQLite/Redis matrix and keeps the transport's normal
+bounded retries enabled.
 `make check` runs Ruff, strict mypy, a warning-free Sphinx build, and pytest
 under the same contract as CI. `make docs` writes the local HTML site to
 `docs/_build/html`. Package metadata and all dependency groups live only in

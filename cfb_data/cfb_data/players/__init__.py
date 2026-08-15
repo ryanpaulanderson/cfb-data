@@ -3,6 +3,7 @@
 from cfb_data.enums import TransferEligibility
 
 from .models.pydantic import (
+    AthleteIdentity,
     PlayerSearchRequest,
     PlayerSearchResult,
     PlayerSearchTeamStint,
@@ -23,6 +24,7 @@ from .models.pydantic import (
 from .resource import PlayersResource
 
 __all__ = [
+    "AthleteIdentity",
     "PlayerSearchRequest",
     "PlayerSearchResult",
     "PlayerSearchTeamStint",

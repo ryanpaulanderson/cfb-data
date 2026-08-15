@@ -1,5 +1,6 @@
 """Export validated Players request and response models."""
 
+from .identity import AthleteIdentity
 from .requests import (
     PlayerSearchRequest,
     PlayerSeasonOverviewRequest,
@@ -22,6 +23,7 @@ from .responses import (
 )
 
 __all__ = [
+    "AthleteIdentity",
     "PlayerSearchRequest",
     "PlayerSearchResult",
     "PlayerSearchTeamStint",

@@ -25,6 +25,13 @@ To use Polars instead:
 python -m pip install "cfb-data[polars]"
 ```
 
+SQLite response caching and identity lookup need no extra. Install the Redis
+extra only for a shared Redis backend:
+
+```shell
+python -m pip install "cfb-data[redis]"
+```
+
 ## Configure authentication
 
 Set the API key in the environment so it does not appear in source code:
@@ -145,3 +152,22 @@ except CFBDRateLimitError as exc:
 
 The [errors and retries guide](guides/errors-and-retries.md) documents the full
 exception taxonomy and default retry behavior.
+
+## Avoid repeated calls and resolve IDs
+
+Caching is opt-in. SQLite is the simplest choice for one machine and persists
+both exact validated responses and compact identity facts:
+
+```python
+from cfb_data import CFBDClient, SQLiteCacheConfig
+
+async with CFBDClient(cache=SQLiteCacheConfig()) as client:
+    games = await client.games.list(year=2025)
+    michigan = await client.identities.teams.resolve("MICH")
+    game = await client.identities.games.resolve(game_id=401628347)
+```
+
+Use `RedisCacheConfig` for shared workers. See
+[Response caching and identity lookup](guides/cache-and-identities.md) for TTL
+defaults, explicit refresh/bypass/local-only modes, hydration call counts,
+maintenance, Docker Compose, and hosted Redis security guidance.

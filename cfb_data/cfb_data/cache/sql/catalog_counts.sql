@@ -1,0 +1,16 @@
+SELECT
+    (SELECT COUNT(*) FROM teams),
+    (SELECT COUNT(*) FROM team_seasons),
+    (SELECT COUNT(*) FROM conferences),
+    (SELECT COUNT(*) FROM conference_affiliations),
+    (SELECT COUNT(*) FROM venues),
+    (SELECT COUNT(*) FROM games),
+    (SELECT COUNT(*) FROM athletes),
+    (SELECT COUNT(*) FROM athlete_team_seasons),
+    (SELECT COUNT(*) FROM recruits),
+    (SELECT COUNT(*) FROM coaches),
+    (SELECT COUNT(*) FROM coach_team_seasons),
+    (SELECT COUNT(*) FROM drives),
+    (SELECT COUNT(*) FROM plays),
+    (SELECT COUNT(*) FROM vocabularies),
+    (SELECT COUNT(*) FROM playoff_matchups)

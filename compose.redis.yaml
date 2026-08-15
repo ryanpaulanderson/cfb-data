@@ -1,0 +1,17 @@
+services:
+  redis:
+    build:
+      context: ./docker/redis
+    command:
+      - redis-server
+      - /usr/local/etc/redis/redis.conf
+      - --maxmemory
+      - ${CFB_DATA_REDIS_MAXMEMORY:-4gb}
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - cfb-data-redis:/data
+    restart: unless-stopped
+
+volumes:
+  cfb-data-redis:

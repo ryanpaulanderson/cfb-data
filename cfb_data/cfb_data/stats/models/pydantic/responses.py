@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator
 
+from cfb_data._catalog.models import VocabularyFact
+from cfb_data._catalog.projection import (
+    CatalogSink,
+    ObservationAuthority,
+    ProjectionContext,
+    observe_athlete,
+    observe_game,
+)
 from cfb_data.enums import SeasonType
 
 
@@ -26,6 +34,18 @@ class PlayerStat(_ResponseModel):
     stat_type: str = Field(alias="statType")
     stat: str
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project a player statistic's athlete membership."""
+        observe_athlete(
+            sink,
+            id=self.player_id,
+            name=self.player,
+            position=self.position,
+            team=self.team,
+            season=self.season,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
+
 
 class PlayerSuccessRateSplit(_ResponseModel):
     """Represent passing or rushing success-rate totals."""
@@ -47,6 +67,18 @@ class PlayerSeasonSuccessRate(_ResponseModel):
     passing: PlayerSuccessRateSplit
     rushing: PlayerSuccessRateSplit
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one season-scoped athlete identity."""
+        observe_athlete(
+            sink,
+            id=self.id,
+            name=self.name,
+            position=self.position,
+            team=self.team,
+            season=self.season,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
+
 
 class PlayerGameSuccessRate(_ResponseModel):
     """Represent one player's passing and rushing success rates for a game."""
@@ -63,6 +95,27 @@ class PlayerGameSuccessRate(_ResponseModel):
     opponent: str
     passing: PlayerSuccessRateSplit
     rushing: PlayerSuccessRateSplit
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project game and athlete identity from one success-rate row."""
+        source = f"{type(self).__module__}.{type(self).__qualname__}"
+        observe_game(
+            sink,
+            id=self.game_id,
+            season=self.season,
+            week=self.week,
+            season_type=self.season_type,
+            source=source,
+        )
+        observe_athlete(
+            sink,
+            id=self.id,
+            name=self.name,
+            position=self.position,
+            team=self.team,
+            season=self.season,
+            source=source,
+        )
 
 
 class TeamStat(_ResponseModel):
@@ -87,6 +140,19 @@ class StatCategory(_ResponseModel):
     """Represent one team-stat category for tabular presentation."""
 
     category: str
+
+
+class _StatCategoryValue(RootModel[str]):
+    """Validate and project one scalar team-stat category response value."""
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the validated scalar as a canonical stat vocabulary value."""
+        del context
+        sink.add(
+            VocabularyFact("stat_category", self.root, self.root),
+            authority=ObservationAuthority.authoritative,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 class FieldPosition(_ResponseModel):
@@ -238,6 +304,17 @@ class AdvancedGameStat(_ResponseModel):
     offense: AdvancedGameOffense
     defense: AdvancedGameDefense
 
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the game partition carried by advanced statistics."""
+        observe_game(
+            sink,
+            id=self.game_id,
+            season=self.season,
+            week=self.week,
+            season_type=self.season_type,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
+
 
 class GameHavocUnit(_ResponseModel):
     """Represent havoc event counts and rates for one side of a game."""
@@ -264,6 +341,17 @@ class GameHavocStats(_ResponseModel):
     opponent_conference: str | None = Field(alias="opponentConference")
     offense: GameHavocUnit
     defense: GameHavocUnit
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project the game partition carried by havoc statistics."""
+        observe_game(
+            sink,
+            id=self.game_id,
+            season=self.season,
+            week=self.week,
+            season_type=self.season_type,
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
 
 
 __all__ = [

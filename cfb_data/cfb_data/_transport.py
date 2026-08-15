@@ -8,7 +8,7 @@ import logging
 import math
 import os
 import random
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -18,12 +18,14 @@ from urllib.parse import urlsplit
 import aiohttp
 
 from cfb_data.base.types import QueryParameters
+from cfb_data.cache._models import MAX_RESPONSE_BODY_BYTES
 from cfb_data.errors import (
     CFBDAuthenticationError,
     CFBDAuthorizationError,
     CFBDClientStateError,
     CFBDConfigurationError,
     CFBDHTTPError,
+    CFBDNoContentError,
     CFBDRateLimitError,
     CFBDResponseDecodeError,
     CFBDServerError,
@@ -66,6 +68,19 @@ class _TransportFailure:
     retryable: bool
 
 
+@dataclass(frozen=True, slots=True)
+class _ResponseEnvelope:
+    """Carry a bounded decoded body and safe response metadata."""
+
+    body: object | None
+    raw_body: bytes
+    status: int
+    content_type: str | None
+    etag: str | None
+    last_modified: str | None
+    quota_headers: Mapping[str, str]
+
+
 class _HTTPTransport:
     """Own one reusable :class:`aiohttp.ClientSession` and its connection pool."""
 
@@ -92,6 +107,7 @@ class _HTTPTransport:
         """
         self._api_key = api_key
         self._base_url = base_url
+        self._timeout_seconds = timeout_seconds
         self._timeout = aiohttp.ClientTimeout(total=timeout_seconds)
         self._retry_policy = retry_policy
         self._sleep = sleep
@@ -154,6 +170,29 @@ class _HTTPTransport:
         :raises CFBDTransportError: If transport attempts are exhausted.
         :raises CFBDResponseDecodeError: If a response is not valid JSON.
         """
+        envelope = await self.get_response(endpoint, params)
+        if envelope.body is None:
+            raise AssertionError("ordinary JSON request unexpectedly returned no body")
+        return envelope.body
+
+    async def get_response(
+        self,
+        endpoint: str,
+        params: QueryParameters,
+        *,
+        conditional_headers: Mapping[str, str] | None = None,
+    ) -> _ResponseEnvelope:
+        """Return one bounded response envelope using safe-GET retries.
+
+        :param endpoint: Fixed endpoint path without query parameters.
+        :param params: Validated scalar query parameters.
+        :param conditional_headers: Safe validators for retained records.
+        :return: Decoded response and cache-relevant metadata.
+        :raises CFBDClientStateError: If used outside its active context.
+        :raises CFBDHTTPError: If the API returns an unsuccessful status.
+        :raises CFBDTransportError: If transport attempts are exhausted.
+        :raises CFBDResponseDecodeError: If a response is invalid or oversized.
+        """
         session = self._active_session()
         url = f"{self._base_url}{endpoint}"
 
@@ -166,6 +205,7 @@ class _HTTPTransport:
                     endpoint=endpoint,
                     params=params,
                     attempt=attempt,
+                    conditional_headers=conditional_headers,
                 )
             except asyncio.CancelledError:
                 raise
@@ -260,13 +300,20 @@ class _HTTPTransport:
         endpoint: str,
         params: QueryParameters,
         attempt: int,
-    ) -> object | _RetryDecision:
+        conditional_headers: Mapping[str, str] | None,
+    ) -> _ResponseEnvelope | _RetryDecision:
         """Perform one attempt and release its response before any retry delay."""
         async with session.get(
             url,
-            params=params,
+            params={
+                key: str(value).lower() if isinstance(value, bool) else value
+                for key, value in params.items()
+            },
+            headers=conditional_headers,
             allow_redirects=False,
         ) as response:
+            if response.status == 304 and conditional_headers:
+                return _response_envelope(response, body=None, raw_body=b"")
             if response.status >= 300:
                 retry_after = self._parse_retry_after(
                     response.headers.get("Retry-After")
@@ -297,8 +344,31 @@ class _HTTPTransport:
                     )
                 raise error
 
+            if response.status == 204:
+                raise CFBDNoContentError(endpoint=endpoint, attempts=attempt)
+
+            if (
+                response.content_length is not None
+                and response.content_length > MAX_RESPONSE_BODY_BYTES
+            ):
+                raise CFBDResponseDecodeError(endpoint=endpoint, attempts=attempt)
+            raw_body = await _read_bounded_body(response, endpoint, attempt)
+            if (
+                response.content_length is not None
+                and response.headers.get("Content-Encoding") is None
+                and len(raw_body) != response.content_length
+            ):
+                raise aiohttp.ClientPayloadError("response body was truncated")
             try:
-                decoded: object = await response.json()
+                if not _is_json_content_type(response.headers.get("Content-Type")):
+                    raise aiohttp.ContentTypeError(
+                        response.request_info,
+                        response.history,
+                        status=response.status,
+                        message="unexpected content type",
+                        headers=response.headers,
+                    )
+                decoded: object = json.loads(raw_body)
             except (
                 aiohttp.ContentTypeError,
                 json.JSONDecodeError,
@@ -306,7 +376,7 @@ class _HTTPTransport:
             ) as exc:
                 safe_cause = _sanitized_cause(exc)
             else:
-                return decoded
+                return _response_envelope(response, body=decoded, raw_body=raw_body)
             raise CFBDResponseDecodeError(
                 endpoint=endpoint,
                 attempts=attempt,
@@ -374,6 +444,24 @@ class _HTTPTransport:
                 "Endpoint calls require an active 'async with CFBDClient(...)' context"
             )
         return self._session
+
+    def ensure_active(self) -> None:
+        """Reject endpoint work before any cache or catalog lookup."""
+        self._active_session()
+
+    @property
+    def base_url(self) -> str:
+        """Return the validated API origin and optional base path."""
+        return self._base_url
+
+    @property
+    def follower_wait_seconds(self) -> float:
+        """Return a bounded distributed-follower wait derived from retry policy."""
+        attempts = self._retry_policy.max_attempts
+        return (
+            self._timeout_seconds * attempts
+            + self._retry_policy.max_retry_after_seconds * max(attempts - 1, 0)
+        )
 
 
 def _resolve_api_key(api_key: str | None) -> str:
@@ -450,3 +538,47 @@ def _http_error(
         attempts=attempts,
         retry_after_seconds=retry_after_seconds,
     )
+
+
+def _is_json_content_type(value: str | None) -> bool:
+    """Return whether a Content-Type identifies JSON."""
+    if value is None:
+        return False
+    media_type = value.split(";", 1)[0].strip().lower()
+    return media_type == "application/json" or media_type.endswith("+json")
+
+
+def _response_envelope(
+    response: aiohttp.ClientResponse,
+    *,
+    body: object | None,
+    raw_body: bytes,
+) -> _ResponseEnvelope:
+    """Detach bounded cache-safe metadata from an aiohttp response."""
+    quota_headers = {
+        name: value
+        for name, value in response.headers.items()
+        if name.lower().startswith("x-ratelimit-")
+        or name.lower().startswith("x-quota-")
+    }
+    return _ResponseEnvelope(
+        body=body,
+        raw_body=raw_body,
+        status=response.status,
+        content_type=response.headers.get("Content-Type"),
+        etag=response.headers.get("ETag"),
+        last_modified=response.headers.get("Last-Modified"),
+        quota_headers=quota_headers,
+    )
+
+
+async def _read_bounded_body(
+    response: aiohttp.ClientResponse, endpoint: str, attempt: int
+) -> bytes:
+    """Read a complete streamed body without exceeding the response limit."""
+    body = bytearray()
+    async for chunk in response.content.iter_chunked(64 * 1024):
+        body.extend(chunk)
+        if len(body) > MAX_RESPONSE_BODY_BYTES:
+            raise CFBDResponseDecodeError(endpoint=endpoint, attempts=attempt)
+    return bytes(body)

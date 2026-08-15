@@ -1,0 +1,806 @@
+"""Test identifier-bearing validated models project durable typed facts."""
+
+from datetime import UTC, datetime, timedelta
+
+from cfb_data._catalog.merge import merge_catalog_observations
+from cfb_data._catalog.models import (
+    CatalogProjection,
+    CoachFact,
+    CoachTeamSeasonFact,
+    ConferenceAffiliationFact,
+    GameFact,
+    ObservationState,
+    RecruitFact,
+    TeamSeasonFact,
+)
+from cfb_data.cache._catalog import project_catalog
+from cfb_data.coaches.models.pydantic.responses import CoachProfile, CoachTenure
+from cfb_data.conferences.models.pydantic.responses import (
+    TeamConferenceAffiliation,
+    TeamConferenceChange,
+)
+from cfb_data.draft.models.pydantic.responses import DraftPick
+from cfb_data.games.models.pydantic.responses import Game, ScoreboardGame, TeamGameStats
+from cfb_data.metrics.models.pydantic.responses import PlayWinProbability
+from cfb_data.players.models.pydantic.responses import PlayerSearchResult
+from cfb_data.playoffs.models.pydantic.responses import PlayoffMatchupSlotSource
+from cfb_data.plays.models.pydantic.responses import LiveGame, Play
+from cfb_data.recruiting.models.pydantic.responses import Recruit
+from cfb_data.teams.models.pydantic.responses import RosterPlayer, Team
+from pydantic import BaseModel
+
+
+def _project(
+    value: BaseModel,
+    endpoint: str,
+    parameters: dict[str, str | int | float | bool],
+    *,
+    observed_at: datetime | None = None,
+) -> CatalogProjection:
+    """Project one validated model with deterministic observation metadata."""
+    now = observed_at or datetime(2026, 8, 13, tzinfo=UTC)
+    return project_catalog(
+        endpoint=endpoint,
+        parameters=parameters,
+        value=value,
+        response_key="a" * 64,
+        fetched_at=now,
+        fresh_until=now + timedelta(days=1),
+        retained_until=now + timedelta(days=30),
+    )
+
+
+def test_authoritative_recruit_null_clears_a_prior_athlete_link() -> None:
+    """Treat an explicit null athlete link as authoritative observed state."""
+    payload: dict[str, object] = {
+        "id": "12345",
+        "athleteId": "4426385",
+        "recruitType": "HighSchool",
+        "year": 2024,
+        "ranking": 25,
+        "name": "Test Recruit",
+        "school": "Test High",
+        "committedTo": "Michigan",
+        "position": "RB",
+        "height": 72.5,
+        "weight": 205,
+        "stars": 4,
+        "rating": 0.95,
+        "city": "Ann Arbor",
+        "stateProvince": "MI",
+        "country": "USA",
+        "hometownInfo": {
+            "latitude": 42.28,
+            "longitude": -83.74,
+            "fipsCode": "26161",
+        },
+    }
+    older = datetime(2026, 8, 13, tzinfo=UTC)
+    linked = _project(
+        Recruit.model_validate(payload),
+        "/recruiting/players",
+        {},
+        observed_at=older,
+    )
+    payload["athleteId"] = None
+    unlinked = _project(
+        Recruit.model_validate(payload),
+        "/recruiting/players",
+        {},
+        observed_at=older + timedelta(minutes=1),
+    )
+    linked_observation = next(
+        item for item in linked.observations if isinstance(item.fact, RecruitFact)
+    )
+    unlinked_observation = next(
+        item for item in unlinked.observations if isinstance(item.fact, RecruitFact)
+    )
+
+    field = next(
+        item for item in unlinked_observation.fields if item.field == "athlete_id"
+    )
+    merged = merge_catalog_observations(linked_observation, unlinked_observation)
+
+    assert field.value.state is ObservationState.null
+    assert isinstance(merged.fact, RecruitFact)
+    assert merged.fact.athlete_id is None
+
+
+def test_authoritative_coach_tenure_null_clears_a_prior_end_year() -> None:
+    """Treat an open-ended authoritative coaching tenure as observed state."""
+    payload: dict[str, object] = {
+        "id": 44,
+        "coach": {"id": 1, "firstName": "Jim", "lastName": "Coach"},
+        "team": {"id": 130, "school": "Michigan"},
+        "hireDate": "2020-01-01",
+        "startYear": 2020,
+        "endYear": 2024,
+        "effectiveStart": "2020-01-01T00:00:00Z",
+        "effectiveEnd": "2024-12-31T00:00:00Z",
+        "isInterim": False,
+        "active": False,
+        "seasons": 5,
+        "record": {
+            "games": 60,
+            "wins": 50,
+            "losses": 10,
+            "ties": 0,
+            "winPercentage": 0.833,
+        },
+        "attributionComplete": True,
+    }
+    older = datetime(2026, 8, 13, tzinfo=UTC)
+    closed = _project(
+        CoachTenure.model_validate(payload),
+        "/coaches/tenures",
+        {},
+        observed_at=older,
+    )
+    payload["endYear"] = None
+    payload["effectiveEnd"] = None
+    payload["active"] = True
+    opened = _project(
+        CoachTenure.model_validate(payload),
+        "/coaches/tenures",
+        {},
+        observed_at=older + timedelta(minutes=1),
+    )
+    closed_observation = next(
+        item
+        for item in closed.observations
+        if isinstance(item.fact, CoachTeamSeasonFact)
+    )
+    opened_observation = next(
+        item
+        for item in opened.observations
+        if isinstance(item.fact, CoachTeamSeasonFact)
+    )
+
+    field = next(item for item in opened_observation.fields if item.field == "end_year")
+    merged = merge_catalog_observations(closed_observation, opened_observation)
+
+    assert field.value.state is ObservationState.null
+    assert isinstance(merged.fact, CoachTeamSeasonFact)
+    assert merged.fact.end_year is None
+
+
+def test_authoritative_coach_profile_null_clears_prior_wikidata_id() -> None:
+    """Treat a null authoritative profile link as observed state."""
+    payload: dict[str, object] = {
+        "id": 24,
+        "firstName": "Sherrone",
+        "lastName": "Moore",
+        "displayName": "Sherrone Moore",
+        "currentTeam": {"id": 130, "school": "Michigan", "conference": "Big Ten"},
+        "career": {
+            "games": 15,
+            "wins": 8,
+            "losses": 7,
+            "ties": 0,
+            "winPercentage": 0.533,
+            "seasons": 1,
+            "teams": 1,
+            "firstYear": 2024,
+            "lastYear": 2024,
+        },
+        "birthDate": "1986-02-03",
+        "almaMater": {"id": 2305, "school": "Oklahoma"},
+        "graduationYear": 2008,
+        "wikidataId": "Q124000000",
+        "hallOfFameYear": None,
+    }
+    older = datetime(2026, 8, 13, tzinfo=UTC)
+    linked = _project(
+        CoachProfile.model_validate(payload),
+        "/coaches/profile",
+        {"coachId": 24},
+        observed_at=older,
+    )
+    payload["wikidataId"] = None
+    unlinked = _project(
+        CoachProfile.model_validate(payload),
+        "/coaches/profile",
+        {"coachId": 24},
+        observed_at=older + timedelta(minutes=1),
+    )
+    linked_observation = next(
+        item for item in linked.observations if isinstance(item.fact, CoachFact)
+    )
+    unlinked_observation = next(
+        item for item in unlinked.observations if isinstance(item.fact, CoachFact)
+    )
+
+    field = next(
+        item for item in unlinked_observation.fields if item.field == "wikidata_id"
+    )
+    merged = merge_catalog_observations(linked_observation, unlinked_observation)
+
+    assert field.value.state is ObservationState.null
+    assert isinstance(merged.fact, CoachFact)
+    assert merged.fact.wikidata_id is None
+
+
+def test_authoritative_affiliation_null_clears_a_prior_end_year() -> None:
+    """Treat an open-ended authoritative affiliation as observed state."""
+    payload: dict[str, object] = {
+        "teamId": 130,
+        "team": "Michigan",
+        "conferenceId": 5,
+        "conference": "Big Ten",
+        "conferenceAbbreviation": "B1G",
+        "classification": "fbs",
+        "conferenceDivision": None,
+        "startYear": 1896,
+        "endYear": 1906,
+    }
+    older = datetime(2026, 8, 13, tzinfo=UTC)
+    closed = _project(
+        TeamConferenceAffiliation.model_validate(payload),
+        "/conferences/teams",
+        {},
+        observed_at=older,
+    )
+    payload["endYear"] = None
+    opened = _project(
+        TeamConferenceAffiliation.model_validate(payload),
+        "/conferences/teams",
+        {},
+        observed_at=older + timedelta(minutes=1),
+    )
+    closed_observation = next(
+        item
+        for item in closed.observations
+        if isinstance(item.fact, ConferenceAffiliationFact)
+    )
+    opened_observation = next(
+        item
+        for item in opened.observations
+        if isinstance(item.fact, ConferenceAffiliationFact)
+    )
+
+    field = next(item for item in opened_observation.fields if item.field == "end_year")
+    merged = merge_catalog_observations(closed_observation, opened_observation)
+
+    assert field.value.state is ObservationState.null
+    assert isinstance(merged.fact, ConferenceAffiliationFact)
+    assert merged.fact.end_year is None
+
+
+def test_conference_change_projects_team_conferences_and_affiliation() -> None:
+    """Retain all stable IDs exposed by a conference transition."""
+    change = TeamConferenceChange.model_validate(
+        {
+            "teamId": 130,
+            "team": "Michigan",
+            "fromConferenceId": 8,
+            "fromConference": "Independent",
+            "fromConferenceAbbreviation": None,
+            "fromClassification": "fbs",
+            "toConferenceId": 5,
+            "toConference": "Big Ten",
+            "toConferenceAbbreviation": "B1G",
+            "toClassification": "fbs",
+            "effectiveYear": 1896,
+        }
+    )
+
+    projection = _project(change, "/conferences/changes", {})
+
+    assert [(fact.id, fact.school) for fact in projection.teams] == [(130, "Michigan")]
+    assert projection.teams[0].alternate_names is None
+    assert {fact.id for fact in projection.conferences} == {5, 8}
+    assert [fact.start_year for fact in projection.affiliations] == [1896]
+
+
+def test_authoritative_team_projection_preserves_known_empty_aliases() -> None:
+    """Distinguish an observed empty alias list from an unobserved field."""
+    team = Team.model_validate(
+        {
+            "id": 130,
+            "school": "Michigan",
+            "mascot": "Wolverines",
+            "abbreviation": "MICH",
+            "alternateNames": [],
+            "conference": "Big Ten",
+            "division": "East",
+            "classification": "fbs",
+            "color": "#00274C",
+            "alternateColor": "#FFCB05",
+            "logos": [],
+            "twitter": None,
+            "location": None,
+        }
+    )
+
+    projection = _project(team, "/teams", {})
+
+    assert projection.teams[0].alternate_names == ()
+
+
+def test_roster_accepts_provider_negative_jersey_sentinel() -> None:
+    """Preserve the upstream unconstrained integer jersey contract."""
+    player = RosterPlayer.model_validate(
+        {
+            "id": "1",
+            "firstName": "Example",
+            "lastName": "Player",
+            "team": "Michigan",
+            "height": None,
+            "weight": None,
+            "jersey": -1,
+            "year": 1,
+            "position": None,
+            "homeCity": None,
+            "homeState": None,
+            "homeCountry": None,
+            "homeLatitude": None,
+            "homeLongitude": None,
+            "homeCountyFIPS": None,
+            "recruitIds": None,
+        }
+    )
+
+    assert player.jersey == -1
+
+
+def test_roster_recruit_link_does_not_invent_class_year() -> None:
+    """Keep roster membership season separate from recruit class year."""
+    player = RosterPlayer.model_validate(
+        {
+            "id": "4426385",
+            "firstName": "Donovan",
+            "lastName": "Edwards",
+            "team": "Michigan",
+            "height": 72,
+            "weight": 210,
+            "jersey": 7,
+            "year": 4,
+            "position": "RB",
+            "homeCity": None,
+            "homeState": None,
+            "homeCountry": None,
+            "homeLatitude": None,
+            "homeLongitude": None,
+            "homeCountyFIPS": None,
+            "recruitIds": ["70001"],
+        }
+    )
+
+    projection = _project(player, "/roster", {"year": 2024})
+
+    assert projection.athlete_team_seasons[0].season == 2024
+    assert projection.recruits == (
+        RecruitFact("70001", "4426385", "Donovan Edwards", None),
+    )
+    observation = next(
+        item for item in projection.observations if isinstance(item.fact, RecruitFact)
+    )
+    year = next(item for item in observation.fields if item.field == "year")
+    assert year.value.state is ObservationState.unobserved
+
+
+def test_team_game_stats_project_home_and_away_relationships() -> None:
+    """Project game-team relationships from nested team-stat rows."""
+    stats = TeamGameStats.model_validate(
+        {
+            "id": 401628347,
+            "teams": [
+                {
+                    "teamId": 130,
+                    "team": "Michigan",
+                    "conference": "Big Ten",
+                    "homeAway": "home",
+                    "points": 12,
+                    "stats": [],
+                },
+                {
+                    "teamId": 251,
+                    "team": "Texas",
+                    "conference": "SEC",
+                    "homeAway": "away",
+                    "points": 31,
+                    "stats": [],
+                },
+            ],
+        }
+    )
+
+    projection = _project(stats, "/games/teams", {})
+
+    assert [(game.home_team_id, game.away_team_id) for game in projection.games] == [
+        (130, 251)
+    ]
+
+
+def test_live_game_projects_home_and_away_relationships(
+    live_game_response: dict[str, object],
+) -> None:
+    """Project game-team relationships from nested live team aggregates."""
+    response = dict(live_game_response)
+    teams = response["teams"]
+    assert isinstance(teams, list)
+    assert isinstance(teams[0], dict)
+    away_team = dict(teams[0])
+    home_team = dict(away_team)
+    home_team.update({"teamId": 130, "team": "Michigan", "homeAway": "home"})
+    response["teams"] = [home_team, away_team]
+    live_game = LiveGame.model_validate(response)
+
+    projection = _project(live_game, "/live/plays", {})
+
+    assert [(game.home_team_id, game.away_team_id) for game in projection.games] == [
+        (130, 251)
+    ]
+    assert projection.coverage is not None
+    assert "game.team_relationships" in projection.coverage.capabilities
+
+
+def test_game_placeholder_ids_do_not_become_catalog_relationships(
+    game_response: dict[str, object],
+) -> None:
+    """Treat upstream zero IDs as unresolved relationship placeholders."""
+    response = dict(game_response)
+    response.update({"homeId": 0, "awayId": 0, "venueId": 0})
+    game = Game.model_validate(response)
+
+    projection = _project(game, "/games", {"year": 2024})
+
+    assert [
+        (fact.home_team_id, fact.away_team_id, fact.venue_id)
+        for fact in projection.games
+    ] == [(None, None, None)]
+
+
+def test_authoritative_game_placeholders_clear_prior_relationships(
+    game_response: dict[str, object],
+) -> None:
+    """Treat zero relationship placeholders as observed authoritative absence."""
+    older = datetime(2026, 8, 13, tzinfo=UTC)
+    known = _project(
+        Game.model_validate(game_response),
+        "/games",
+        {"year": 2024},
+        observed_at=older,
+    )
+    response = dict(game_response)
+    response.update({"homeId": 0, "awayId": 0, "venueId": 0})
+    cleared = _project(
+        Game.model_validate(response),
+        "/games",
+        {"year": 2024},
+        observed_at=older + timedelta(minutes=1),
+    )
+    known_observation = next(
+        item for item in known.observations if isinstance(item.fact, GameFact)
+    )
+    cleared_observation = next(
+        item for item in cleared.observations if isinstance(item.fact, GameFact)
+    )
+    fields = {item.field: item.value.state for item in cleared_observation.fields}
+    merged = merge_catalog_observations(known_observation, cleared_observation)
+
+    assert fields["home_team_id"] is ObservationState.null
+    assert fields["away_team_id"] is ObservationState.null
+    assert fields["venue_id"] is ObservationState.null
+    assert isinstance(merged.fact, GameFact)
+    assert merged.fact.home_team_id is None
+    assert merged.fact.away_team_id is None
+    assert merged.fact.venue_id is None
+
+
+def test_incomplete_schedule_preserves_observed_scoreboard_status(
+    game_response: dict[str, object],
+    scoreboard_response: dict[str, object],
+) -> None:
+    """Treat a false completion flag as unknown live game status."""
+    older = datetime(2026, 8, 13, tzinfo=UTC)
+    scoreboard = _project(
+        ScoreboardGame.model_validate(scoreboard_response),
+        "/scoreboard",
+        {},
+        observed_at=older,
+    )
+    response = dict(game_response)
+    response["completed"] = False
+    schedule = _project(
+        Game.model_validate(response),
+        "/games",
+        {"year": 2024},
+        observed_at=older + timedelta(minutes=1),
+    )
+    scoreboard_observation = next(
+        item for item in scoreboard.observations if isinstance(item.fact, GameFact)
+    )
+    schedule_observation = next(
+        item for item in schedule.observations if isinstance(item.fact, GameFact)
+    )
+    status = next(
+        item for item in schedule_observation.fields if item.field == "status"
+    )
+    merged = merge_catalog_observations(
+        scoreboard_observation,
+        schedule_observation,
+    )
+
+    assert status.value.state is ObservationState.unobserved
+    assert isinstance(merged.fact, GameFact)
+    assert merged.fact.status == "in_progress"
+
+
+def test_team_placeholder_venue_does_not_become_season_relationship() -> None:
+    """Exclude a zero home-venue placeholder from team-season facts."""
+    team = Team.model_validate(
+        {
+            "id": 130,
+            "school": "Michigan",
+            "mascot": "Wolverines",
+            "abbreviation": "MICH",
+            "alternateNames": [],
+            "conference": "Big Ten",
+            "division": None,
+            "classification": "fbs",
+            "color": "#00274C",
+            "alternateColor": "#FFCB05",
+            "logos": [],
+            "twitter": None,
+            "location": {
+                "id": 0,
+                "name": None,
+                "city": None,
+                "state": None,
+                "zip": None,
+                "countryCode": None,
+                "timezone": None,
+                "latitude": None,
+                "longitude": None,
+                "elevation": None,
+                "capacity": None,
+                "constructionYear": None,
+                "grass": None,
+                "dome": None,
+            },
+        }
+    )
+
+    projection = _project(team, "/teams", {"year": 2024})
+
+    assert [fact.venue_id for fact in projection.team_seasons] == [None]
+    assert projection.venues == ()
+
+
+def test_authoritative_team_season_nulls_clear_prior_relationships() -> None:
+    """Treat null conference and zero venue placeholders as observed absence."""
+    location: dict[str, object] = {
+        "id": 365,
+        "name": "Michigan Stadium",
+        "city": "Ann Arbor",
+        "state": "MI",
+        "zip": None,
+        "countryCode": "US",
+        "timezone": "America/Detroit",
+        "latitude": None,
+        "longitude": None,
+        "elevation": None,
+        "capacity": 107601,
+        "constructionYear": 1927,
+        "grass": False,
+        "dome": False,
+    }
+    payload: dict[str, object] = {
+        "id": 130,
+        "school": "Michigan",
+        "mascot": "Wolverines",
+        "abbreviation": "MICH",
+        "alternateNames": [],
+        "conference": "Big Ten",
+        "division": None,
+        "classification": "fbs",
+        "color": "#00274C",
+        "alternateColor": "#FFCB05",
+        "logos": [],
+        "twitter": None,
+        "location": location,
+    }
+    older = datetime(2026, 8, 13, tzinfo=UTC)
+    known = _project(
+        Team.model_validate(payload),
+        "/teams",
+        {"year": 2024},
+        observed_at=older,
+    )
+    payload["conference"] = None
+    location["id"] = 0
+    location["name"] = None
+    cleared = _project(
+        Team.model_validate(payload),
+        "/teams",
+        {"year": 2024},
+        observed_at=older + timedelta(minutes=1),
+    )
+    known_observation = next(
+        item for item in known.observations if isinstance(item.fact, TeamSeasonFact)
+    )
+    cleared_observation = next(
+        item for item in cleared.observations if isinstance(item.fact, TeamSeasonFact)
+    )
+    fields = {item.field: item.value.state for item in cleared_observation.fields}
+    merged = merge_catalog_observations(known_observation, cleared_observation)
+
+    assert fields["conference_name"] is ObservationState.null
+    assert fields["venue_id"] is ObservationState.null
+    assert isinstance(merged.fact, TeamSeasonFact)
+    assert merged.fact.conference_name is None
+    assert merged.fact.venue_id is None
+
+
+def test_play_models_project_game_drive_play_type_and_team_relationships() -> None:
+    """Retain play and contextual relationship IDs from validated play rows."""
+    play = Play.model_validate(
+        {
+            "id": "play-1",
+            "driveId": "drive-1",
+            "gameId": 401628347,
+            "driveNumber": 1,
+            "playNumber": 1,
+            "offense": "Michigan",
+            "offenseConference": "Big Ten",
+            "offenseScore": 0,
+            "defense": "Alabama",
+            "home": "Michigan",
+            "away": "Alabama",
+            "defenseConference": "SEC",
+            "defenseScore": 0,
+            "period": 1,
+            "clock": {"minutes": 15, "seconds": 0},
+            "offenseTimeouts": 3,
+            "defenseTimeouts": 3,
+            "yardline": 25,
+            "yardsToGoal": 75,
+            "down": 1,
+            "distance": 10,
+            "yardsGained": 5,
+            "scoring": False,
+            "playType": "Rush",
+            "playText": "Five-yard rush",
+            "ppa": 0.1,
+            "wallclock": "2026-08-13T00:00:00Z",
+        }
+    )
+    probability = PlayWinProbability.model_validate(
+        {
+            "gameId": 401628347,
+            "playId": "play-2",
+            "playText": "Pass complete",
+            "homeId": 130,
+            "home": "Michigan",
+            "awayId": 333,
+            "away": "Alabama",
+            "spread": -3.5,
+            "homeBall": True,
+            "homeScore": 7,
+            "awayScore": 0,
+            "yardLine": 50,
+            "down": 1,
+            "distance": 10,
+            "homeWinProbability": 0.7,
+            "playNumber": 10,
+        }
+    )
+
+    play_projection = _project(play, "/plays", {})
+    probability_projection = _project(probability, "/metrics/wp", {})
+
+    assert [(fact.id, fact.game_id) for fact in play_projection.drives] == [
+        ("drive-1", 401628347)
+    ]
+    assert [(fact.id, fact.drive_id) for fact in play_projection.plays] == [
+        ("play-1", "drive-1")
+    ]
+    assert [(fact.id, fact.game_id) for fact in probability_projection.plays] == [
+        ("play-2", 401628347)
+    ]
+    assert {fact.id for fact in probability_projection.teams} == {130, 333}
+
+
+def test_player_search_projects_each_explicit_team_season() -> None:
+    """Preserve player stint history rather than only the latest team."""
+    player = PlayerSearchResult.model_validate(
+        {
+            "id": "4426385",
+            "team": "Michigan",
+            "name": "Donovan Edwards",
+            "firstName": "Donovan",
+            "lastName": "Edwards",
+            "weight": 210,
+            "height": 72,
+            "jersey": 7,
+            "position": "RB",
+            "hometown": "West Bloomfield",
+            "teamColor": "#00274C",
+            "teamColorSecondary": "#FFCB05",
+            "activeStartYear": 2021,
+            "activeEndYear": 2024,
+            "teamStints": [{"team": "Michigan", "startYear": 2021, "endYear": 2024}],
+        }
+    )
+
+    projection = _project(player, "/player/search", {})
+
+    assert {fact.season for fact in projection.athlete_team_seasons} == {
+        2021,
+        2022,
+        2023,
+        2024,
+    }
+
+
+def test_draft_coach_and_playoff_reference_ids_are_not_discarded() -> None:
+    """Retain reusable secondary identifiers from less common response shapes."""
+    pick = DraftPick.model_validate(
+        {
+            "collegeAthleteId": 4426385,
+            "nflAthleteId": 999,
+            "collegeId": 130,
+            "collegeTeam": "Michigan",
+            "collegeConference": "Big Ten",
+            "nflTeamId": 12,
+            "nflTeam": "Detroit Lions",
+            "year": 2025,
+            "overall": 1,
+            "round": 1,
+            "pick": 1,
+            "name": "Example Player",
+            "position": "RB",
+            "height": 72,
+            "weight": 210,
+            "preDraftRanking": 1,
+            "preDraftPositionRanking": 1,
+            "preDraftGrade": 99,
+            "hometownInfo": {
+                "city": "Ann Arbor",
+                "state": "MI",
+                "country": "US",
+                "latitude": None,
+                "longitude": None,
+                "countyFips": None,
+            },
+        }
+    )
+    tenure = CoachTenure.model_validate(
+        {
+            "id": 44,
+            "coach": {"id": 1, "firstName": "Jim", "lastName": "Coach"},
+            "team": {"id": 130, "school": "Michigan"},
+            "hireDate": "2020-01-01",
+            "startYear": 2020,
+            "endYear": 2024,
+            "effectiveStart": "2020-01-01T00:00:00Z",
+            "effectiveEnd": "2024-12-31T00:00:00Z",
+            "isInterim": False,
+            "active": False,
+            "seasons": 5,
+            "record": {
+                "games": 60,
+                "wins": 50,
+                "losses": 10,
+                "ties": 0,
+                "winPercentage": 0.833,
+            },
+            "attributionComplete": True,
+        }
+    )
+    source = PlayoffMatchupSlotSource.model_validate(
+        {"matchupId": 10, "bracketSlot": "R1-1", "outcome": "winner"}
+    )
+
+    draft_projection = _project(pick, "/draft/picks", {})
+    coach_projection = _project(tenure, "/coaches/tenures", {})
+    playoff_projection = _project(source, "/playoffs/cfp", {"year": 2025})
+
+    assert [fact.id for fact in draft_projection.teams] == [130]
+    assert {fact.namespace for fact in draft_projection.vocabularies} == {
+        "draft_team",
+        "nfl_athlete",
+    }
+    assert [fact.tenure_id for fact in coach_projection.coach_team_seasons] == [44]
+    assert [fact.id for fact in playoff_projection.playoff_matchups] == [10]

@@ -129,6 +129,7 @@ celerybeat.pid
 
 # Environments
 .env
+.cfb-data-live/
 .venv
 env/
 venv/

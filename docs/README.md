@@ -25,7 +25,7 @@ deployment.
 - [`getting-started.md`](getting-started.md) — installation, authentication,
   first request, backend selection, and basic error handling.
 - [`guides/`](guides/) — request rules and allowed values, result contracts,
-  errors, and retries.
+  errors and retries, response caching, and identity lookup.
 - [`reference/`](reference/) — generated client, namespace, request, response,
   enum, and exception API reference.
 - [`../README.md`](../README.md) — installation, client usage, DataFrame

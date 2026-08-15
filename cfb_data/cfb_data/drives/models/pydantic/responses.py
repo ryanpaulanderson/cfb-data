@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cfb_data._catalog.models import DriveFact
+from cfb_data._catalog.projection import CatalogSink, ProjectionContext
+
 
 class DriveTime(BaseModel):
     """Time remaining in a period."""
@@ -44,3 +47,17 @@ class Drive(BaseModel):
     end_defense_score: int = Field(alias="endDefenseScore", ge=0)
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
+        """Project one historical drive and its game relationship."""
+        if self.game_id <= 0 or not self.id:
+            return
+        sink.add(
+            DriveFact(
+                id=self.id,
+                game_id=self.game_id,
+                offense_team=self.offense,
+                defense_team=self.defense,
+            ),
+            source=f"{type(self).__module__}.{type(self).__qualname__}",
+        )
