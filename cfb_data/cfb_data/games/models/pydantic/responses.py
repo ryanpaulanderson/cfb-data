@@ -116,6 +116,18 @@ class Game(_ResponseModel):
     def _project_catalog(self, context: ProjectionContext, sink: CatalogSink) -> None:
         """Project a schedule game and its stable team and venue relationships."""
         source = f"{type(self).__module__}.{type(self).__qualname__}"
+        observed_fields = {
+            "id",
+            "season",
+            "week",
+            "season_type",
+            "start_date",
+            "home_team_id",
+            "away_team_id",
+            "venue_id",
+        }
+        if self.completed:
+            observed_fields.add("status")
         observe_game(
             sink,
             id=self.id,
@@ -129,19 +141,7 @@ class Game(_ResponseModel):
             venue_id=self.venue_id,
             authority=ObservationAuthority.authoritative,
             source=source,
-            observed_fields=frozenset(
-                (
-                    "id",
-                    "season",
-                    "week",
-                    "season_type",
-                    "start_date",
-                    "status",
-                    "home_team_id",
-                    "away_team_id",
-                    "venue_id",
-                )
-            ),
+            observed_fields=frozenset(observed_fields),
         )
         observe_team(sink, id=self.home_id, school=self.home_team, source=source)
         observe_team(sink, id=self.away_id, school=self.away_team, source=source)

@@ -19,7 +19,7 @@ from cfb_data.conferences.models.pydantic.responses import (
     TeamConferenceChange,
 )
 from cfb_data.draft.models.pydantic.responses import DraftPick
-from cfb_data.games.models.pydantic.responses import Game, TeamGameStats
+from cfb_data.games.models.pydantic.responses import Game, ScoreboardGame, TeamGameStats
 from cfb_data.metrics.models.pydantic.responses import PlayWinProbability
 from cfb_data.players.models.pydantic.responses import PlayerSearchResult
 from cfb_data.playoffs.models.pydantic.responses import PlayoffMatchupSlotSource
@@ -429,6 +429,45 @@ def test_authoritative_game_placeholders_clear_prior_relationships(
     assert merged.fact.home_team_id is None
     assert merged.fact.away_team_id is None
     assert merged.fact.venue_id is None
+
+
+def test_incomplete_schedule_preserves_observed_scoreboard_status(
+    game_response: dict[str, object],
+    scoreboard_response: dict[str, object],
+) -> None:
+    """Treat a false completion flag as unknown live game status."""
+    older = datetime(2026, 8, 13, tzinfo=UTC)
+    scoreboard = _project(
+        ScoreboardGame.model_validate(scoreboard_response),
+        "/scoreboard",
+        {},
+        observed_at=older,
+    )
+    response = dict(game_response)
+    response["completed"] = False
+    schedule = _project(
+        Game.model_validate(response),
+        "/games",
+        {"year": 2024},
+        observed_at=older + timedelta(minutes=1),
+    )
+    scoreboard_observation = next(
+        item for item in scoreboard.observations if isinstance(item.fact, GameFact)
+    )
+    schedule_observation = next(
+        item for item in schedule.observations if isinstance(item.fact, GameFact)
+    )
+    status = next(
+        item for item in schedule_observation.fields if item.field == "status"
+    )
+    merged = merge_catalog_observations(
+        scoreboard_observation,
+        schedule_observation,
+    )
+
+    assert status.value.state is ObservationState.unobserved
+    assert isinstance(merged.fact, GameFact)
+    assert merged.fact.status == "in_progress"
 
 
 def test_team_placeholder_venue_does_not_become_season_relationship() -> None:
