@@ -70,6 +70,7 @@ reference/responses
 :caption: Project internals
 
 project-status
+product-constitution
 architecture/request-lifecycle
 architecture/0001-validated-models-before-dataframes
 architecture/0002-heterogeneous-stat-scalars
