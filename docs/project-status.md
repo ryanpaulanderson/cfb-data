@@ -1,167 +1,97 @@
 # Project status
 
-> Status as of August 13, 2026: version 0.5.0 implements the supported public
-> CFBD v5.24.0 REST endpoint surface plus the accepted validated-response cache
-> and durable identity catalog. Dataset and workflow coverage remains future
-> work.
+`cfb-data` is a pre-alpha project for people who want to explore college
+football data in Python. That includes data engineers and statisticians, but
+also fans learning pandas, Polars, or sports analytics. The library is built
+carefully, while the user-facing API and documentation are still being shaped
+around what is most useful in real analyses.
 
-## Current product surface
+The current package version is 0.5.0 and the endpoint reference was checked
+against CFBD API v5.24.0 on August 13, 2026. The Python API and local cache
+format may still change during pre-alpha development.
 
-`CFBDClient` is the sole primary client. It owns one context-managed,
-connection-pooled `aiohttp.ClientSession` and exposes typed `games`, `drives`,
-`plays`, `venues`, `conferences`, `teams`, `stats`, `metrics`, `ratings`,
-`players`, `rankings`, `betting`, `recruiting`, `coaches`, `draft`, `playoffs`,
-`adjusted_metrics`, and `info` namespaces. Every endpoint follows the same
-boundary sequence:
+## What works today
+
+`CFBDClient` covers the public Games, Drives, Plays, Venues, Conferences,
+Teams, Stats, Metrics, Ratings, Players, Rankings, Betting, Recruiting,
+Coaches, Draft, Playoffs, Adjusted Metrics, and Info endpoint groups.
+
+Most calls return eager pandas DataFrames by default. Install the `polars`
+extra to receive Polars DataFrames from the same methods. A few results, such
+as a live game or complete playoff bracket, stay as nested Pydantic models
+because forcing them into one table would make them harder to use.
+
+Requests and responses are validated, so mistakes such as an unknown filter or
+an unexpected upstream value fail with a useful exception instead of quietly
+changing an analysis. Column order, row order, nulls, nested values, and empty
+result schemas are preserved across the pandas and Polars backends.
+
+The [endpoint reference](cfbd_api/README.md) lists every available method and
+its filters. [Getting started](getting-started.md) shows the shortest path from
+installation to a DataFrame.
+
+## Caching is optional
+
+No cache is required. This is often enough for a quick script or a small number
+of calls.
+
+SQLite is included for people who want notebook reruns and repeated scripts to
+reuse responses without setting up another service. Redis is available through
+the `redis` extra and is equally valid on a laptop or workstation. It is handy
+when several notebooks, scripts, or local processes should share the same
+cache, and it can also be shared across machines.
+
+Both backends also keep a small identity catalog. This helps resolve names,
+abbreviations, and provider IDs when an analysis joins games, teams, venues,
+and athletes from different endpoints. See [Cache responses and look up
+identities](guides/cache-and-identities.md) for examples.
+
+## What the library handles for you
+
+Calls made in one client context share an HTTP session. The client closes that
+session when the context exits, retries a small set of temporary failures, and
+uses finite timeouts. API responses are validated before they become
+DataFrames, and exception messages omit credentials and response payloads.
+
+Tabular results use a common Arrow representation before pandas or Polars
+materialization:
 
 ```text
-HTTP → Pydantic response validation → logical schema → canonical Arrow table
+HTTP → Pydantic response validation → logical schema → Arrow table
                                                        ├── pandas DataFrame
-                                                       ├── Polars DataFrame
-                                                       └── versioned Parquet
+                                                       └── Polars DataFrame
 ```
 
-pandas is the default backend. Polars is available through the `polars` extra.
-Both return eager frames with the same endpoint methods, request validation,
-column names/order, API row order, nulls, and logical values. Advanced box
-score, live plays, and the complete CFP bracket intentionally return validated
-models because their nested sections do not form one natural table. Info
-account and usage endpoints return validated operational models.
+These details are there to make results predictable; using the client does not
+require understanding the transport, Arrow conversion, cache leases, or
+storage implementation.
 
-The implemented routes are `/games`, `/records`, `/calendar`, `/scoreboard`,
-`/games/media`, `/games/weather`, `/games/players`, `/games/teams`,
-`/game/box/advanced`, `/drives`, `/plays`, `/plays/types`, `/plays/stats`,
-`/plays/stats/types`, `/live/plays`, `/venues`, `/conferences`,
-`/conferences/changes`, `/conferences/affiliations`, `/teams`, `/teams/fbs`,
-`/teams/matchup`, `/teams/ats`, `/roster`, and `/talent`.
-The Stats routes are `/stats/player/season`, `/stats/player/success`,
-`/stats/player/success/game`, `/stats/season`, `/stats/categories`,
-`/stats/season/advanced`, `/stats/game/advanced`, and `/stats/game/havoc`.
-Metrics implements eight PPA and probability routes, Ratings implements seven
-rating-system routes, and Players implements the five documented player
-routes. The hidden `/player/ppa/passing` route is not public client surface.
-Rankings implements `/rankings`, Betting implements `/lines`, Recruiting
-implements `/recruiting/players`, `/recruiting/teams`, and
-`/recruiting/groups`, and Coaches implements `/coaches`, `/coaches/profile`,
-`/coaches/seasons`, and `/coaches/tenures`. Draft implements `/draft/teams`,
-`/draft/positions`, and `/draft/picks`. Playoffs implements `/playoffs/cfp`,
-`/playoffs/cfp/participants`, and `/playoffs/cfp/games`. Adjusted Metrics
-implements `/wepa/team/season`, `/wepa/players/passing`,
-`/wepa/players/rushing`, and `/wepa/players/kicking`; these routes require
-Patreon Tier 1. Info implements `/info` and `/info/usage` as operational model
-responses.
+## Not included yet
 
-Caching is optional. SQLite is included for local and single-host persistence;
-the `redis` extra supplies a shared async Redis backend. Both store exact
-validated JSON responses separately from permanent normalized identity facts
-and capability-aware coverage. Source-domain Pydantic models own the typed
-identity declarations and contextual projection hooks; the neutral catalog
-owns normalized grains, three-state merge semantics, provenance, and indexes.
-Cache-disabled calls use the same path through a client-local transient catalog
-rather than direct response converters. Response hits remain subject to the
-current Pydantic contract. Process-local single-flight and renewable backend
-leases coalesce concurrent refreshes. SQLite DDL and queries are packaged as
-dedicated `.sql` resources and strictly rendered through one Jinja handler;
-runtime values remain database-bound parameters. The public
-`client.identities` facade provides exact team, conference, venue, game, and
-scoped-athlete resolution
-plus dry-run, bounded, resumable canonical hydration. Its compact result types
-live in those five source domains rather than a parallel identity-model module.
-
-Apache Arrow is the canonical representation for tabular endpoint results.
-Its explicit recursive schema preserves ordered structs, typed lists,
-nullability, and UTC timestamps for populated, empty, and all-null responses.
-pandas still presents nested values as Python mappings and lists in `object`
-columns, while Polars presents native `Struct` and `List` columns.
-
-The library also has a private, versioned local-file Parquet codec for future
-library-owned caches. It uses the canonical Arrow schema, atomic replacement,
-strict compatibility metadata, and full Pydantic validation by default. This
-codec is the persistence compatibility contract; direct pandas and Polars
-Parquet methods are not.
-
-## Reliability contract
-
-- Explicit or environment (`CFBD_API_KEY`) bearer authentication.
-- Mandatory one-shot async context lifecycle and deterministic session close.
-- Finite per-attempt timeouts, normal TLS verification, and disabled redirects.
-- Bounded retries for safe GET transport failures and selected transient HTTP
-  statuses, including capped `Retry-After` handling.
-- Pydantic request and response validation before table conversion.
-- Safe public exception metadata without credentials, query strings, or
-  response payloads.
-- Strict logical schemas and row/column assertions in both adapters.
-- One explicit Arrow schema for DataFrame materialization and nested Parquet
-  persistence, including empty and all-null tables.
-- Atomic internal Parquet writes and strict version, row-model, logical-schema,
-  physical-schema, and tagged-scalar validation on reads.
-- Optional validated-response caching with typed TTL profiles, conditional
-  revalidation, narrow stale-on-error behavior, and task-local cache modes.
-- Durable versioned identity facts and coverage that survive response expiry.
-- Process-local and cross-process refresh coalescing for SQLite and Redis.
-- Corruption, projection-contract invalidation, cancellation, lease-expiry, backend-failure,
-  multiprocess SQLite, real Redis, and opt-in bounded live-API verification.
-- Black-box tests through the installed client and a local HTTP boundary.
-- CI installation checks for base pandas and PyArrow and for the Polars extra
-  on Python 3.12 and 3.13.
-
-## Removed 0.1.x surface
-
-The raw/Pydantic/pandas inheritance hierarchy, domain-specific client classes,
-generic route decorator, public path router, Pandera schemas, and Pandera
-dependency have been removed. Raw JSON and general response-model return modes
-are not part of the supported client.
-
-## Deliberately not included in 0.5.0
-
-- Internal authentication routes and the deliberately hidden rolling
-  player-passing PPA route.
 - Polars `LazyFrame` results.
-- Public workflow-checkpoint save/load methods, direct cache-record access,
-  remote filesystems, and partitioned Parquet datasets.
-- Automatic flattening, exploding, or ML feature generation from nested
-  endpoint data.
-- Public dataset or workflow namespaces.
+- Public dataset or workflow namespaces that join several endpoints for you.
+- Public save/load methods for the package's internal Parquet format.
+- Automatic flattening, exploding, or feature engineering for nested data.
+- Raw JSON and a generic path-based request method.
 
-Future datasets will compose validated endpoint results and validated
-subdatasets through joins into an authoritative tabular row model. They, and
-future ML feature layers, will perform explicit transformations at a declared
-row grain rather than changing source-faithful endpoint results. Future
-workflows will orchestrate endpoints and datasets with broader control flow and
-may return multiple artifacts. The layering and persistence decisions are
-recorded in
-[`architecture/0001-validated-models-before-dataframes.md`](architecture/0001-validated-models-before-dataframes.md)
-and
-[`architecture/0003-canonical-arrow-parquet.md`](architecture/0003-canonical-arrow-parquet.md).
-The implemented response-cache, identity-catalog, coverage-ledger, and
-hydration design is recorded separately in
-[`architecture/0004-api-cache-identity-catalog.md`](architecture/0004-api-cache-identity-catalog.md);
-the operational surface is documented in
-[`guides/cache-and-identities.md`](guides/cache-and-identities.md).
+Users can already perform these transformations with ordinary synchronous
+pandas or Polars operations. Future dataset and workflow helpers will
+orchestrate completed results on that synchronous side of the retrieval
+boundary, without changing the source-shaped endpoint results underneath them.
 
-## Development contract
+## Architecture and contributor details
 
-Package metadata and dependency groups live in `pyproject.toml`.
+The deeper validation, DataFrame, dataset, persistence, caching, and identity
+decisions are recorded in the [request lifecycle
+architecture](architecture/request-lifecycle.md) and linked decision records.
+They are useful for contributors and anyone curious about the internals, but
+are not required reading for using the library.
 
-```sh
-make install
-make format
-make docs
-make check
-```
+Contributor setup and quality checks live in the repository's
+[`CONTRIBUTING.md`](https://github.com/ryanpaulanderson/cfb-data/blob/main/CONTRIBUTING.md).
+The project intentionally keeps its engineering standards there rather than
+asking users to think like library maintainers.
 
-`make install` installs the complete contributor environment, including
-PyArrow, both DataFrame backends, and the Redis integration client. `make docs`
-performs the same strict
-Sphinx HTML build used for publication. GitHub Actions runs the shared quality
-contract on Python 3.12 and 3.13, separately smoke-tests base and Polars
-installations, and deploys documentation from `main` to GitHub Pages. The
-published URL is part of the package's project metadata so PyPI displays it as
-the Documentation link.
-
-## Historical material
-
-Earlier analyses and implementation plans remain in the repository's
+Earlier analyses and implementation plans remain in
 [`docs/history/`](https://github.com/ryanpaulanderson/cfb-data/tree/main/docs/history)
-directory. They explain superseded designs and are not a current roadmap or
-API reference.
+as historical context, not current usage guidance.

@@ -72,6 +72,19 @@ Both calls return eager `pandas.DataFrame` objects. The session is pooled across
 the two requests and closed when the context exits, including when a request
 raises an exception.
 
+The async boundary covers data retrieval and validation. Once the completed
+frames are returned, calculations use normal synchronous pandas operations.
+The client does not require a custom query or analysis layer:
+
+```python
+completed = games.dropna(subset=["home_points", "away_points"])
+high_scoring = completed.assign(
+    total_points=completed["home_points"] + completed["away_points"]
+).sort_values("total_points", ascending=False)
+
+print(high_scoring[["home_team", "away_team", "total_points"]].head())
+```
+
 ## Choose an endpoint
 
 Methods are grouped by subject on the client. For example:
@@ -85,8 +98,8 @@ async with CFBDClient() as client:
     elo = await client.ratings.elo(year=2024, team="Georgia")
 ```
 
-The [namespace index](cfbd_api/README.md) lists every supported namespace and
-links to its endpoint contracts. The generated
+The [endpoint index](cfbd_api/README.md) lists every supported namespace and
+links to its request and result details. The generated
 [namespace API](reference/namespaces.rst) gives exact callable signatures.
 
 ## Pass a request model when filters are reused
@@ -123,8 +136,8 @@ async with CFBDClient(dataframe_backend="polars") as client:
 ```
 
 Type checkers infer `pandas.DataFrame` for the default client and
-`polars.DataFrame` when the literal backend is `"polars"`. See
-[Results and DataFrames](guides/results.md) for dtype and nested-value details.
+`polars.DataFrame` when the literal backend is `"polars"`. See [Work with
+results](guides/results.md) for examples and nested-value details.
 
 ## Handle failures
 
@@ -150,13 +163,15 @@ except CFBDRateLimitError as exc:
     print(f"Rate limited after {exc.attempts} attempts.")
 ```
 
-The [errors and retries guide](guides/errors-and-retries.md) documents the full
-exception taxonomy and default retry behavior.
+The [troubleshooting guide](guides/errors-and-retries.md) covers common errors
+and when to handle them separately. The complete exception and retry reference
+lives under [Advanced details](advanced/errors-and-retries.md).
 
 ## Avoid repeated calls and resolve IDs
 
-Caching is opt-in. SQLite is the simplest choice for one machine and persists
-both exact validated responses and compact identity facts:
+Caching is opt-in. It is useful when a notebook or script repeatedly fetches
+the same season while you change the analysis. SQLite is the simplest choice
+and persists both responses and compact identity facts:
 
 ```python
 from cfb_data import CFBDClient, SQLiteCacheConfig
@@ -167,7 +182,31 @@ async with CFBDClient(cache=SQLiteCacheConfig()) as client:
     game = await client.identities.games.resolve(game_id=401628347)
 ```
 
-Use `RedisCacheConfig` for shared workers. See
-[Response caching and identity lookup](guides/cache-and-identities.md) for TTL
-defaults, explicit refresh/bypass/local-only modes, hydration call counts,
-maintenance, Docker Compose, and hosted Redis security guidance.
+Redis is also useful on one machine if you already have it running or want
+several scripts to share cached data:
+
+```python
+from cfb_data import CFBDClient, RedisCacheConfig
+
+cache = RedisCacheConfig(url="redis://127.0.0.1:6379/0")
+
+async with CFBDClient(cache=cache) as client:
+    games = await client.games.list(year=2025)
+```
+
+Install the optional client with `python -m pip install "cfb-data[redis]"`.
+See [Cache responses and look up identities](guides/cache-and-identities.md)
+for local SQLite and Redis examples, cache modes, identity lookup, and common
+fixes.
+
+## Where to go next
+
+| If you want to... | Continue with... |
+| --- | --- |
+| Find another dataset or method | [CFBD endpoint reference](cfbd_api/README.md) |
+| Find IDs, hydrate minimally, or gather several calls | [Common notebook recipes](guides/common-recipes.md) |
+| Check allowed filters and enum values | [Requests and allowed values](guides/requests.md) |
+| Flatten nested data or compare pandas and Polars | [Work with results](guides/results.md) |
+| Reuse data across notebook runs | [Cache responses and look up identities](guides/cache-and-identities.md) |
+| Diagnose an exception | [Troubleshooting requests](guides/errors-and-retries.md) |
+| Tune exact behavior | [Advanced details](advanced/index.md) |

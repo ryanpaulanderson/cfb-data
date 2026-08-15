@@ -1,62 +1,97 @@
-# Errors and retries
+# Troubleshooting requests
 
-All public library exceptions derive from {class}`cfb_data.CFBDError`. Error
-messages and retry debug events contain safe endpoint, status, and attempt
-metadata; they do not include API keys, query parameters, response payloads, or
-other secrets.
+Most problems fall into a few recognizable groups: configuration, invalid
+filters, access limits, temporary network failures, or an unexpected change in
+the upstream data.
 
-## Exception taxonomy
+## Start with the exception name
 
-| Exception | Meaning | Typical action |
+All library exceptions inherit from {class}`cfb_data.CFBDError`, so you can
+catch one base class while exploring:
+
+```python
+from cfb_data import CFBDError, CFBDClient
+
+try:
+    async with CFBDClient() as client:
+        games = await client.games.list(year=2024)
+except CFBDError as exc:
+    print(type(exc).__name__, exc)
+```
+
+Once your script needs different recovery behavior, catch the narrower
+exception.
+
+## Common problems
+
+| Exception or symptom | Likely cause | What to try |
 | --- | --- | --- |
-| {class}`cfb_data.CFBDConfigurationError` | API key, backend, base URL, timeout, or other client configuration is invalid | Correct configuration before opening the client |
-| {class}`cfb_data.CFBDOptionalDependencyError` | A requested optional backend is not installed | Install `cfb-data[polars]` or `cfb-data[redis]`, or select an installed backend |
-| {class}`cfb_data.CFBDCacheBackendError` | Strict cache or identity-catalog access could not be answered | Restore the configured backend or choose non-strict API access |
-| {class}`cfb_data.CFBDCacheMissError` | Local-only response access has no retained validated record | Hydrate or fetch while network access is permitted |
-| {class}`cfb_data.CFBDIdentityNotFoundError` | Exact identity resolution found no candidate | Correct the identifier/name or hydrate the relevant partition |
-| {class}`cfb_data.CFBDIdentityAmbiguityError` | Multiple identities matched the same exact normalized value | Add team, season, or another supported scope |
-| {class}`cfb_data.CFBDClientStateError` | The one-shot async lifecycle was violated | Create and enter a fresh client |
-| {class}`cfb_data.CFBDRequestValidationError` | Keyword filters violate the endpoint request model | Correct field names, values, or selector combinations |
-| {class}`cfb_data.CFBDTimeoutError` | A finite request attempt timed out | Retry according to application policy or investigate service/network health |
-| {class}`cfb_data.CFBDTLSError` | TLS negotiation or certificate validation failed | Investigate trust or interception; do not disable TLS verification |
-| {class}`cfb_data.CFBDTransportError` | Another connection or payload transport failure occurred | Treat as an operational failure after built-in retries |
-| {class}`cfb_data.CFBDAuthenticationError` | The API rejected authentication | Check the API key |
-| {class}`cfb_data.CFBDAuthorizationError` | The account lacks access to the endpoint | Check the endpoint's required tier |
-| {class}`cfb_data.CFBDRateLimitError` | The API rate limit was exhausted | Back off; inspect `retry_after_seconds` when present |
-| {class}`cfb_data.CFBDServerError` | The API returned a server error after retries | Retry later or investigate upstream status |
-| {class}`cfb_data.CFBDHTTPError` | Another unsuccessful HTTP response occurred | Inspect the safe `status` and endpoint metadata |
-| {class}`cfb_data.CFBDResponseDecodeError` | The body was not complete valid JSON | Treat as an upstream or transport failure |
-| {class}`cfb_data.CFBDResponseValidationError` | Decoded JSON violated the declared response contract | Treat as an upstream contract change or malformed response |
-| {class}`cfb_data.CFBDDataFrameConversionError` | Validated rows could not be represented without violating the frame contract | Report the endpoint and selected backend |
+| `CFBDConfigurationError` | Missing API key or invalid client option | Check `CFBD_API_KEY` and client construction. |
+| `CFBDRequestValidationError` | Misspelled filter, unsupported value, or missing selector | Compare the call with the endpoint reference. |
+| `CFBDAuthenticationError` | The API key was rejected | Check that the key is current and copied without extra whitespace. |
+| `CFBDAuthorizationError` | The endpoint requires a different Patreon tier | Check the access note in the endpoint reference. |
+| `CFBDRateLimitError` | The account has exhausted its available calls | Wait before retrying and consider SQLite or Redis caching. |
+| `CFBDTimeoutError` or `CFBDTransportError` | Temporary API or connection problem | Try again later; the client has already attempted its normal retries. |
+| `CFBDResponseValidationError` | The API returned a shape the installed package did not expect | Check for a newer package version or report the endpoint and error. |
+| `CFBDDataFrameConversionError` | Validated data could not be represented in the selected backend | Report the endpoint, backend, and package version. |
 
-## Default retry policy
+## Handle the errors you can act on
 
-The immutable {class}`cfb_data.RetryPolicy` makes at most three total attempts
-for safe GET requests. It retries connection failures, timeouts, truncated
-payloads, and HTTP `408`, `429`, `500`, `502`, `503`, and `504` with capped
-exponential full-jitter backoff.
+This example distinguishes a bad local request from API access and rate-limit
+problems:
 
-Valid numeric and HTTP-date `Retry-After` values are honored up to 90 seconds.
-A longer server-requested delay fails immediately and remains available as
-`retry_after_seconds` on the resulting HTTP error. Redirects are disabled,
-TLS verification remains enabled, every attempt has a finite timeout, and
-async cancellation is preserved.
+```python
+from cfb_data import (
+    CFBDAuthenticationError,
+    CFBDAuthorizationError,
+    CFBDClient,
+    CFBDRateLimitError,
+    CFBDRequestValidationError,
+)
 
-Customize the bounded policy at client construction:
+try:
+    async with CFBDClient() as client:
+        games = await client.games.list(year=2024)
+except CFBDRequestValidationError as exc:
+    print(f"Fix the filters: {exc}")
+except CFBDAuthenticationError:
+    print("Check CFBD_API_KEY.")
+except CFBDAuthorizationError:
+    print("This endpoint may require another access tier.")
+except CFBDRateLimitError as exc:
+    print(f"Rate limited after {exc.attempts} attempts.")
+```
+
+## The client already retries temporary failures
+
+By default, a request gets up to three total attempts for common temporary
+connection, timeout, rate-limit, and server failures. Most scripts do not need
+to configure this.
+
+If you want only one attempt—for example, in an interactive notebook where you
+prefer immediate feedback—set:
 
 ```python
 from cfb_data import CFBDClient, RetryPolicy
 
-policy = RetryPolicy(
-    max_attempts=4,
-    base_delay_seconds=0.25,
-    max_backoff_seconds=4.0,
-    max_retry_after_seconds=20.0,
-)
-
-async with CFBDClient(retry_policy=policy) as client:
-    scoreboard = await client.games.scoreboard()
+async with CFBDClient(retry_policy=RetryPolicy(max_attempts=1)) as client:
+    games = await client.games.list(year=2024)
 ```
 
-Set `RetryPolicy(max_attempts=1)` to disable retries. `max_attempts` includes
-the initial request.
+## When reporting a problem
+
+The most useful details are:
+
+- the endpoint method, such as `client.games.list`;
+- the exception class and message;
+- the `cfb-data` version;
+- whether pandas or Polars was selected; and
+- a minimal call with secrets and personal paths removed.
+
+Library error messages omit API keys, query values, and response payloads, but
+it is still worth checking copied logs before sharing them.
+
+## Go deeper
+
+[Advanced errors and retries](../advanced/errors-and-retries.md) lists every
+exception class, retryable status, delay limit, and retry-policy option.

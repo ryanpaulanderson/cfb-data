@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="660" viewBox="0 0 1100 660" role="img" aria-labelledby="title description">
+  <title id="title">Async data retrieval followed by synchronous analysis</title>
+  <desc id="description">The sequential timeline waits for games, roster, and ratings one after another. The asyncio gather timeline starts all three together so their network waiting overlaps. After retrieval completes, the resulting DataFrames cross into a synchronous workflow for joins, transformations, and analysis.</desc>
+  <defs>
+    <style>
+      .background { fill: #f8fafc; }
+      .panel { fill: #ffffff; stroke: #94a3b8; stroke-width: 1.5; }
+      .games { fill: #0284c7; }
+      .roster { fill: #16a34a; }
+      .ratings { fill: #7c3aed; }
+      .workflow { fill: #fff7ed; stroke: #ea580c; stroke-width: 1.5; }
+      .title { fill: #0f172a; font: 700 25px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .label { fill: #0f172a; font: 600 17px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .body { fill: #334155; font: 15px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .bar-text { fill: #ffffff; font: 600 15px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .axis { stroke: #64748b; stroke-width: 1.5; }
+      .guide { stroke: #cbd5e1; stroke-width: 1; stroke-dasharray: 4 4; }
+      .arrow { fill: none; stroke: #ea580c; stroke-width: 2.5; }
+      @media (prefers-color-scheme: dark) {
+        .background { fill: #0f172a; }
+        .panel { fill: #1e293b; stroke: #64748b; }
+        .games { fill: #0369a1; }
+        .roster { fill: #15803d; }
+        .ratings { fill: #6d28d9; }
+        .workflow { fill: #431407; stroke: #fb923c; }
+        .title, .label { fill: #f8fafc; }
+        .body { fill: #e2e8f0; }
+        .bar-text { fill: #ffffff; }
+        .axis { stroke: #cbd5e1; }
+        .guide { stroke: #475569; }
+        .arrow { stroke: #fb923c; }
+      }
+    </style>
+  </defs>
+  <rect class="background" width="1100" height="660"/>
+  <text class="title" x="550" y="42" text-anchor="middle">Async is the data-retrieval layer</text>
+  <text class="body" x="550" y="70" text-anchor="middle">Independent API waits can overlap; completed results feed synchronous analysis</text>
+
+  <rect class="panel" x="130" y="100" width="900" height="155"/>
+  <text class="label" x="110" y="132" text-anchor="end">Loop</text>
+  <text class="body" x="150" y="132">Sequential: each request starts after the previous response</text>
+  <line class="axis" x1="180" y1="220" x2="980" y2="220"/>
+  <rect class="games" x="180" y="158" width="250" height="44"/>
+  <text class="bar-text" x="305" y="186" text-anchor="middle">games</text>
+  <rect class="roster" x="430" y="158" width="250" height="44"/>
+  <text class="bar-text" x="555" y="186" text-anchor="middle">roster</text>
+  <rect class="ratings" x="680" y="158" width="250" height="44"/>
+  <text class="bar-text" x="805" y="186" text-anchor="middle">ratings</text>
+  <line class="guide" x1="930" y1="140" x2="930" y2="230"/>
+  <text class="body" x="930" y="245" text-anchor="middle">all complete</text>
+
+  <rect class="panel" x="130" y="290" width="900" height="215"/>
+  <text class="label" x="110" y="322" text-anchor="end">gather</text>
+  <text class="body" x="150" y="322">Concurrent: one client starts a small independent batch together</text>
+  <line class="axis" x1="180" y1="470" x2="980" y2="470"/>
+  <rect class="games" x="180" y="345" width="250" height="36"/>
+  <text class="bar-text" x="305" y="369" text-anchor="middle">games</text>
+  <rect class="roster" x="180" y="390" width="250" height="36"/>
+  <text class="bar-text" x="305" y="414" text-anchor="middle">roster</text>
+  <rect class="ratings" x="180" y="435" width="250" height="36"/>
+  <text class="bar-text" x="305" y="459" text-anchor="middle">ratings</text>
+  <line class="guide" x1="430" y1="330" x2="430" y2="480"/>
+  <text class="body" x="430" y="495" text-anchor="middle">all complete</text>
+
+  <path class="arrow" d="M 550 515 L 550 553"/>
+  <path class="arrow" d="M 542 544 L 550 553 L 558 544"/>
+  <text class="body" x="535" y="541" text-anchor="end">retrieval complete</text>
+  <rect class="workflow" x="240" y="565" width="620" height="64" rx="10"/>
+  <text class="label" x="550" y="590" text-anchor="middle">Synchronous dataset or workflow</text>
+  <text class="body" x="550" y="614" text-anchor="middle">join → transform → calculate → analyze</text>
+  <text class="body" x="550" y="650" text-anchor="middle">Concurrency changes retrieval timing, not API usage.</text>
+</svg>

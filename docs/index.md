@@ -1,37 +1,58 @@
 # cfb-data
 
-`cfb-data` is an asynchronous, validated Python client for the public
-[CollegeFootballData API](https://collegefootballdata.com/). It presents
-analytical endpoint results as eager pandas DataFrames by default, with Polars
-available as an optional backend, while preserving nested operational results
-as Pydantic models.
+`cfb-data` is a pre-alpha Python toolkit for enthusiasts exploring the public
+[CollegeFootballData API](https://collegefootballdata.com/). Most calls return
+eager pandas DataFrames that are ready for analysis; Polars is available as an
+optional backend, and a few naturally nested results return Pydantic models.
 
-The request path is intentionally strict:
+The usual path is short:
 
 ```text
-HTTP → Pydantic models → logical schema → canonical Arrow table → DataFrame
+pick a football question → call an endpoint → get a DataFrame → analyze it
+                                  │
+                                  └── optionally reuse data from SQLite or Redis
 ```
 
-See the [request lifecycle architecture](architecture/request-lifecycle.md)
-for a diagram of how a call moves through validation, transport, response
-models, and result presentation.
-
 Start with the [installation and first-request guide](getting-started.md). Use
-the [namespace contracts](cfbd_api/README.md) to choose an endpoint, the
+the [endpoint reference](cfbd_api/README.md) to choose an endpoint, the
 [request guide](guides/requests.md) to understand filters and allowed values,
 and the generated [namespace API](reference/namespaces.rst) for exact method
 signatures.
+
+## Choose a path
+
+| I want to... | Start here |
+| --- | --- |
+| Fetch games, plays, ratings, or another dataset | [Getting started](getting-started.md) |
+| Copy a notebook recipe for a common question | [Common notebook recipes](guides/common-recipes.md) |
+| Understand a method's filters | [Requests and allowed values](guides/requests.md) |
+| Work with pandas, Polars, or nested results | [Work with results](guides/results.md) |
+| Avoid repeated calls or join data by IDs | [Cache responses and look up identities](guides/cache-and-identities.md) |
+| Fix an error | [Troubleshooting requests](guides/errors-and-retries.md) |
+| Look up every available endpoint | [Endpoint reference](cfbd_api/README.md) |
 
 ```{toctree}
 :maxdepth: 2
 :caption: Use cfb-data
 
 getting-started
+guides/common-recipes
 guides/requests
 guides/results
 guides/errors-and-retries
 guides/cache-and-identities
 cfbd_api/README
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Advanced details
+
+advanced/index
+advanced/request-details
+advanced/result-details
+advanced/cache-behavior
+advanced/errors-and-retries
 ```
 
 ```{toctree}
@@ -46,7 +67,7 @@ reference/responses
 
 ```{toctree}
 :maxdepth: 1
-:caption: Project
+:caption: Project internals
 
 project-status
 architecture/request-lifecycle
@@ -58,16 +79,28 @@ notices-of-decision/README
 notices-of-decision/0001-canonical-nested-tabular-representation
 ```
 
-## What the client guarantees
+## What to expect
 
-- Every request and response is validated before DataFrame conversion.
+- Every request and response is validated before DataFrame conversion. This
+  catches misspelled filters and unexpected upstream data before they quietly
+  affect an analysis.
 - Unknown filters and invalid selector combinations fail before network I/O.
 - pandas and Polars results materialize from one canonical Arrow table and have
   the same columns, row order, nulls, and logical values.
-- Each client owns one connection-pooled session and closes it deterministically.
-- Requests have finite timeouts, bounded retries, TLS verification, and safe
-  exception messages that do not expose credentials or response payloads.
-- Optional SQLite or Redis persistence caches only validated responses and
-  maintains a durable, locally queryable identity catalog.
+- Calls made within one client context share an HTTP session, which is closed
+  when the context exits.
+- Requests have timeouts and a small retry policy for temporary failures.
+- Optional SQLite or Redis caching can reduce repeated API calls and keep a
+  locally queryable identity catalog. Both are useful on a single computer;
+  Redis can also be shared by several scripts or machines.
+
+This is an enthusiast-focused pre-alpha project. The API may still change as
+the library gets easier to use. The documentation describes the current
+version.
+
+Curious about the implementation? The [request lifecycle
+diagram](architecture/request-lifecycle.md) shows the validation, HTTP, Arrow,
+and DataFrame layers. Those internals are optional reading, not prerequisites
+for using the library.
 
 The project is not affiliated with CollegeFootballData.com.

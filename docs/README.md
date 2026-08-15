@@ -24,14 +24,18 @@ deployment.
 - [`index.md`](index.md) — Sphinx site entry point and navigation.
 - [`getting-started.md`](getting-started.md) — installation, authentication,
   first request, backend selection, and basic error handling.
-- [`guides/`](guides/) — request rules and allowed values, result contracts,
+- [`guides/common-recipes.md`](guides/common-recipes.md) — notebook examples for
+  common data, IDs, minimal hydration, joins, and async concurrency.
+- [`guides/`](guides/) — request rules and allowed values, result shapes,
   errors and retries, response caching, and identity lookup.
+- [`advanced/`](advanced/) — exact request, result, cache, identity, and retry
+  behavior for readers who need it.
 - [`reference/`](reference/) — generated client, namespace, request, response,
   enum, and exception API reference.
-- [`../README.md`](../README.md) — installation, client usage, DataFrame
-  contract, retries, errors, and 0.1.x migration.
-- [`project-status.md`](project-status.md) — implemented release scope and
-  deliberately deferred work.
+- [`../README.md`](../README.md) — installation, client usage, DataFrames,
+  retries, and errors.
+- [`project-status.md`](project-status.md) — what works today and what is not
+  included yet.
 - [`architecture/0001-validated-models-before-dataframes.md`](architecture/0001-validated-models-before-dataframes.md)
   — accepted validation, DataFrame, dataset, and workflow layering decision.
 - [`architecture/0002-heterogeneous-stat-scalars.md`](architecture/0002-heterogeneous-stat-scalars.md)
@@ -44,7 +48,7 @@ deployment.
 - [`notices-of-decision/`](notices-of-decision/README.md) — decision notices
   explaining the evidence, alternatives, and reasoning behind consequential
   project choices.
-- [`cfbd_api/`](cfbd_api/) — implemented endpoint contracts by public namespace.
+- [`cfbd_api/`](cfbd_api/) — endpoint reference by public namespace.
 - [`next-api-groups.md`](next-api-groups.md) — source-backed prioritization of
   the remaining official API groups.
 - [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — contributor setup and quality
