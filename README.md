@@ -120,11 +120,13 @@ Use a request model when the same validated filters are shared or reused:
 
 ```python
 from cfb_data import CFBDClient, GamesRequest, SeasonType
+from cfb_data.enums import conferences, teams
 
 request = GamesRequest(
     year=2024,
     season_type=SeasonType.regular,
-    conference="Big Ten",
+    team=teams.Michigan,
+    conference=conferences.BIGTEN,
 )
 
 async with CFBDClient() as client:
@@ -133,6 +135,9 @@ async with CFBDClient() as client:
 
 Unknown filters and invalid combinations fail before an API call. See
 [Requests and allowed values](docs/guides/requests.md) for common patterns.
+The `teams` and `conferences` string enums provide autocomplete-friendly names
+that exactly match season-specific API values while remaining directly
+comparable with returned DataFrame strings.
 
 ## Choose pandas or Polars
 

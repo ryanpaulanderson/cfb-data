@@ -2,6 +2,14 @@
 
 from enum import StrEnum
 
+from ._reference_enums import (
+    REFERENCE_SEASON,
+    ConferenceName,
+    TeamName,
+    conferences,
+    teams,
+)
+
 
 class SeasonType(StrEnum):
     """Identify the phase of a college football season."""
@@ -82,12 +90,17 @@ class TransferEligibility(StrEnum):
 
 __all__ = [
     "Classification",
+    "ConferenceName",
     "MediaType",
     "PlayoffCompetition",
     "PlayoffRound",
     "RankingPoll",
+    "REFERENCE_SEASON",
     "RecruitClassification",
     "SeasonType",
+    "TeamName",
     "TransferEligibility",
     "UserUsageApi",
+    "conferences",
+    "teams",
 ]

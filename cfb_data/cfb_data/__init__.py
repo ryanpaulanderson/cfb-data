@@ -34,12 +34,14 @@ from .draft.models.pydantic.requests import DraftPicksRequest
 from .drives.models.pydantic.requests import DrivesRequest
 from .enums import (
     Classification,
+    ConferenceName,
     MediaType,
     PlayoffCompetition,
     PlayoffRound,
     RankingPoll,
     RecruitClassification,
     SeasonType,
+    TeamName,
     TransferEligibility,
     UserUsageApi,
 )
@@ -200,6 +202,7 @@ __all__ = [
     "ConferenceChangesRequest",
     "ConferenceClassification",
     "ConferenceIdentity",
+    "ConferenceName",
     "ConferencesRequest",
     "ConferenceSPRatingsRequest",
     "CoreRatingsRequest",
@@ -257,6 +260,7 @@ __all__ = [
     "SQLiteCacheConfig",
     "TeamGamePPARequest",
     "TeamIdentity",
+    "TeamName",
     "TeamGameStatsRequest",
     "TeamSeasonStatsRequest",
     "TeamSeasonPPARequest",
