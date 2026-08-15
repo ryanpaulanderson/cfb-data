@@ -73,6 +73,23 @@ def _recruit_observation(
     return sink.projection()
 
 
+def _team_season_observation(
+    observed_at: datetime,
+    *,
+    conference_name: str | None,
+    venue_id: int | None,
+) -> CatalogProjection:
+    """Return one authoritative team-season relationship observation."""
+    sink = CatalogSink(observed_at)
+    sink.add(
+        TeamSeasonFact(130, 2024, conference_name, venue_id),
+        authority=ObservationAuthority.authoritative,
+        source="teams.Team",
+        observed_fields=frozenset(("team_id", "season", "conference_name", "venue_id")),
+    )
+    return sink.projection()
+
+
 @pytest_asyncio.fixture
 async def redis_config() -> AsyncIterator[RedisCacheConfig]:
     """Yield an isolated namespace and remove only its owned integration keys."""
@@ -413,6 +430,53 @@ async def test_redis_authoritative_null_clears_recruit_athlete_link(
     payload: object = json.loads(payloads[0])
     assert isinstance(payload, dict)
     assert payload["athlete_id"] is None
+
+
+@pytest.mark.redis
+@pytest.mark.asyncio
+async def test_redis_authoritative_null_clears_team_season_relationships(
+    redis_config: RedisCacheConfig,
+) -> None:
+    """Delete denormalized team-season fields after authoritative absence."""
+    now = datetime.now(UTC)
+    record = ResponseRecord(
+        key="7" * 64,
+        endpoint="/teams",
+        response_contract="Team:list:v1",
+        body=b"[]",
+        fetched_at=now,
+        fresh_until=now + timedelta(seconds=10),
+        retained_until=now + timedelta(seconds=30),
+        etag=None,
+        last_modified=None,
+        row_count=0,
+    )
+    backend = await RedisCacheBackend(redis_config).open()
+    await backend.commit_response(
+        record,
+        _team_season_observation(
+            now,
+            conference_name="Big Ten",
+            venue_id=365,
+        ),
+    )
+    await backend.commit_response(
+        replace(record, fetched_at=now + timedelta(minutes=1)),
+        _team_season_observation(
+            now + timedelta(minutes=1),
+            conference_name=None,
+            venue_id=None,
+        ),
+    )
+    client = Redis.from_url(redis_config.url)
+    key = f"{redis_config.key_prefix}:v1:catalog:team-season:130:2024"
+    stored = await client.hgetall(key)
+
+    assert b"conference_name" not in stored
+    assert b"venue_id" not in stored
+
+    await client.aclose()
+    await backend.close()
 
 
 @pytest.mark.redis

@@ -30,6 +30,7 @@ from cfb_data._catalog.models import (
     PlayFact,
     PlayoffMatchupFact,
     TeamFact,
+    TeamSeasonFact,
     VenueFact,
     VocabularyFact,
 )
@@ -690,6 +691,13 @@ class RedisCacheBackend:
         fact = observation.fact
         if isinstance(fact, TeamFact):
             return self._entity_key("team", fact.id)
+        if isinstance(fact, TeamSeasonFact):
+            return self._key(
+                "catalog",
+                "team-season",
+                str(fact.team_id),
+                str(fact.season),
+            )
         if isinstance(fact, ConferenceFact):
             return self._entity_key("conference", fact.id)
         if isinstance(fact, VenueFact):
