@@ -512,6 +512,39 @@ async def test_sparse_transient_projection_preserves_durable_identity_fields(
 
 
 @pytest.mark.asyncio
+async def test_transient_athlete_overlay_preserves_each_membership_grain(
+    api_server: ServerFactory,
+    tmp_path: Path,
+) -> None:
+    """Retain durable team-season memberships when overlaying current facts."""
+    cache_path = tmp_path / "cache.sqlite3"
+
+    async def handler(request: web.Request) -> web.Response:
+        return web.json_response([_roster_player()])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            cache=SQLiteCacheConfig(path=cache_path),
+        ) as client:
+            await client.teams.roster(team="Michigan", year=2023)
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            cache=SQLiteCacheConfig(path=cache_path),
+        ) as client:
+            await client.teams.roster(team="Michigan", year=2024)
+            identity = await client.identities.athletes.resolve(
+                name="Donovan Edwards",
+                freshness=FreshnessMode.allow_stale,
+            )
+
+    assert identity.team == "Michigan"
+    assert identity.season is None
+
+
+@pytest.mark.asyncio
 async def test_local_only_uses_the_transient_catalog_without_network(
     api_server: ServerFactory,
 ) -> None:

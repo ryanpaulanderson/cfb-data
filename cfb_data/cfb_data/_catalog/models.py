@@ -131,12 +131,12 @@ class AthleteTeamSeasonFact:
 
 @dataclass(frozen=True, slots=True)
 class RecruitFact:
-    """Store one recruiting identity and optional athlete link."""
+    """Store one recruiting identity with optional athlete and class links."""
 
     id: str
     athlete_id: str | None
     name: str
-    year: int
+    year: int | None
 
 
 @dataclass(frozen=True, slots=True)

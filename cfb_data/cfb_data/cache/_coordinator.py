@@ -396,7 +396,7 @@ class CacheCoordinator:
             "athlete_identity_read",
             self._backend.find_athletes(name=name, team=team, season=season),
             self._transient.find_athletes(name=name, team=team, season=season),
-            key=lambda identity: identity.id,
+            key=lambda identity: (identity.id, identity.team, identity.season),
         )
 
     async def _identity_catalog_rows[IdentityT, IdentityKeyT](

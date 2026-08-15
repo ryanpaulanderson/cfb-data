@@ -172,12 +172,12 @@ class RosterPlayer(_ResponseModel):
             authority=ObservationAuthority.authoritative,
             source=source,
         )
-        if season is None or self.recruit_ids is None:
+        if self.recruit_ids is None:
             return
         for recruit_id in self.recruit_ids:
             if recruit_id:
                 sink.add(
-                    RecruitFact(recruit_id, self.id, name, season),
+                    RecruitFact(recruit_id, self.id, name, None),
                     authority=ObservationAuthority.canonical,
                     source=source,
                 )

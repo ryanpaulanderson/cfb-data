@@ -134,7 +134,7 @@ CREATE TABLE IF NOT EXISTS recruits (
     id TEXT PRIMARY KEY,
     athlete_id TEXT,
     name TEXT NOT NULL,
-    year INTEGER NOT NULL,
+    year INTEGER,
     first_seen_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL,
     source_version INTEGER NOT NULL,

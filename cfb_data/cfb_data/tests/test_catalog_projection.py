@@ -286,6 +286,42 @@ def test_roster_accepts_provider_negative_jersey_sentinel() -> None:
     assert player.jersey == -1
 
 
+def test_roster_recruit_link_does_not_invent_class_year() -> None:
+    """Keep roster membership season separate from recruit class year."""
+    player = RosterPlayer.model_validate(
+        {
+            "id": "4426385",
+            "firstName": "Donovan",
+            "lastName": "Edwards",
+            "team": "Michigan",
+            "height": 72,
+            "weight": 210,
+            "jersey": 7,
+            "year": 4,
+            "position": "RB",
+            "homeCity": None,
+            "homeState": None,
+            "homeCountry": None,
+            "homeLatitude": None,
+            "homeLongitude": None,
+            "homeCountyFIPS": None,
+            "recruitIds": ["70001"],
+        }
+    )
+
+    projection = _project(player, "/roster", {"year": 2024})
+
+    assert projection.athlete_team_seasons[0].season == 2024
+    assert projection.recruits == (
+        RecruitFact("70001", "4426385", "Donovan Edwards", None),
+    )
+    observation = next(
+        item for item in projection.observations if isinstance(item.fact, RecruitFact)
+    )
+    year = next(item for item in observation.fields if item.field == "year")
+    assert year.value.state is ObservationState.unobserved
+
+
 def test_team_game_stats_project_home_and_away_relationships() -> None:
     """Project game-team relationships from nested team-stat rows."""
     stats = TeamGameStats.model_validate(
