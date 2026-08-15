@@ -460,11 +460,9 @@ Entity records retain source provenance plus `first_seen_at` and
 validity intervals instead of overwriting history. A source refresh may add or
 supersede observed facts, but response expiration alone never deletes them.
 Catalog facts are removed only by an explicit prune operation, user deletion,
-or complete backend loss. Because this implementation is unreleased, SQLite
-DDL in the packaged SQL resources and Redis keys are the final version-1 layout
-and no compatibility aliases, experimental migrations, or dual projectors
-exist. Future released format changes may use a new namespace or deliberate
-rebuild contract, but experimental branch layouts are not preserved.
+or complete backend loss. SQLite DDL in the packaged SQL resources and Redis
+keys define the version-1 layout. Future format changes may use a new namespace
+or deliberate rebuild contract.
 
 ### Coverage ledger
 

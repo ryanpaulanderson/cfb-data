@@ -1,7 +1,7 @@
-# Implemented CFBD endpoint contracts
+# CFBD endpoint reference
 
-These notes cover only endpoint contracts implemented by `CFBDClient`. They
-were reconciled on August 13, 2026 with the current
+These pages describe the endpoints available through `CFBDClient`. They were
+checked on August 13, 2026 against the current
 [CFBD API reference](https://api.collegefootballdata.com/api) and versioned
 official [`CFBD/cfb-api-v2`](https://github.com/CFBD/cfb-api-v2) source.
 
@@ -42,8 +42,8 @@ nested Pydantic models. Team season Stats preserve the upstream
 
 See [Getting started](../getting-started.md), [Results and
 DataFrames](../guides/results.md), and [Errors and
-retries](../guides/errors-and-retries.md) for lifecycle, authentication, dtype,
-retry, error, and installation contracts.
+retries](../guides/errors-and-retries.md) for installation, authentication,
+DataFrame types, retries, and error handling.
 
 ```{toctree}
 :hidden:

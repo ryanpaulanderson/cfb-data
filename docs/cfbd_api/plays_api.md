@@ -1,6 +1,6 @@
-# CFBD plays endpoint contracts
+# Plays endpoint reference
 
-Contract basis: the current
+Sources: the current
 [CFBD API reference](https://api.collegefootballdata.com/api) and the official
 [`plays/controller.ts`](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/plays/controller.ts),
 [`plays/types.ts`](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/plays/types.ts),
@@ -8,7 +8,7 @@ and
 [`live/controller.ts`](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/live/controller.ts)
 from API version 5.24.0.
 
-## Request contracts
+## Request options
 
 | Route | Required selector | Optional filters |
 | --- | --- | --- |
@@ -26,7 +26,7 @@ requires Patreon Tier 2 or higher.
 Python request fields use snake case and serialize to the upstream camel-case
 names shown above. `game_id` remains the public name for every game identifier.
 
-## Response contracts
+## Returned data
 
 `GET /plays` returns one row per historical play, including game, drive, team,
 score, period, clock, field position, down and distance, play text and type,

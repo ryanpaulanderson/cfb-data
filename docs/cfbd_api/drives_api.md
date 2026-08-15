@@ -1,6 +1,6 @@
-# CFBD drives endpoint contract
+# Drives endpoint reference
 
-Contract basis: the current
+Sources: the current
 [CFBD drives API reference](https://api.collegefootballdata.com/api/drives) and
 the official
 [`drives/controller.ts`](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/drives/controller.ts)

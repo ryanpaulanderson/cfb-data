@@ -9,12 +9,12 @@ There is no remaining public v5.24.0 REST endpoint group to schedule. Draft,
 Playoffs, Adjusted Metrics, and Info complete the controller coverage that was
 previously recommended here.
 
-| Completed tranche | Routes | Public result contract | Main design decision |
+| Completed group | Routes | Result | Why it is shaped this way |
 | --- | ---: | --- | --- |
 | Draft | 3 | Separate team, position, and pick DataFrames | Preserve each upstream grain instead of joining identities into picks. |
 | Playoffs | 3 | Participant and matchup DataFrames; complete bracket model | Keep the nested bracket, rounds, slots, linked games, and advancement graph together. |
 | Adjusted Metrics | 4 | Team, passing, rushing, and kicking DataFrames | Keep player WEPA and kicker PAAR as distinct measures; all routes require Patreon Tier 1. |
-| Info | 2 | Account and usage models | Keep operational metadata outside the analytical DataFrame product. |
+| Info | 2 | Account and usage models | Account details are not naturally analytical tables. |
 
 The package now covers the public controllers for Games, Drives, Plays, Live,
 Teams, Stats, Metrics, Ratings, Players, Rankings, Betting, Recruiting,
@@ -22,7 +22,7 @@ Coaches, Draft, Playoffs, Adjusted Metrics, and Info. The source-level
 `boxScores` controller is exposed through the Games advanced-box-score route;
 the Teams controller also owns Venues and Conferences routes in the public API.
 
-## Deliberate exclusions
+## Routes not included
 
 - `auth` contains server authentication machinery rather than a public data
   endpoint group.

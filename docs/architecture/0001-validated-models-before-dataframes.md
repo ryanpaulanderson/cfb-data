@@ -2,15 +2,14 @@
 
 - Status: Accepted
 - Date: 2026-08-12
-- Applies from: `cfb-data` 0.2.0
 
 ## Context
 
-The 0.1.x implementation coupled three inherited client layers to route
-metadata: raw JSON, Pydantic models, and Pandera-validated pandas DataFrames.
-That design duplicated response constraints, created a public generic path
-router, opened a new HTTP session for individual calls, and made adding another
-DataFrame implementation an inheritance problem.
+An earlier design coupled three inherited client layers to route metadata: raw
+JSON, Pydantic models, and Pandera-validated pandas DataFrames. That design
+duplicated response constraints, created a public generic path router, opened
+a new HTTP session for individual calls, and made adding another DataFrame
+implementation an inheritance problem.
 
 The library needs one stable endpoint interface whose concrete table backend
 can vary. It also needs a trustworthy foundation for richer user-defined data
@@ -82,9 +81,9 @@ their nested sections lack one natural table. Info account and usage responses
 also remain models because they are operational metadata, not analytical
 tables. Team matchup remains tabular as one summary row with nested games.
 
-The former client hierarchy, route decorator, generic
+The public API excludes the former client hierarchy, route decorator, generic
 `make_request(path, params)` entry point, Pandera schemas, and Pandera runtime
-dependency are removed without compatibility wrappers.
+dependency.
 
 ## Dataset and workflow extension hierarchy
 
@@ -110,7 +109,7 @@ A **workflow** orchestrates endpoints, datasets, and subdatasets above that
 layer. It may branch, repeat, coordinate multiple validation scenarios, and
 return multiple artifacts rather than one table.
 
-Version 0.2.0 reserves these boundaries but does not expose
+The architecture reserves these boundaries but does not expose
 `client.datasets` or `client.workflows`. Concrete abstractions will be added
 only with real dataset and orchestration requirements.
 

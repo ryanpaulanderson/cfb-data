@@ -1,7 +1,7 @@
 # Venues API
 
 `client.venues.list()` calls `GET /venues` without filters and returns one row
-per venue. `Venue` owns the shared location contract reused by nested Team
+per venue. `Venue` defines the shared location fields reused by nested Team
 locations.
 
 Columns preserve the upstream identity, name, address, timezone, coordinates,
