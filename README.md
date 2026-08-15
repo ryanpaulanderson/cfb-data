@@ -217,6 +217,9 @@ is organized in layers:
   behavior.
 - **Project internals:** architecture decisions and contributor-facing design.
 
+The [product constitution](docs/product-constitution.md) is the concise north
+star used to evaluate product and engineering decisions.
+
 The project is pre-alpha, and the documentation describes the current version.
 
 ## Development

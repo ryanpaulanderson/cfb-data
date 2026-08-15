@@ -10,6 +10,9 @@ may add stricter, local rules for its subtree.
 - Read `README.md`, `docs/project-status.md`, `CONTRIBUTING.md`, and the relevant
   code and tests before proposing changes. Treat `docs/history/` as context,
   never as the current roadmap or implementation status.
+- Read `docs/product-constitution.md` before proposing product behavior, public
+  APIs, analytical transformations, or identity, cache, and observability
+  policy. Use its decision tests to evaluate the proposal.
 - Before material edits, state the intended outcome, scope, assumptions, and
   verification plan. Surface consequential design choices instead of silently
   deciding them.
