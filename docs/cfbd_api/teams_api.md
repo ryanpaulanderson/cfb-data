@@ -9,7 +9,7 @@
 | `client.teams.roster` | `GET /roster` | `team`, `year`, `classification` | one row per player |
 | `client.teams.talent` | `GET /talent` | required `year` | one row per team |
 
-Team rows embed the authoritative `Venue` location shape. Matchup returns a
+Team rows embed the shared `Venue` location shape. Matchup returns a
 one-row frame containing summary values and nested historical games; its
 `games` column is pandas `object` or Polars `List[Struct]`. Matchup dates are
 required to identify an instant and are normalized to UTC.

@@ -1,6 +1,6 @@
 # Info API
 
-The Info namespace exposes operational account metadata rather than analytical
+The Info namespace exposes account and usage data rather than analytical
 tables, so both methods return validated Pydantic models independent of the
 selected DataFrame backend.
 

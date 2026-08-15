@@ -1,60 +1,60 @@
 # College Football Data Python Toolkit
 
-`cfb-data` 0.5.0 is an asynchronous, validated client for the public
-[CollegeFootballData API](https://collegefootballdata.com/) REST endpoint
-groups. It returns eager pandas DataFrames by default and can return the same
-logical tables as Polars DataFrames. Irreducibly nested analytical responses
-and operational account metadata return validated models instead.
+`cfb-data` 0.5.0 is a pre-alpha Python toolkit for exploring the public
+[CollegeFootballData API](https://collegefootballdata.com/). Most calls return
+eager pandas DataFrames that are ready for analysis. Polars is available as an
+option, and a few naturally nested results return Pydantic models.
 
-Read the complete [documentation](https://ryanpaulanderson.github.io/cfb-data/)
-for the getting-started guide, request rules and allowed values, namespace
-contracts, result schemas, and generated Python API reference.
+This project is aimed at data professionals, statisticians, students, and fans
+who want to spend their time analyzing college football rather than writing an
+HTTP client or cleaning up inconsistent response shapes.
 
-The request path is explicit:
+## What can I use it for?
 
-```text
-HTTP → Pydantic models → logical schema → canonical Arrow table → DataFrame
-```
+- Pull games, plays, drives, ratings, rosters, recruiting, betting, draft, and
+  other CFBD data into Python.
+- Explore one team or season in a notebook.
+- Build repeatable pandas or Polars analyses across several endpoints.
+- Cache responses locally so rerunning an analysis does not repeat every API
+  call.
+- Resolve team, venue, game, and athlete names and IDs when joining data.
 
-Malformed upstream data never reaches a DataFrame. Choosing Polars changes the
-concrete return type and native nested representation, not endpoint names,
-validation, retry behavior, columns, row order, logical values, or the
-canonical storage schema.
+The package validates requests and responses before building a DataFrame. That
+work happens inside the client; using it does not require knowing Pydantic,
+Arrow, HTTP retry logic, or the cache implementation.
 
-## Installation
+## Install
 
-pandas and PyArrow are included in the default installation:
+Python 3.12 and 3.13 are supported. pandas and PyArrow are included:
 
-```sh
+```shell
 python -m pip install cfb-data
 ```
 
-Install the optional Polars backend with:
+For Polars:
 
-```sh
+```shell
 python -m pip install "cfb-data[polars]"
 ```
 
-SQLite caching and identity lookup are available in the base installation.
-Install the optional shared Redis backend with:
+For Redis caching:
 
-```sh
+```shell
 python -m pip install "cfb-data[redis]"
 ```
 
-Python 3.12 and 3.13 are supported. DataFrames are eager; Polars
-`LazyFrame` results are not part of the 0.5.0 contract.
+SQLite caching is included in the normal installation.
 
-## Authentication and lifecycle
+## Make a first request
 
-Set a CollegeFootballData API key in the environment:
+Get an API key from [CollegeFootballData](https://collegefootballdata.com/) and
+put it in the environment:
 
-```sh
-export CFBD_API_KEY="..."
+```shell
+export CFBD_API_KEY="your-api-key"
 ```
 
-Every client is one-shot and must own its reusable HTTP session through
-`async with`:
+Then fetch a team's games and start using ordinary pandas operations:
 
 ```python
 import asyncio
@@ -65,43 +65,78 @@ from cfb_data import CFBDClient
 async def main() -> None:
     async with CFBDClient() as client:
         games = await client.games.list(year=2024, team="Michigan")
-        drives = await client.drives.list(year=2024, team="Michigan")
-        plays = await client.plays.list(year=2024, week=1, team="Michigan")
-        stats = await client.stats.team_season(year=2024, team="Michigan")
-        ratings = await client.ratings.elo(year=2024, team="Michigan")
-        players = await client.players.search(
-            search_term="Edwards", year=2024, team="Michigan"
-        )
-        teams = await client.teams.fbs(year=2024)
-        draft_picks = await client.draft.picks(year=2024, school="Michigan")
-        playoff = await client.playoffs.cfp(year=2024)
-        adjusted = await client.adjusted_metrics.team_season(
-            year=2024, team="Michigan"
-        )
-        account = await client.info.account()
 
-    print(games.head())
-    print(drives.head())
-    print(plays.head())
-    print(stats.head())
-    print(ratings.head())
-    print(players.head())
-    print(teams.head())
-    print(draft_picks.head())
-    print(playoff.champion)
-    print(adjusted.head())
-    print(account.tier_name)
+    completed = games.dropna(subset=["home_points", "away_points"])
+    high_scoring = completed.assign(
+        total_points=completed["home_points"] + completed["away_points"]
+    ).sort_values("total_points", ascending=False)
+
+    columns = ["week", "home_team", "away_team", "total_points"]
+    print(high_scoring[columns].head())
 
 
 asyncio.run(main())
 ```
 
-An explicit non-empty `api_key` takes precedence over `CFBD_API_KEY`. Passing
-an empty explicit value is a configuration error and does not fall back to the
-environment. Calls before context entry, after exit, during a nested entry, or
-after attempted re-entry raise `CFBDClientStateError`.
+The `async with` block lets related calls share one HTTP session and closes it
+when the block ends. Async is limited to gathering and validating data; the
+pandas calculation starts synchronously after the completed frame is returned.
 
-For Polars, select only the backend:
+## Find the data you need
+
+Methods are grouped by subject:
+
+| Namespace | Examples |
+| --- | --- |
+| `client.games` | Schedules, results, records, scoreboards, weather, box scores |
+| `client.plays` and `client.drives` | Play-by-play, drive summaries, play types |
+| `client.teams`, `client.players`, `client.coaches` | Teams, rosters, player search, coaches |
+| `client.stats`, `client.metrics`, `client.ratings` | Team and player stats, PPA, win probability, Elo, SP+, FPI |
+| `client.rankings`, `client.betting` | Polls and betting lines |
+| `client.recruiting`, `client.draft` | Recruits, transfer portal, NFL draft data |
+| `client.playoffs`, `client.adjusted_metrics` | CFP brackets and adjusted team/player metrics |
+
+The [endpoint reference](docs/cfbd_api/README.md) lists every method, filter,
+access tier, and returned shape.
+
+For notebook-sized examples that answer common questions, see [Common notebook
+recipes](docs/guides/common-recipes.md). It covers IDs versus full DataFrames,
+minimal cache hydration, season summaries, joins, and concurrent async calls.
+
+## Pass filters
+
+For one-off calls, use snake-case keyword filters:
+
+```python
+async with CFBDClient() as client:
+    games = await client.games.list(
+        year=2024,
+        season_type="regular",
+        conference="Big Ten",
+    )
+```
+
+Use a request model when the same validated filters are shared or reused:
+
+```python
+from cfb_data import CFBDClient, GamesRequest, SeasonType
+
+request = GamesRequest(
+    year=2024,
+    season_type=SeasonType.regular,
+    conference="Big Ten",
+)
+
+async with CFBDClient() as client:
+    games = await client.games.list(request)
+```
+
+Unknown filters and invalid combinations fail before an API call. See
+[Requests and allowed values](docs/guides/requests.md) for common patterns.
+
+## Choose pandas or Polars
+
+pandas is the default. Selecting Polars only changes client construction:
 
 ```python
 from cfb_data import CFBDClient
@@ -110,305 +145,74 @@ async with CFBDClient(dataframe_backend="polars") as client:
     calendar = await client.games.calendar(year=2024)
 ```
 
-Type checkers infer `pandas.DataFrame` for the default client and
-`polars.DataFrame` when the literal backend is `"polars"`.
+The two backends preserve the same columns, row order, nulls, and logical
+values. pandas keeps nested values as Python dictionaries and lists; Polars
+uses native `Struct` and `List[Struct]` columns.
 
-## Response caching and identities
+See [Work with results](docs/guides/results.md) for analysis examples and
+nested data, or [Advanced result details](docs/advanced/result-details.md) for
+the exact dtype and Arrow behavior.
 
-Caching is opt-in. `SQLiteCacheConfig()` provides a private per-user local
-response cache and durable identity catalog without another service:
+## Avoid repeated API calls
+
+You do not need a cache for quick experiments. Add one when a notebook or
+script repeatedly requests the same data while the analysis changes.
+
+SQLite is the easiest option:
 
 ```python
-from cfb_data import CFBDClient, FreshnessMode, SQLiteCacheConfig
+from cfb_data import CFBDClient, SQLiteCacheConfig
 
 async with CFBDClient(cache=SQLiteCacheConfig()) as client:
     games = await client.games.list(year=2025)
-    repeated = await client.games.list(year=2025)  # validated exact cache hit
-
-    team = await client.identities.teams.resolve("MICH")
-    game = await client.identities.games.resolve(game_id=401628347)
-
-    with client.cache_mode("local_only"):
-        offline = await client.games.list(year=2025)
-
-    retained = await client.identities.teams.resolve(
-        "Michigan",
-        freshness=FreshnessMode.allow_stale,
-    )
+    repeated = await client.games.list(year=2025)  # reused locally
+    michigan = await client.identities.teams.resolve("MICH")
 ```
 
-Use `RedisCacheConfig(url=...)` for multiple workers or hosts. Validated
-response records expire according to college-football-specific TTL profiles;
-normalized identity facts and their coverage ledger remain until explicitly
-pruned or rebuilt. Operational account and usage routes are never cached.
-Cache hits are decoded and revalidated through the current Pydantic response
-contract, and cache/backend failures fail open for ordinary API calls without
-silently changing backend types.
-
-Source-domain Pydantic models own the upstream fields and typed declarations
-that produce catalog facts. The catalog owns only normalized merge, coverage,
-provenance, persistence, and query semantics. The SQLite schema and queries
-live in packaged `.sql` resources rendered through a strict Jinja handler;
-runtime data continues to use bound SQLite parameters. With persistence
-disabled, the same projection path writes a client-local transient catalog;
-there is no separate response-to-identity fallback. Compact identity result
-types live in their team, conference, venue, game, and player domains, while
-`client.identities` remains the query and hydration facade.
-
-Per-operation modes are `default`, `refresh`, `bypass`, and `local_only`.
-`client.identities.hydrate(...)` supports dry-run, bounded-concurrency,
-resumable canonical hydration at `4 + 2S` calls for `S` seasons, or `7 + 2S`
-with vocabularies, with an optional division-classification scope. See the complete
-[response caching and identity guide](docs/guides/cache-and-identities.md) for
-TTL defaults, ambiguity behavior, maintenance, Redis Docker/Compose setup, and
-hosted-service security requirements.
-
-## Endpoints
-
-Each method accepts either one positional request model or explicit snake-case
-keyword filters. The styles are mutually exclusive:
+Redis is also a good local option if you already run it or want several
+notebooks, scripts, or processes to share one cache:
 
 ```python
-from cfb_data import CFBDClient, GamesRequest, SeasonType
+from cfb_data import CFBDClient, RedisCacheConfig
 
-request = GamesRequest(year=2024, season_type=SeasonType.regular)
+cache = RedisCacheConfig(url="redis://127.0.0.1:6379/0")
 
-async with CFBDClient() as client:
-    by_model = await client.games.list(request)
-    by_keywords = await client.games.list(year=2024, season_type="regular")
+async with CFBDClient(cache=cache) as client:
+    games = await client.games.list(year=2025)
 ```
 
-Unknown filters and invalid combinations fail before HTTP. The public Python
-name is always `game_id`; request serialization maps it to upstream `id` or
-`gameId` as required.
+See [Cache responses and look up
+identities](docs/guides/cache-and-identities.md) for use cases, the included
+local Redis setup, cache modes, identity examples, and troubleshooting.
 
-| Method | Request model | Result |
-| --- | --- | --- |
-| `client.games.list` | `GamesRequest` | `Game` rows as selected frame |
-| `client.games.records` | `RecordsRequest` | `TeamRecords` rows as selected frame |
-| `client.games.calendar` | `CalendarRequest` | `CalendarWeek` rows as selected frame |
-| `client.games.scoreboard` | `ScoreboardRequest` | `ScoreboardGame` rows as selected frame |
-| `client.games.media` | `GameMediaRequest` | `GameMedia` rows as selected frame |
-| `client.games.weather` | `GameWeatherRequest` | `GameWeather` rows as selected frame |
-| `client.games.player_stats` | `PlayerGameStatsRequest` | `PlayerGameStats` rows as selected frame |
-| `client.games.team_stats` | `TeamGameStatsRequest` | `TeamGameStats` rows as selected frame |
-| `client.games.advanced_box_score` | `AdvancedBoxScoreRequest` | `AdvancedBoxScore` model |
-| `client.drives.list` | `DrivesRequest` | `Drive` rows as selected frame |
-| `client.plays.list` | `PlaysRequest` | `Play` rows as selected frame |
-| `client.plays.types` | None | `PlayType` rows as selected frame |
-| `client.plays.stats` | `PlayStatsRequest` | `PlayStat` rows as selected frame |
-| `client.plays.stat_types` | None | `PlayStatType` rows as selected frame |
-| `client.plays.live` | `LivePlaysRequest` | `LiveGame` model |
-| `client.venues.list` | None | `Venue` rows as selected frame |
-| `client.conferences.list` | `ConferencesRequest` | `Conference` rows as selected frame |
-| `client.conferences.changes` | `ConferenceChangesRequest` | `TeamConferenceChange` rows as selected frame |
-| `client.conferences.affiliations` | `ConferenceAffiliationsRequest` | `TeamConferenceAffiliation` rows as selected frame |
-| `client.teams.list` | `TeamsRequest` | `Team` rows as selected frame |
-| `client.teams.fbs` | `FBSTeamsRequest` | `Team` rows as selected frame |
-| `client.teams.matchup` | `TeamMatchupRequest` | one `Matchup` row as selected frame |
-| `client.teams.ats` | `TeamATSRequest` | `TeamATS` rows as selected frame |
-| `client.teams.roster` | `RosterRequest` | `RosterPlayer` rows as selected frame |
-| `client.teams.talent` | `TalentRequest` | `TeamTalent` rows as selected frame |
-| `client.stats.player_season` | `PlayerSeasonStatsRequest` | `PlayerStat` rows as selected frame |
-| `client.stats.player_season_success` | `PlayerSeasonSuccessRequest` | `PlayerSeasonSuccessRate` rows as selected frame |
-| `client.stats.player_game_success` | `PlayerGameSuccessRequest` | `PlayerGameSuccessRate` rows as selected frame |
-| `client.stats.team_season` | `TeamSeasonStatsRequest` | `TeamStat` rows as selected frame |
-| `client.stats.categories` | None | `StatCategory` rows as selected frame |
-| `client.stats.advanced_season` | `AdvancedSeasonStatsRequest` | `AdvancedSeasonStat` rows as selected frame |
-| `client.stats.advanced_game` | `AdvancedGameStatsRequest` | `AdvancedGameStat` rows as selected frame |
-| `client.stats.game_havoc` | `GameHavocRequest` | `GameHavocStats` rows as selected frame |
-| `client.metrics.predicted_points` | `PredictedPointsRequest` | `PredictedPointsValue` rows as selected frame |
-| `client.metrics.team_season_ppa` | `TeamSeasonPPARequest` | `TeamSeasonPredictedPointsAdded` rows as selected frame |
-| `client.metrics.team_game_ppa` | `TeamGamePPARequest` | `TeamGamePredictedPointsAdded` rows as selected frame |
-| `client.metrics.player_game_ppa` | `PlayerGamePPARequest` | `PlayerGamePredictedPointsAdded` rows as selected frame |
-| `client.metrics.player_season_ppa` | `PlayerSeasonPPARequest` | `PlayerSeasonPredictedPointsAdded` rows as selected frame |
-| `client.metrics.win_probability` | `WinProbabilityRequest` | `PlayWinProbability` rows as selected frame |
-| `client.metrics.pregame_win_probability` | `PregameWinProbabilityRequest` | `PregameWinProbability` rows as selected frame |
-| `client.metrics.field_goal_expected_points` | None | `FieldGoalExpectedPoints` rows as selected frame |
-| `client.ratings.core` | `CoreRatingsRequest` | `TeamCoreRating` rows as selected frame |
-| `client.ratings.sp` | `SPRatingsRequest` | `TeamSP` rows as selected frame |
-| `client.ratings.conference_sp` | `ConferenceSPRatingsRequest` | `ConferenceSP` rows as selected frame |
-| `client.ratings.srs` | `SRSRatingsRequest` | `TeamSRS` rows as selected frame |
-| `client.ratings.expanded_srs` | `ExpandedSRSRatingsRequest` | `ExpandedTeamSRS` rows as selected frame |
-| `client.ratings.elo` | `EloRatingsRequest` | `TeamElo` rows as selected frame |
-| `client.ratings.fpi` | `FPIRatingsRequest` | `TeamFPI` rows as selected frame |
-| `client.players.search` | `PlayerSearchRequest` | `PlayerSearchResult` rows as selected frame |
-| `client.players.usage` | `PlayerUsageRequest` | `PlayerUsage` rows as selected frame |
-| `client.players.season_overview` | `PlayerSeasonOverviewRequest` | one `PlayerSeasonOverview` row as selected frame |
-| `client.players.returning_production` | `ReturningProductionRequest` | `ReturningProduction` rows as selected frame |
-| `client.players.transfer_portal` | `TransferPortalRequest` | `PlayerTransfer` rows as selected frame |
-| `client.rankings.list` | `RankingsRequest` | `PollWeek` rows as selected frame |
-| `client.betting.lines` | `BettingLinesRequest` | `BettingGame` rows as selected frame |
-| `client.recruiting.players` | `RecruitingPlayersRequest` | `Recruit` rows as selected frame |
-| `client.recruiting.teams` | `RecruitingTeamsRequest` | `TeamRecruitingRanking` rows as selected frame |
-| `client.recruiting.groups` | `RecruitingGroupsRequest` | `AggregatedTeamRecruiting` rows as selected frame |
-| `client.coaches.list` | `CoachesRequest` | `Coach` rows as selected frame |
-| `client.coaches.profile` | `CoachProfileRequest` | one `CoachProfile` row as selected frame |
-| `client.coaches.seasons` | `CoachSeasonsRequest` | `DetailedCoachSeason` rows as selected frame |
-| `client.coaches.tenures` | `CoachTenuresRequest` | `CoachTenure` rows as selected frame |
-| `client.draft.teams` | None | `DraftTeam` rows as selected frame |
-| `client.draft.positions` | None | `DraftPosition` rows as selected frame |
-| `client.draft.picks` | `DraftPicksRequest` | `DraftPick` rows as selected frame |
-| `client.playoffs.cfp` | `CfpPlayoffRequest` | `CfpPlayoff` model |
-| `client.playoffs.participants` | `CfpParticipantsRequest` | `PlayoffParticipant` rows as selected frame |
-| `client.playoffs.games` | `CfpGamesRequest` | `PlayoffMatchup` rows as selected frame |
-| `client.adjusted_metrics.team_season` | `AdjustedTeamMetricsRequest` | `AdjustedTeamMetrics` rows as selected frame |
-| `client.adjusted_metrics.player_passing` | `AdjustedPlayerPassingRequest` | `PlayerWeightedEPA` rows as selected frame |
-| `client.adjusted_metrics.player_rushing` | `AdjustedPlayerRushingRequest` | `PlayerWeightedEPA` rows as selected frame |
-| `client.adjusted_metrics.kicker_paar` | `KickerPAARRequest` | `KickerPAAR` rows as selected frame |
-| `client.info.account` | None | `UserInfo` model |
-| `client.info.usage` | `InfoUsageRequest` | `UserUsage` model |
+## Troubleshooting
 
-Request models and shared `StrEnum` values are exported from `cfb_data` and
-their supported domain namespaces. Enum fields also accept their documented
-string values.
+| What you see | Start here |
+| --- | --- |
+| API key or access error | Check `CFBD_API_KEY` and the endpoint's Patreon tier. |
+| Invalid filter or selector | Compare the call with the [endpoint reference](docs/cfbd_api/README.md). |
+| Rate-limit error | Wait before retrying; consider SQLite or Redis for repeated calls. |
+| Unexpected pandas dtype or nested value | See [Work with results](docs/guides/results.md). |
+| Cache or identity lookup error | See [Cache troubleshooting](docs/guides/cache-and-identities.md#troubleshooting). |
+| Another library exception | See [Troubleshooting requests](docs/guides/errors-and-retries.md). |
 
-Raw JSON and general validated-model return modes are intentionally excluded.
-Advanced box score, live plays, and the complete CFP bracket return models
-because their nested sections do not form one natural table. Info returns
-models because account and usage metadata are operational objects rather than
-analytical tables. The upstream live-plays route requires Patreon Tier 2
-access; all Adjusted Metrics routes require Patreon Tier 1 access.
+## Documentation
 
-Team matchup, player season overview, and coach profile are one-row frames
-containing nested columns. Rankings preserve polls and ranks, betting preserves
-provider lines, and coach summaries preserve seasons as nested values. pandas
-represents nested values as `object`; Polars represents them as native `Struct`
-and `List[Struct]` values.
+The [complete documentation](https://ryanpaulanderson.github.io/cfb-data/)
+is organized in layers:
 
-## DataFrame contract
+- **Start and use:** installation, examples, requests, results, caching, and
+  troubleshooting, including [common notebook
+  recipes](docs/guides/common-recipes.md).
+- **Advanced details:** exact enum values, dtypes, TTLs, retries, and storage
+  behavior.
+- **Project internals:** architecture decisions and contributor-facing design.
 
-Response model field order defines exact snake-case column order. API row order
-and row count are preserved. Conversion never flattens, explodes, indexes by
-ID, or drops rows, and an empty response produces a correctly typed empty
-frame.
-
-pandas uses:
-
-- `int64`, `float64`, and `bool` for required scalars;
-- `Int64`, `Float64`, and `boolean` for nullable scalars;
-- pandas `string` and `datetime64[ns, UTC]` dtypes;
-- `object` columns for nested structs and lists;
-- `object` for the explicitly heterogeneous Stats `stat_value` scalar;
-- a normal `RangeIndex`.
-
-Polars uses strict `Int64`, `Float64`, `Boolean`, `String`, UTC `Datetime`,
-`Struct`, `List`, and the explicit heterogeneous `Object` Stats scalar. This
-means nested values have the same logical content while remaining Python
-mappings/lists in pandas and native nested columns in Polars. The
-`client.stats.team_season` `stat_value` column preserves each upstream string,
-integer, or float without coercion and is `object`/`Object` in both backends.
-
-All response timestamps must include a timezone. Validation normalizes them to
-UTC before conversion.
-
-## Arrow and Parquet contract
-
-Every tabular response is represented as one explicit Arrow table before
-pandas or Polars materialization. The Arrow schema is derived from the same
-Pydantic annotations and retains ordered struct fields, typed list elements,
-nullability, and UTC timestamps even for empty or all-null responses.
-
-The internal versioned Parquet codec uses that schema directly. It stores
-standard nested Parquet values plus cfb-data storage version, row-model
-identity, logical-schema digest, and writer-version metadata. The heterogeneous
-Stats scalar is stored losslessly as a tagged struct and decoded back to its
-original string, integer, or float value for DataFrames.
-
-Direct pandas and Polars Parquet methods are not the cfb-data persistence
-compatibility contract: pandas object inference and Polars `Object` columns do
-not provide identical empty- and mixed-value behavior. Version 0.2.0 keeps the
-codec internal so future workflow checkpoints and tabular artifacts can use it
-without prematurely committing to a public save/load API. See
-[`ADR 0003`](docs/architecture/0003-canonical-arrow-parquet.md) for the format,
-validation, and compatibility decisions. API response caching and its durable
-identity catalog are a separate accepted architecture in
-[`ADR 0004`](docs/architecture/0004-api-cache-identity-catalog.md).
-
-## Retries and errors
-
-The default immutable `RetryPolicy` makes at most three total safe GET
-attempts. It retries connection failures, timeouts, truncated payloads, and
-HTTP `408`, `429`, `500`, `502`, `503`, and `504` with capped exponential
-full-jitter backoff. Set `RetryPolicy(max_attempts=1)` to disable retries.
-
-Valid numeric and HTTP-date `Retry-After` values are honored up to 90 seconds.
-A longer requested delay fails immediately and remains available as
-`retry_after_seconds` on the HTTP error. Redirects are disabled, TLS
-verification remains enabled, every attempt has a finite timeout, and
-cancellation is preserved.
-
-```python
-from cfb_data import CFBDClient, RetryPolicy
-
-policy = RetryPolicy(
-    max_attempts=4,
-    base_delay_seconds=0.25,
-    max_backoff_seconds=4.0,
-    max_retry_after_seconds=20.0,
-)
-
-async with CFBDClient(retry_policy=policy) as client:
-    scoreboard = await client.games.scoreboard()
-```
-
-All library exceptions derive from `CFBDError`. Public subclasses distinguish
-configuration, optional dependencies, client state, request validation,
-timeouts and transport, HTTP/authentication/authorization/rate-limit/server
-responses, response decoding and validation, and DataFrame conversion. Error
-text and debug retry events include only safe endpoint/status/attempt metadata,
-never credentials, query parameters, response payloads, or secrets.
-
-## Migrating from 0.1.x
-
-The inherited raw, validation, and pandas client families were removed rather
-than retained as compatibility wrappers.
-
-Raw client calls:
-
-```python
-# Before: CFBDGamesAPI(...).make_request("/games", {"year": 2024})
-async with CFBDClient() as client:
-    games = await client.games.list(year=2024)
-```
-
-Validated-model client calls:
-
-```python
-# Before: CFBDGamesValidationAPI(...).make_request("/calendar", {"year": 2024})
-async with CFBDClient() as client:
-    calendar_frame = await client.games.calendar(year=2024)
-```
-
-pandas client calls:
-
-```python
-# Before: CFBDDrivesPandasAPI(...).make_request("/drives", {"year": 2024})
-async with CFBDClient() as client:
-    drives_frame = await client.drives.list(year=2024)
-```
-
-There is no public generic path router or `make_request(path, params)` method.
-Use the typed namespace method and either its request model or keyword filters.
-
-## Datasets and workflows
-
-Version 0.5.0 does not expose `client.datasets` or `client.workflows`. The
-accepted architecture reserves two higher layers:
-
-- datasets compose validated endpoint results and validated subdatasets
-  through joins into one validated tabular row model, converting only the
-  final table;
-- workflows orchestrate endpoints, datasets, and broader control flow and may
-  return multiple artifacts.
-
-See
-[`docs/architecture/0001-validated-models-before-dataframes.md`](docs/architecture/0001-validated-models-before-dataframes.md)
-for the decision and extension boundaries.
+The project is pre-alpha, and the documentation describes the current version.
 
 ## Development
 
-```sh
+```shell
 git clone https://github.com/ryanpaulanderson/cfb-data.git
 cd cfb-data
 make install
@@ -418,21 +222,9 @@ make docs
 make check
 ```
 
-`make install` creates `.venv` and installs `.[dev,polars,redis]`, giving
-contributors the complete Arrow/Parquet, DataFrame, and Redis-client test
-contract. `make redis-up` and `make test-redis` exercise the local shared
-backend; `make test-live` is an explicit credentialed check using untracked
-`.env` configuration. `make test-live-all` is the separately opted-in,
-quota-ledgered 74-route SQLite/Redis matrix and keeps the transport's normal
-bounded retries enabled.
-`make check` runs Ruff, strict mypy, a warning-free Sphinx build, and pytest
-under the same contract as CI. `make docs` writes the local HTML site to
-`docs/_build/html`. Package metadata and all dependency groups live only in
-`pyproject.toml`.
-
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) and
-[`docs/project-status.md`](docs/project-status.md) for repository and release
-status.
+Contributor standards, testing, release details, and architecture expectations
+live in [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`AGENTS.md`](AGENTS.md). They
+are intentionally separate from the steps required to use the library.
 
 ## License
 

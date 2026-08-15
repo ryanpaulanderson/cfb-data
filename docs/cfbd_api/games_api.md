@@ -1,6 +1,6 @@
-# CFBD games endpoint contracts
+# Games endpoint reference
 
-Contract basis: the current
+Sources: the current
 [CFBD games API reference](https://api.collegefootballdata.com/api/games) and
 the official
 [`games/controller.ts`](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/app/games/controller.ts),
@@ -11,7 +11,7 @@ with endpoint access rules from
 [`config/auth.ts`](https://github.com/CFBD/cfb-api-v2/blob/v5.24.0/src/config/auth.ts)
 from API version 5.24.0.
 
-## Request contracts
+## Request options
 
 | Route | Required selector | Optional filters |
 | --- | --- | --- |
@@ -42,7 +42,7 @@ The upstream specification declares years, weeks, and IDs as integers without
 a fixed future-year ceiling. The local client rejects seasons before 1869 and
 non-positive IDs, but intentionally does not embed a stale maximum year.
 
-## Response contracts
+## Returned data
 
 ### `/games`
 

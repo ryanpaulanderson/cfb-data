@@ -1,8 +1,8 @@
 # Requests and allowed values
 
-Every filtered endpoint has one Pydantic request model. The model is the
-authoritative boundary for field names, types, numeric bounds, allowed enum
-values, aliases, and relationships between selectors.
+Every filtered endpoint has one Pydantic request model. It checks field names,
+types, numeric bounds, enum values, aliases, and relationships between
+selectors.
 
 ## Two equivalent call styles
 
@@ -52,54 +52,23 @@ weather = await client.games.weather(game_id=401628347)
 not `gameId` or `id`. Extra fields are forbidden so misspellings cannot become
 silent no-op query parameters.
 
-## Shared allowed values
+## Use documented string values
 
-Enum fields accept either the exported enum member or its exact documented
-string value. Values are case-sensitive.
+Enum fields accept either the exported enum member or its documented string.
+For example, these calls are equivalent:
 
-| Enum | Accepted strings | Used for |
-| --- | --- | --- |
-| {class}`cfb_data.SeasonType` | `regular`, `postseason`, `both`, `allstar`, `spring_regular`, `spring_postseason` | Season phase |
-| {class}`cfb_data.Classification` | `fbs`, `fcs`, `ii`, `iii` | Division classification |
-| {class}`cfb_data.ConferenceClassification` | `fbs`, `fcs`, `ii`, `ii/iii`, `iii` | Conference classification responses and filters |
-| {class}`cfb_data.MediaType` | `tv`, `radio`, `web`, `ppv`, `mobile` | Broadcast medium |
-| {class}`cfb_data.RankingPoll` | `cfp` | Supported poll snapshot selector |
-| {class}`cfb_data.RecruitClassification` | `JUCO`, `PrepSchool`, `HighSchool` | Recruiting source classification |
-| {class}`cfb_data.PlayoffCompetition` | `cfp` | Playoff competition |
-| {class}`cfb_data.PlayoffRound` | `first_round`, `quarterfinal`, `semifinal`, `championship` | CFP round |
-| {class}`cfb_data.UserUsageApi` | `all`, `cfb`, `cbb` | Account usage product |
+```python
+regular_games = await client.games.list(year=2024, season_type="regular")
+regular_games = await client.games.list(
+    year=2024,
+    season_type=SeasonType.regular,
+)
+```
 
-{class}`cfb_data.TransferEligibility` describes the response values
-`Withdrawn`, `TBD`, `PendingAppeal`, `SittingOne`, and `Immediate`. The
-live-play response enums accept `home` or `away` for
-{class}`cfb_data.HomeAway`; `rush`, `pass`, or `other` for
-{class}`cfb_data.RushPass`; and `passing` or `standard` for
-{class}`cfb_data.DownType`. These are validated response values rather than
-general request filters.
-
-## Common validation rules
-
-Request requirements vary by upstream route. These rules recur across
-namespaces:
-
-- Season years generally start at 1869. Draft years start at 1936 and CFP
-  seasons at 2014. The client intentionally does not impose a future-year cap.
-- IDs must be positive integers; weeks and similar counters cannot be negative.
-- Empty strings are rejected on filters whose request model declares a
-  non-empty value.
-- A lower bound such as `min_year`, `start_year`, or `start_week` cannot exceed
-  its corresponding upper bound.
-- Some endpoints require one selector from a group, such as `year` or `team`.
-  Game-stat endpoints accept a `game_id` or a grouped season selector.
-- CFP `round` requires `competition="cfp"`; CFP competition can only be paired
-  with postseason-compatible season types.
-- Rankings `latest` and `final` snapshots require `poll="cfp"` and cannot both
-  be true.
-
-The [namespace contracts](../cfbd_api/README.md) state endpoint-specific
-requirements and access tiers. The generated [request model
-reference](../reference/requests.rst) exposes every request class, field type,
-default, and docstring from the installed package.
+Strings are case-sensitive. See [Advanced request
+details](../advanced/request-details.md) for the complete enum table and
+cross-field validation rules. The [endpoint reference](../cfbd_api/README.md)
+lists requirements and access tiers for each method.
 
 ## Requests without filters
 
@@ -126,3 +95,13 @@ else:
     async with CFBDClient() as client:
         plays = await client.plays.list(request)
 ```
+
+## Troubleshooting
+
+| What you see | What to check |
+| --- | --- |
+| `TypeError` about mixed styles | Pass either one request model or keyword filters, not both. |
+| `CFBDRequestValidationError` for an extra field | Use the snake-case Python name from the endpoint reference. |
+| A selector is reported as missing | Some endpoints require a year, team, game ID, or combination of filters. |
+| An enum value is rejected | Check spelling and capitalization; string values are case-sensitive. |
+| Direct model construction raises `ValidationError` | This is Pydantic validating before the client call; fix the same field or selector issue. |
