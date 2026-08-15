@@ -60,11 +60,12 @@ Then fetch a team's games and start using ordinary pandas operations:
 import asyncio
 
 from cfb_data import CFBDClient
+from cfb_data.enums import teams
 
 
 async def main() -> None:
     async with CFBDClient() as client:
-        games = await client.games.list(year=2024, team="Michigan")
+        games = await client.games.list(year=2024, team=teams.Michigan)
 
     completed = games.dropna(subset=["home_points", "away_points"])
     high_scoring = completed.assign(
@@ -108,11 +109,13 @@ minimal cache hydration, season summaries, joins, and concurrent async calls.
 For one-off calls, use snake-case keyword filters:
 
 ```python
+from cfb_data.enums import conferences
+
 async with CFBDClient() as client:
     games = await client.games.list(
         year=2024,
         season_type="regular",
-        conference="Big Ten",
+        conference=conferences.BIGTEN,
     )
 ```
 
@@ -167,11 +170,12 @@ SQLite is the easiest option:
 
 ```python
 from cfb_data import CFBDClient, SQLiteCacheConfig
+from cfb_data.enums import teams
 
 async with CFBDClient(cache=SQLiteCacheConfig()) as client:
     games = await client.games.list(year=2025)
     repeated = await client.games.list(year=2025)  # reused locally
-    michigan = await client.identities.teams.resolve("MICH")
+    michigan = await client.identities.teams.resolve(teams.Michigan)
 ```
 
 Redis is also a good local option if you already run it or want several

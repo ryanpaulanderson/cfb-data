@@ -22,8 +22,10 @@ Treat results like ordinary DataFrames. A quick inspection is often more useful
 than reading a long schema page:
 
 ```python
+from cfb_data.enums import teams
+
 async with CFBDClient() as client:
-    games = await client.games.list(year=2024, team="Michigan")
+    games = await client.games.list(year=2024, team=teams.Michigan)
 
 print(games.shape)
 print(games.columns.tolist())
@@ -121,11 +123,13 @@ without special-casing a missing partition.
 ```python
 import pandas as pd
 
+from cfb_data.enums import teams
+
 frames = []
 async with CFBDClient() as client:
     for week in range(1, 16):
         frames.append(
-            await client.games.list(year=2024, week=week, team="Michigan")
+            await client.games.list(year=2024, week=week, team=teams.Michigan)
         )
 
 season = pd.concat(frames, ignore_index=True)

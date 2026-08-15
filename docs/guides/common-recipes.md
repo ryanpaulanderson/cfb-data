@@ -14,6 +14,7 @@ SQLite makes notebook reruns reuse validated responses without another service:
 
 ```python
 from cfb_data import CFBDClient, FreshnessMode, SQLiteCacheConfig
+from cfb_data.enums import conferences, teams
 
 cache = SQLiteCacheConfig()
 ```
@@ -50,7 +51,7 @@ one of the documented nested models.
 
 ```python
 async with CFBDClient(cache=cache) as client:
-    team_id = await client.identities.teams.resolve_id("MICH")
+    team_id = await client.identities.teams.resolve_id(teams.Michigan)
 
 team_id
 ```
@@ -62,7 +63,7 @@ canonical school name, abbreviation, or known alternate name.
 
 ```python
 async with CFBDClient(cache=cache) as client:
-    team = await client.identities.teams.resolve("Michigan")
+    team = await client.identities.teams.resolve(teams.Michigan)
 
 team
 ```
@@ -77,9 +78,9 @@ location:
 
 ```python
 async with CFBDClient(cache=cache) as client:
-    teams = await client.teams.fbs(year=2024)
+    fbs_teams = await client.teams.fbs(year=2024)
 
-michigan = teams.loc[teams["id"].eq(team_id)]
+michigan = fbs_teams.loc[fbs_teams["id"].eq(team_id)]
 display(michigan)
 ```
 
@@ -88,9 +89,9 @@ catalog. You can then resolve from local data without another API call:
 
 ```python
 async with CFBDClient(cache=cache) as client:
-    teams = await client.teams.fbs(year=2024)
+    fbs_teams = await client.teams.fbs(year=2024)
     team_id = await client.identities.teams.resolve_id(
-        "MICH",
+        teams.Michigan,
         freshness=FreshnessMode.local_only,
     )
 ```
@@ -99,7 +100,7 @@ Conference and venue resolvers return compact models; read their `.id` fields:
 
 ```python
 async with CFBDClient(cache=cache) as client:
-    conference = await client.identities.conferences.resolve("B1G")
+    conference = await client.identities.conferences.resolve(conferences.BIGTEN)
     venue = await client.identities.venues.resolve("Michigan Stadium")
 
 conference.id, conference.name, venue.id, venue.name
@@ -116,7 +117,7 @@ ID, season, week, start time, team IDs, and venue ID:
 async with CFBDClient(cache=cache) as client:
     game_refs = await client.identities.games.find(
         season=2024,
-        team="Michigan",
+        team=teams.Michigan,
     )
 
 game_ids = [game.id for game in game_refs]
@@ -130,7 +131,7 @@ the full schedule columns in the current step.
 
 ```python
 async with CFBDClient(cache=cache) as client:
-    games = await client.games.list(year=2024, team="Michigan")
+    games = await client.games.list(year=2024, team=teams.Michigan)
 
 columns = [
     "id",
@@ -164,7 +165,7 @@ An athlete name may not be unique, so include a team and season when possible.
 async with CFBDClient(cache=cache) as client:
     athlete = await client.identities.athletes.resolve(
         name="Donovan Edwards",
-        team="Michigan",
+        team=teams.Michigan,
         season=2024,
     )
 
@@ -181,9 +182,9 @@ async with CFBDClient(cache=cache) as client:
     matches = await client.players.search(
         search_term="Donovan Edwards",
         year=2024,
-        team="Michigan",
+        team=teams.Michigan,
     )
-    roster = await client.teams.roster(year=2024, team="Michigan")
+    roster = await client.teams.roster(year=2024, team=teams.Michigan)
 
 display(matches.head())
 display(roster[["id", "first_name", "last_name", "position", "jersey"]].head())
@@ -218,11 +219,11 @@ client context:
 
 ```python
 async with CFBDClient(cache=cache) as client:
-    games = await client.games.list(year=2024, team="Michigan")
-    record = await client.games.records(year=2024, team="Michigan")
-    team_stats = await client.stats.team_season(year=2024, team="Michigan")
-    elo = await client.ratings.elo(year=2024, team="Michigan")
-    ppa = await client.metrics.team_season_ppa(year=2024, team="Michigan")
+    games = await client.games.list(year=2024, team=teams.Michigan)
+    record = await client.games.records(year=2024, team=teams.Michigan)
+    team_stats = await client.stats.team_season(year=2024, team=teams.Michigan)
+    elo = await client.ratings.elo(year=2024, team=teams.Michigan)
+    ppa = await client.metrics.team_season_ppa(year=2024, team=teams.Michigan)
 ```
 
 These results have different row shapes, so inspect each before joining:
@@ -324,7 +325,7 @@ async with CFBDClient(cache=cache) as client:
     for season in seasons:
         games_by_season[season] = await client.games.list(
             year=season,
-            team="Michigan",
+            team=teams.Michigan,
         )
 ```
 
@@ -339,9 +340,9 @@ import asyncio
 
 async with CFBDClient(cache=cache) as client:
     games, roster, elo = await asyncio.gather(
-        client.games.list(year=2024, team="Michigan"),
-        client.teams.roster(year=2024, team="Michigan"),
-        client.ratings.elo(year=2024, team="Michigan"),
+        client.games.list(year=2024, team=teams.Michigan),
+        client.teams.roster(year=2024, team=teams.Michigan),
+        client.ratings.elo(year=2024, team=teams.Michigan),
     )
 ```
 
@@ -374,7 +375,7 @@ async def worker(client: CFBDClient) -> None:
             return
         games_by_season[season] = await client.games.list(
             year=season,
-            team="Michigan",
+            team=teams.Michigan,
         )
 
 
@@ -396,8 +397,8 @@ lines both use the game ID in their `id` column:
 
 ```python
 async with CFBDClient(cache=cache) as client:
-    games = await client.games.list(year=2024, team="Michigan")
-    betting = await client.betting.lines(year=2024, team="Michigan")
+    games = await client.games.list(year=2024, team=teams.Michigan)
+    betting = await client.betting.lines(year=2024, team=teams.Michigan)
 
 game_lines = games.merge(
     betting[["id", "lines"]],

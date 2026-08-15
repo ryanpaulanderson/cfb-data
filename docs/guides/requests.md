@@ -9,10 +9,12 @@ selectors.
 Use explicit snake-case keywords for one-off calls:
 
 ```python
+from cfb_data.enums import teams
+
 games = await client.games.list(
     year=2024,
     season_type="regular",
-    team="Michigan",
+    team=teams.Michigan,
 )
 ```
 
@@ -20,11 +22,12 @@ Use a request object when validation or reuse belongs outside the call:
 
 ```python
 from cfb_data import GamesRequest, SeasonType
+from cfb_data.enums import teams
 
 request = GamesRequest(
     year=2024,
     season_type=SeasonType.regular,
-    team="Michigan",
+    team=teams.Michigan,
 )
 games = await client.games.list(request)
 ```
@@ -116,9 +119,10 @@ configuration before it acquires network resources:
 from pydantic import ValidationError
 
 from cfb_data import PlaysRequest
+from cfb_data.enums import teams
 
 try:
-    request = PlaysRequest(year=2024, week=1, team="Michigan")
+    request = PlaysRequest(year=2024, week=1, team=teams.Michigan)
 except ValidationError as exc:
     print(exc)
 else:

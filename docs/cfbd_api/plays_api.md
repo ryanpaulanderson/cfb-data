@@ -46,11 +46,12 @@ it when its auxiliary prediction service is unavailable.
 
 ```python
 from cfb_data import CFBDClient
+from cfb_data.enums import teams
 
 async with CFBDClient() as client:
-    plays = await client.plays.list(year=2024, week=1, team="Michigan")
+    plays = await client.plays.list(year=2024, week=1, team=teams.Michigan)
     play_types = await client.plays.types()
-    stats = await client.plays.stats(year=2024, week=1, team="Michigan")
+    stats = await client.plays.stats(year=2024, week=1, team=teams.Michigan)
     stat_types = await client.plays.stat_types()
     live = await client.plays.live(game_id=401628347)
 ```

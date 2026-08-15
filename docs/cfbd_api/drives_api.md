@@ -29,11 +29,12 @@ The `startTime`, `endTime`, and `elapsed` objects each contain nullable integer
 
 ```python
 from cfb_data import CFBDClient, DrivesRequest
+from cfb_data.enums import teams
 
 async with CFBDClient() as client:
-    drives = await client.drives.list(year=2024, team="Michigan")
+    drives = await client.drives.list(year=2024, team=teams.Michigan)
     same_drives = await client.drives.list(
-        DrivesRequest(year=2024, team="Michigan")
+        DrivesRequest(year=2024, team=teams.Michigan)
     )
 ```
 

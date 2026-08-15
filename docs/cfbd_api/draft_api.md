@@ -15,7 +15,9 @@ All three methods return the selected eager DataFrame backend. The team and
 position routes are reference-data requests and accept no filters.
 
 ```python
+from cfb_data.enums import teams
+
 async with CFBDClient() as client:
     positions = await client.draft.positions()
-    picks = await client.draft.picks(year=2024, school="Michigan")
+    picks = await client.draft.picks(year=2024, school=teams.Michigan)
 ```
