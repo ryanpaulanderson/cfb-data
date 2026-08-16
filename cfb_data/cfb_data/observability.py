@@ -26,6 +26,7 @@ class RetrievalSource(StrEnum):
     unknown = "unknown"
     network = "network"
     fresh_cache = "fresh_cache"
+    revalidated_cache = "revalidated_cache"
     retained_cache = "retained_cache"
     stale_fallback = "stale_fallback"
     coalesced = "coalesced"
@@ -549,6 +550,7 @@ class RetrievalStats:
                     stats.rows_returned += event.row_count
                 if event.source in {
                     RetrievalSource.fresh_cache,
+                    RetrievalSource.revalidated_cache,
                     RetrievalSource.retained_cache,
                     RetrievalSource.stale_fallback,
                 }:

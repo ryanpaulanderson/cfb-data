@@ -64,9 +64,11 @@ re-raised.
 ## Security contract
 
 Events may contain fixed endpoint paths, query-field names without values,
-cache modes and profiles, stable outcome categories, attempt numbers, HTTP
-status classes, row counts, bounded byte counts, finite durations, and random
-correlation identifiers.
+cache modes and profiles, stable outcome and source categories, attempt
+numbers, HTTP status classes, row counts, bounded byte counts, finite
+durations, and random correlation identifiers. A successful conditional `304`
+attempt is attributed to a revalidated-cache source because the returned body
+comes from the retained record.
 
 Events never contain API keys, authorization headers, query values, full URLs,
 credential-scope digests, cache keys, validators, Redis locations, response or

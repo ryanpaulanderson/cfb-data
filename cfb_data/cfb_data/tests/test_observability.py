@@ -202,6 +202,58 @@ async def test_stale_fallback_is_separate_from_stale_lookup_and_http_attempt(
 
 
 @pytest.mark.asyncio
+async def test_conditional_revalidation_counts_http_and_cache_serving(
+    api_server: ServerFactory,
+    calendar_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Attribute a 304 attempt to the retained body it revalidates."""
+    calls = 0
+    recorder = _Recorder()
+    policy = CachePolicyConfig(
+        ttl_overrides={
+            CacheProfile.schedule: CacheTTL(
+                fresh_for=timedelta(0),
+                retain_for=timedelta(days=1),
+            )
+        }
+    )
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return web.json_response([calendar_response], headers={"ETag": '"v1"'})
+        assert request.headers.get("If-None-Match") == '"v1"'
+        return web.Response(status=304, headers={"ETag": '"v1"'})
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            cache=_sqlite(tmp_path / "cache.sqlite3"),
+            cache_policy=policy,
+            observer=recorder,
+        ) as client:
+            first = await client.games.calendar(year=2024)
+            second = await client.games.calendar(year=2024)
+
+    assert first.equals(second)
+    snapshot = recorder.stats.snapshot()
+    assert snapshot.endpoint_retrievals == 2
+    assert snapshot.http_attempts == 2
+    assert snapshot.cache_served_retrievals == 1
+    assert snapshot.cache_served_rate == 0.5
+    finishes = [
+        event for event in recorder.events if isinstance(event, RetrievalFinished)
+    ]
+    assert [event.source for event in finishes] == [
+        RetrievalSource.network,
+        RetrievalSource.revalidated_cache,
+    ]
+
+
+@pytest.mark.asyncio
 async def test_single_flight_counts_two_retrievals_and_one_http_attempt(
     api_server: ServerFactory,
     calendar_response: dict[str, object],

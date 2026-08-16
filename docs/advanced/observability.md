@@ -53,9 +53,11 @@ request, response, or cache bodies.
 `fresh_hit_rate` is fresh hits divided by conclusive initial cache lookups. It
 excludes disabled caching, explicit bypass, operational endpoints, and backend
 failures. `cache_served_rate` is successful retrievals ultimately served from a
-fresh, retained, or stale-fallback record divided by all successful retrievals.
-`network_free_rate` is successful retrievals that initiated no HTTP attempt
-divided by all successful retrievals.
+fresh, conditionally revalidated, retained, or stale-fallback record divided by
+all successful retrievals. A conditional revalidation counts as cache-served
+because its returned body comes from the retained record, while its `304`
+request still counts as an HTTP attempt. `network_free_rate` is successful
+retrievals that initiated no HTTP attempt divided by all successful retrievals.
 
 ## Shared Redis and several processes
 

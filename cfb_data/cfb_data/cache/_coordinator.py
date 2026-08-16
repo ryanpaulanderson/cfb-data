@@ -1017,7 +1017,14 @@ class CacheCoordinator:
                 return stale_value
             raise
 
-        self._set_source(context, RetrievalSource.network)
+        self._set_source(
+            context,
+            (
+                RetrievalSource.revalidated_cache
+                if envelope.status == 304
+                else RetrievalSource.network
+            ),
+        )
         now = self._utc_now()
         projectable = cast(BaseModel | list[object], value)
         ttl = resolve_ttl(
