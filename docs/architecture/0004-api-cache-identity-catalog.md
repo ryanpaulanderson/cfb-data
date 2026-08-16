@@ -623,6 +623,10 @@ backend failures, identity hits, stale identity results, hydration calls,
 possibly-truncated coverage, and ambiguity. It never records tokens, response
 bodies, or raw sensitive query values.
 
+[ADR 0005](0005-client-retrieval-observability.md) defines the optional public
+observer, aggregate statistics, correlation, and failure-isolation contract for
+these cache decisions and the transport attempts they cause.
+
 ## Alternatives considered
 
 ### Cache complete DataFrames or Parquet as the API cache

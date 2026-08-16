@@ -38,6 +38,23 @@ Cache configuration
    :members:
    :show-inheritance:
 
+Retrieval observability
+-----------------------
+
+.. autoclass:: cfb_data.RetrievalStats
+   :members:
+
+.. autoclass:: cfb_data.RetrievalStatsSnapshot
+   :members:
+
+.. autoclass:: cfb_data.EndpointRetrievalStats
+   :members:
+
+.. autoclass:: cfb_data.RetrievalObserver
+   :members:
+
+.. autodata:: cfb_data.RetrievalEvent
+
 Identity results
 ----------------
 

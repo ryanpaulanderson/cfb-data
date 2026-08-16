@@ -195,4 +195,5 @@ again. Avoid removing unrelated Redis keys or neighboring files.
 Debug logging distinguishes hits, misses, stale entries, revalidations,
 refreshes, bypasses, followers, lease waits, backend failures, stale identity
 fallback, and corruption. Logs omit API tokens, Redis passwords, response
-bodies, and raw query values.
+bodies, and raw query values. For typed counters and events that do not depend
+on log-message text, use [retrieval observability](observability.md).

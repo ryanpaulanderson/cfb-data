@@ -37,7 +37,7 @@ from cfb_data.cache._redis import RedisCacheBackend
 from cfb_data.errors import CFBDCacheBackendError
 from redis.asyncio import Redis
 
-from cfb_data import CFBDClient, RedisCacheConfig
+from cfb_data import CFBDClient, RedisCacheConfig, RetrievalStats
 
 ServerFactory = Callable[[Callable[[web.Request], object]], object]
 
@@ -679,6 +679,7 @@ async def test_redis_cross_client_lease_coalesces_one_http_refresh(
 ) -> None:
     config = redis_config
     calls = 0
+    stats = RetrievalStats()
 
     async def handler(request: web.Request) -> web.Response:
         nonlocal calls
@@ -688,8 +689,10 @@ async def test_redis_cross_client_lease_coalesces_one_http_refresh(
 
     async with api_server(handler) as base_url:
         async with (
-            CFBDClient("key", base_url=base_url, cache=config) as first,
-            CFBDClient("key", base_url=base_url, cache=config) as second,
+            CFBDClient("key", base_url=base_url, cache=config, observer=stats) as first,
+            CFBDClient(
+                "key", base_url=base_url, cache=config, observer=stats
+            ) as second,
         ):
             results = await asyncio.gather(
                 first.games.calendar(year=2024),
@@ -698,6 +701,10 @@ async def test_redis_cross_client_lease_coalesces_one_http_refresh(
 
     assert calls == 1
     assert results[0].equals(results[1])
+    snapshot = stats.snapshot()
+    assert snapshot.endpoint_retrievals == 2
+    assert snapshot.http_attempts == 1
+    assert snapshot.lease_waits == 1
 
 
 @pytest.mark.redis
