@@ -71,6 +71,7 @@ class _FlightState:
     task: asyncio.Task[object]
     waiters: int
     refresh_id: str | None
+    leader_context: _OperationContext | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -623,6 +624,7 @@ class CacheCoordinator:
         context: _OperationContext | None,
     ) -> _ValueT:
         """Share one shielded refresh task among process-local followers."""
+        is_follower = False
         async with self._flights_lock:
             state = self._flights.get(key)
             if state is None:
@@ -653,14 +655,19 @@ class CacheCoordinator:
                 )
                 stored_task = cast(asyncio.Task[object], task)
                 stored_task.add_done_callback(_observe_flight_completion)
-                state = _FlightState(task=stored_task, waiters=1, refresh_id=refresh_id)
+                state = _FlightState(
+                    task=stored_task,
+                    waiters=1,
+                    refresh_id=refresh_id,
+                    leader_context=context,
+                )
                 self._flights[key] = state
             else:
+                is_follower = True
                 state.waiters += 1
                 task = cast(asyncio.Task[_ValueT], state.task)
                 if context is not None:
                     context.refresh_id = state.refresh_id
-                    context.source = RetrievalSource.coalesced
                 self._emit_refresh(
                     context,
                     state.refresh_id,
@@ -669,7 +676,10 @@ class CacheCoordinator:
                 )
                 _LOGGER.debug("CFBD cache local follower endpoint=%s", endpoint)
         try:
-            return await asyncio.shield(task)
+            value = await asyncio.shield(task)
+            if is_follower and context is not None and state.leader_context is not None:
+                context.source = state.leader_context.source
+            return value
         finally:
             await self._release_flight_waiter(key, state)
 

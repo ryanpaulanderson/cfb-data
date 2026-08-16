@@ -29,7 +29,6 @@ class RetrievalSource(StrEnum):
     revalidated_cache = "revalidated_cache"
     retained_cache = "retained_cache"
     stale_fallback = "stale_fallback"
-    coalesced = "coalesced"
 
 
 class CacheLookupPhase(StrEnum):

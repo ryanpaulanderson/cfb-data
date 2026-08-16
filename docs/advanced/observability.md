@@ -45,7 +45,8 @@ request, response, or cache bodies.
 - `cache_backend_failures` is separate from `cache_misses`. A backend that could
   not answer did not prove that a record was absent.
 - `coalesced_retrievals` counts process-local followers. A follower can complete
-  successfully without adding another HTTP attempt.
+  successfully without adding another HTTP attempt, while its retrieval source
+  remains the network or cache source used by the shared leader.
 - `lease_waits` and `lease_timeouts` describe distributed refresh coordination.
   A waiter that reads the completed refresh from Redis is cache-served, not a
   process-local coalesced retrieval.

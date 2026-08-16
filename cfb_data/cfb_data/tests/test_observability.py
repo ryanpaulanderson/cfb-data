@@ -289,6 +289,7 @@ async def test_single_flight_counts_two_retrievals_and_one_http_attempt(
     assert snapshot.endpoint_retrievals == 2
     assert snapshot.http_attempts == 1
     assert snapshot.coalesced_retrievals == 1
+    assert snapshot.cache_served_retrievals == 0
     followers = [
         event
         for event in recorder.events
@@ -296,6 +297,71 @@ async def test_single_flight_counts_two_retrievals_and_one_http_attempt(
         and event.outcome is RefreshOutcome.local_follower
     ]
     assert len(followers) == 1
+
+
+@pytest.mark.asyncio
+async def test_single_flight_followers_inherit_revalidated_cache_source(
+    api_server: ServerFactory,
+    calendar_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Preserve the underlying cache source for process-local followers."""
+    calls = 0
+    refresh_started = asyncio.Event()
+    release_refresh = asyncio.Event()
+    recorder = _Recorder()
+    policy = CachePolicyConfig(
+        ttl_overrides={
+            CacheProfile.schedule: CacheTTL(
+                fresh_for=timedelta(0),
+                retain_for=timedelta(days=1),
+            )
+        }
+    )
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return web.json_response([calendar_response], headers={"ETag": '"v1"'})
+        assert request.headers.get("If-None-Match") == '"v1"'
+        refresh_started.set()
+        await release_refresh.wait()
+        return web.Response(status=304, headers={"ETag": '"v1"'})
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            cache=_sqlite(tmp_path / "cache.sqlite3"),
+            cache_policy=policy,
+            observer=recorder,
+        ) as client:
+            initial = await client.games.calendar(year=2024)
+            leader = asyncio.create_task(client.games.calendar(year=2024))
+            follower = asyncio.create_task(client.games.calendar(year=2024))
+            await refresh_started.wait()
+            await asyncio.sleep(0.05)
+            release_refresh.set()
+            refreshed = await asyncio.gather(leader, follower)
+
+    assert initial.equals(refreshed[0])
+    assert refreshed[0].equals(refreshed[1])
+    assert calls == 2
+    snapshot = recorder.stats.snapshot()
+    assert snapshot.endpoint_retrievals == 3
+    assert snapshot.http_attempts == 2
+    assert snapshot.coalesced_retrievals == 1
+    assert snapshot.cache_served_retrievals == 2
+    assert snapshot.cache_served_rate == pytest.approx(2 / 3)
+    finishes = [
+        event for event in recorder.events if isinstance(event, RetrievalFinished)
+    ]
+    assert [event.source for event in finishes] == [
+        RetrievalSource.network,
+        RetrievalSource.revalidated_cache,
+        RetrievalSource.revalidated_cache,
+    ]
 
 
 @pytest.mark.asyncio
