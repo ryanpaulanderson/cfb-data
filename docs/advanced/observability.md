@@ -47,6 +47,8 @@ request, response, or cache bodies.
 - `coalesced_retrievals` counts process-local followers. A follower can complete
   successfully without adding another HTTP attempt.
 - `lease_waits` and `lease_timeouts` describe distributed refresh coordination.
+  A waiter that reads the completed refresh from Redis is cache-served, not a
+  process-local coalesced retrieval.
 - `response_bytes` and `cache_bytes_written` contain bounded byte counts, never
   payloads.
 

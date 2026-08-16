@@ -815,7 +815,7 @@ class CacheCoordinator:
                     value=value,
                     context=context,
                 )
-                self._set_source(context, RetrievalSource.coalesced)
+                self._set_source(context, RetrievalSource.fresh_cache)
                 self._emit_refresh(
                     context,
                     refresh_id,

@@ -705,6 +705,9 @@ async def test_redis_cross_client_lease_coalesces_one_http_refresh(
     assert snapshot.endpoint_retrievals == 2
     assert snapshot.http_attempts == 1
     assert snapshot.lease_waits == 1
+    assert snapshot.coalesced_retrievals == 0
+    assert snapshot.cache_served_retrievals == 1
+    assert snapshot.cache_served_rate == 0.5
 
 
 @pytest.mark.redis
