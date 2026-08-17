@@ -118,6 +118,36 @@ async with CFBDClient(cache=cache) as client:
 - `bypass` calls the API without reading or writing the cache.
 - `local_only` reads retained data without making a network call.
 
+## Measure cache performance and API attempts
+
+Pass a `RetrievalStats` collector to see what the client actually did without
+parsing logs:
+
+```python
+from cfb_data import CFBDClient, RetrievalStats, SQLiteCacheConfig
+
+stats = RetrievalStats()
+
+async with CFBDClient(cache=SQLiteCacheConfig(), observer=stats) as client:
+    await client.games.list(year=2025)
+    await client.games.list(year=2025)
+
+snapshot = stats.snapshot()
+print(f"retrievals: {snapshot.endpoint_retrievals}")
+print(f"HTTP attempts: {snapshot.http_attempts}")
+print(f"fresh cache hits: {snapshot.fresh_cache_hits}")
+print(f"fresh hit rate: {snapshot.fresh_hit_rate}")
+```
+
+`http_attempts` counts every attempt started by the transport, including
+retries and conditional revalidation requests. It is therefore the useful
+client-side quota counter; a connection failure cannot prove whether the
+provider received or billed the attempt. Backend failures are counted
+separately from true cache misses.
+
+See [Retrieval observability](../advanced/observability.md) for every counter,
+per-endpoint snapshots, Redis process scope, and custom observer events.
+
 ## Resolve names and IDs
 
 The same cache also remembers identities found in endpoint results. This is

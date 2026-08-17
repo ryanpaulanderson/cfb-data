@@ -15,6 +15,7 @@ import pandas as pd
 
 from cfb_data._dataframes import _DataFrameAdapter, _PandasAdapter, _PolarsAdapter
 from cfb_data._executor import _EndpointExecutor
+from cfb_data._observability import _EventDispatcher
 from cfb_data._transport import (
     _HTTPTransport,
     _resolve_api_key,
@@ -44,6 +45,7 @@ from cfb_data.games.resource import GamesResource
 from cfb_data.identities.resource import IdentitiesResource
 from cfb_data.info.resource import InfoResource
 from cfb_data.metrics.resource import MetricsResource
+from cfb_data.observability import RetrievalObserver
 from cfb_data.players.resource import PlayersResource
 from cfb_data.playoffs.resource import PlayoffsResource
 from cfb_data.plays.resource import PlaysResource
@@ -80,6 +82,7 @@ class CFBDClient[FrameT]:
         retry_policy: RetryPolicy | None = None,
         cache: CacheConfig | None = None,
         cache_policy: CachePolicyConfig | None = None,
+        observer: RetrievalObserver | None = None,
     ) -> None: ...
 
     @overload
@@ -93,6 +96,7 @@ class CFBDClient[FrameT]:
         retry_policy: RetryPolicy | None = None,
         cache: CacheConfig | None = None,
         cache_policy: CachePolicyConfig | None = None,
+        observer: RetrievalObserver | None = None,
     ) -> None: ...
 
     @overload
@@ -106,6 +110,7 @@ class CFBDClient[FrameT]:
         retry_policy: RetryPolicy | None = None,
         cache: CacheConfig | None = None,
         cache_policy: CachePolicyConfig | None = None,
+        observer: RetrievalObserver | None = None,
     ) -> None: ...
 
     def __init__(
@@ -118,6 +123,7 @@ class CFBDClient[FrameT]:
         retry_policy: RetryPolicy | None = None,
         cache: CacheConfig | None = None,
         cache_policy: CachePolicyConfig | None = None,
+        observer: RetrievalObserver | None = None,
     ) -> None:
         """Initialize a one-shot client without opening its HTTP session.
 
@@ -128,6 +134,7 @@ class CFBDClient[FrameT]:
         :param retry_policy: Custom retry behavior, or defaults when omitted.
         :param cache: Optional SQLite or Redis cache and catalog backend.
         :param cache_policy: Optional immutable profile TTL overrides.
+        :param observer: Optional synchronous retrieval-event observer.
         :raises CFBDConfigurationError: If client configuration is invalid.
         """
         if dataframe_backend not in {"pandas", "polars"}:
@@ -136,11 +143,13 @@ class CFBDClient[FrameT]:
             )
 
         resolved_api_key = _resolve_api_key(api_key)
+        event_dispatcher = _EventDispatcher(observer)
         transport = _HTTPTransport(
             api_key=resolved_api_key,
             base_url=_validate_base_url(base_url),
             timeout_seconds=_validate_timeout(timeout_seconds),
             retry_policy=retry_policy or RetryPolicy(),
+            event_dispatcher=event_dispatcher,
         )
         cache_backend, cache_timeout = _cache_backend(cache)
         cache_coordinator = CacheCoordinator(
@@ -152,8 +161,11 @@ class CFBDClient[FrameT]:
             ),
             policy=cache_policy or CachePolicyConfig(),
             io_timeout_seconds=cache_timeout,
+            event_dispatcher=event_dispatcher,
         )
-        executor = _EndpointExecutor(transport, cache_coordinator)
+        executor = _EndpointExecutor(
+            transport, cache_coordinator, event_dispatcher=event_dispatcher
+        )
         concrete_adapter = (
             _PandasAdapter() if dataframe_backend == "pandas" else _PolarsAdapter()
         )

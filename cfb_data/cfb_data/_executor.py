@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+from collections.abc import Callable
 from typing import TypeVar
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
+from cfb_data._observability import (
+    _EventDispatcher,
+    _failure_category,
+    _OperationContext,
+)
 from cfb_data._transport import _HTTPTransport
 from cfb_data.base.types import (
     json_list,
@@ -21,6 +28,11 @@ from cfb_data.errors import (
     CFBDResponseValidationError,
     _sanitized_cause,
 )
+from cfb_data.observability import (
+    RetrievalFinished,
+    RetrievalOutcome,
+    RetrievalStarted,
+)
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 _ValueT = TypeVar("_ValueT")
@@ -30,14 +42,21 @@ class _EndpointExecutor:
     """Return validated models without depending on DataFrame presentation."""
 
     def __init__(
-        self, transport: _HTTPTransport, cache_coordinator: CacheCoordinator
+        self,
+        transport: _HTTPTransport,
+        cache_coordinator: CacheCoordinator,
+        *,
+        event_dispatcher: _EventDispatcher,
     ) -> None:
         """Bind endpoint execution to one owned transport.
 
         :param transport: Context-managed transport used by all endpoint calls.
+        :param cache_coordinator: Cache policy and refresh coordinator.
+        :param event_dispatcher: Optional-observer event dispatcher.
         """
         self._transport = transport
         self._cache_coordinator = cache_coordinator
+        self._event_dispatcher = event_dispatcher
 
     async def fetch_many(
         self,
@@ -54,9 +73,9 @@ class _EndpointExecutor:
         :return: Validated models in upstream row order.
         :raises CFBDResponseValidationError: If response shape or values fail.
         """
-        return await self._cache_coordinator.execute(
+        return await self._execute(
             endpoint=endpoint,
-            parameters=_serialize_request(endpoint, request),
+            request=request,
             response_contract=_response_contract(response_adapter),
             validate=lambda raw: _validate_many(endpoint, raw, response_adapter),
         )
@@ -76,9 +95,9 @@ class _EndpointExecutor:
         :return: Validated response model.
         :raises CFBDResponseValidationError: If response shape or values fail.
         """
-        return await self._cache_coordinator.execute(
+        return await self._execute(
             endpoint=endpoint,
-            parameters=_serialize_request(endpoint, request),
+            request=request,
             response_contract=_response_contract(response_adapter),
             validate=lambda raw: _validate_one(endpoint, raw, response_adapter),
         )
@@ -98,12 +117,87 @@ class _EndpointExecutor:
         :return: Validated values in upstream order.
         :raises CFBDResponseValidationError: If response shape or values fail.
         """
-        return await self._cache_coordinator.execute(
+        return await self._execute(
             endpoint=endpoint,
-            parameters=_serialize_request(endpoint, request),
+            request=request,
             response_contract=_response_contract(response_adapter),
             validate=lambda raw: _validate_values(endpoint, raw, response_adapter),
         )
+
+    async def _execute[ValueT](
+        self,
+        *,
+        endpoint: str,
+        request: BaseModel,
+        response_contract: str,
+        validate: Callable[[object], ValueT],
+    ) -> ValueT:
+        """Execute and observe one serialized, validated endpoint retrieval.
+
+        :param endpoint: Fixed endpoint path.
+        :param request: Validated endpoint request model.
+        :param response_contract: Stable response-schema fingerprint.
+        :param validate: Callable that validates the decoded response.
+        :return: Validated response value.
+        """
+        parameters = _serialize_request(endpoint, request)
+        context = self._event_dispatcher.new_operation(endpoint)
+        if context is not None:
+            self._event_dispatcher.emit(
+                RetrievalStarted(
+                    client_id=context.client_id,
+                    operation_id=context.operation_id,
+                    endpoint=endpoint,
+                    parameter_names=tuple(sorted(parameters)),
+                    cache_mode=self._cache_coordinator.current_mode,
+                )
+            )
+        try:
+            value = await self._cache_coordinator.execute(
+                endpoint=endpoint,
+                parameters=parameters,
+                response_contract=response_contract,
+                validate=validate,
+                context=context,
+            )
+        except asyncio.CancelledError as exc:
+            self._emit_finished(context, RetrievalOutcome.cancelled, None, exc)
+            raise
+        except Exception as exc:
+            self._emit_finished(context, RetrievalOutcome.error, None, exc)
+            raise
+        self._emit_finished(context, RetrievalOutcome.success, _row_count(value), None)
+        return value
+
+    def _emit_finished(
+        self,
+        context: _OperationContext | None,
+        outcome: RetrievalOutcome,
+        row_count: int | None,
+        error: BaseException | None,
+    ) -> None:
+        """Emit one terminal retrieval event when observation is enabled."""
+        if context is None or not self._event_dispatcher.enabled:
+            return
+        self._event_dispatcher.emit(
+            RetrievalFinished(
+                client_id=context.client_id,
+                operation_id=context.operation_id,
+                endpoint=context.endpoint,
+                outcome=outcome,
+                source=context.source,
+                row_count=row_count,
+                duration_seconds=self._event_dispatcher.elapsed(context.started_at),
+                failure_category=(
+                    _failure_category(error) if error is not None else None
+                ),
+            )
+        )
+
+
+def _row_count(value: object) -> int:
+    """Return the validated logical row count for one endpoint result."""
+    return len(value) if isinstance(value, list) else 1
 
 
 def _serialize_request(

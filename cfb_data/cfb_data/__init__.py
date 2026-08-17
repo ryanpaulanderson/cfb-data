@@ -94,6 +94,13 @@ from .metrics.models.pydantic.requests import (
     TeamSeasonPPARequest,
     WinProbabilityRequest,
 )
+from .observability import (
+    EndpointRetrievalStats,
+    RetrievalEvent,
+    RetrievalObserver,
+    RetrievalStats,
+    RetrievalStatsSnapshot,
+)
 from .players.models.pydantic.identity import AthleteIdentity
 from .players.models.pydantic.requests import (
     PlayerSearchRequest,
@@ -210,6 +217,7 @@ __all__ = [
     "DraftPicksRequest",
     "DrivesRequest",
     "EloRatingsRequest",
+    "EndpointRetrievalStats",
     "ExpandedSRSRatingsRequest",
     "FPIRatingsRequest",
     "FreshnessMode",
@@ -249,6 +257,10 @@ __all__ = [
     "RecruitingPlayersRequest",
     "RecruitingTeamsRequest",
     "RedisCacheConfig",
+    "RetrievalEvent",
+    "RetrievalObserver",
+    "RetrievalStats",
+    "RetrievalStatsSnapshot",
     "RetryPolicy",
     "RosterRequest",
     "ReturningProductionRequest",
