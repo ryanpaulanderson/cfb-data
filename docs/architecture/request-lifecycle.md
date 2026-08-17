@@ -28,6 +28,11 @@ behavior, and presentation happens only after the response is valid.
    nested analytical responses and operational account metadata return their
    validated Pydantic model directly.
 
+When a `RetrievalObserver` is configured, the executor correlates this validated
+retrieval with cache decisions and the transport's individual HTTP attempts.
+See [ADR 0005](0005-client-retrieval-observability.md) for the bounded event and
+failure-isolation contract.
+
 Backend selection therefore changes only the final DataFrame adapter. It does
 not change endpoint names, request validation, HTTP behavior, response models,
 the canonical schema, row order, or logical values.

@@ -6,7 +6,7 @@ also fans learning pandas, Polars, or sports analytics. The library is built
 carefully, while the user-facing API and documentation are still being shaped
 around what is most useful in real analyses.
 
-The current package version is 0.5.1 and the endpoint reference was checked
+The current package version is 0.6.0 and the endpoint reference was checked
 against CFBD API v5.24.0 on August 13, 2026. The Python API and local cache
 format may still change during pre-alpha development.
 
@@ -45,6 +45,11 @@ Both backends also keep a small identity catalog. This helps resolve names,
 abbreviations, and provider IDs when an analysis joins games, teams, venues,
 and athletes from different endpoints. See [Cache responses and look up
 identities](guides/cache-and-identities.md) for examples.
+
+An optional retrieval observer and included in-memory statistics collector
+report actual HTTP attempts, retries, cache outcomes, stale fallback, and
+backend failures without retaining requests or response bodies. See
+[Retrieval observability](advanced/observability.md) for counter definitions.
 
 ## What the library handles for you
 

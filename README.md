@@ -1,6 +1,6 @@
 # College Football Data Python Toolkit
 
-`cfb-data` 0.5.1 is a pre-alpha Python toolkit for exploring the public
+`cfb-data` 0.6.0 is a pre-alpha Python toolkit for exploring the public
 [CollegeFootballData API](https://collegefootballdata.com/). Most calls return
 eager pandas DataFrames that are ready for analysis. Polars is available as an
 option, and a few naturally nested results return Pydantic models.
@@ -190,9 +190,28 @@ async with CFBDClient(cache=cache) as client:
     games = await client.games.list(year=2025)
 ```
 
+Add a bounded in-memory collector when you want to see whether calls reached
+the API or were served from cache:
+
+```python
+from cfb_data import CFBDClient, RetrievalStats, SQLiteCacheConfig
+
+stats = RetrievalStats()
+
+async with CFBDClient(cache=SQLiteCacheConfig(), observer=stats) as client:
+    await client.games.list(year=2025)
+    await client.games.list(year=2025)
+
+snapshot = stats.snapshot()
+print(snapshot.http_attempts)       # actual client-side HTTP attempts
+print(snapshot.fresh_cache_hits)    # fresh initial cache hits
+print(snapshot.fresh_hit_rate)
+```
+
 See [Cache responses and look up
 identities](docs/guides/cache-and-identities.md) for use cases, the included
-local Redis setup, cache modes, identity examples, and troubleshooting.
+local Redis setup, cache modes, observability, identity examples, and
+troubleshooting.
 
 ## Troubleshooting
 

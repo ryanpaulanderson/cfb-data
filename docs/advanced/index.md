@@ -9,6 +9,7 @@ specific exception, or understand every accepted value.
 | [Request details](request-details.md) | Complete enum values, recurring validation rules, and field aliases |
 | [Result details](result-details.md) | pandas and Polars dtypes, Arrow representation, nested values, and Parquet internals |
 | [Cache behavior](cache-behavior.md) | TTLs, stale responses, remote Redis, identity matching, hydration, and cleanup |
+| [Retrieval observability](observability.md) | API-attempt counts, cache performance, event semantics, and custom observers |
 | [Errors and retries](errors-and-retries.md) | Full exception reference, retryable statuses, delay limits, and policy settings |
 
 These pages are still written as user documentation. For design rationale and

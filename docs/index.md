@@ -52,6 +52,7 @@ advanced/index
 advanced/request-details
 advanced/result-details
 advanced/cache-behavior
+advanced/observability
 advanced/errors-and-retries
 ```
 
@@ -76,6 +77,7 @@ architecture/0001-validated-models-before-dataframes
 architecture/0002-heterogeneous-stat-scalars
 architecture/0003-canonical-arrow-parquet
 architecture/0004-api-cache-identity-catalog
+architecture/0005-client-retrieval-observability
 notices-of-decision/README
 notices-of-decision/0001-canonical-nested-tabular-representation
 ```

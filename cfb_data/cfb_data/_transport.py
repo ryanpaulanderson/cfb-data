@@ -17,6 +17,11 @@ from urllib.parse import urlsplit
 
 import aiohttp
 
+from cfb_data._observability import (
+    _EventDispatcher,
+    _failure_category,
+    _OperationContext,
+)
 from cfb_data.base.types import QueryParameters
 from cfb_data.cache._models import MAX_RESPONSE_BODY_BYTES
 from cfb_data.errors import (
@@ -34,6 +39,11 @@ from cfb_data.errors import (
     CFBDTransportError,
     _sanitized_cause,
     _SanitizedCause,
+)
+from cfb_data.observability import (
+    HTTPAttemptFinished,
+    HTTPAttemptOutcome,
+    HTTPAttemptStarted,
 )
 from cfb_data.retry import RetryPolicy
 
@@ -91,6 +101,7 @@ class _HTTPTransport:
         base_url: str,
         timeout_seconds: float,
         retry_policy: RetryPolicy,
+        event_dispatcher: _EventDispatcher,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         random_source: Callable[[], float] = random.random,
         utc_now: Callable[[], datetime] | None = None,
@@ -101,6 +112,7 @@ class _HTTPTransport:
         :param base_url: Validated API origin and optional base path.
         :param timeout_seconds: Finite timeout applied to each attempt.
         :param retry_policy: Bounded GET retry configuration.
+        :param event_dispatcher: Client-scoped retrieval event dispatcher.
         :param sleep: Awaitable delay function used by retries.
         :param random_source: Uniform random source in the inclusive range 0..1.
         :param utc_now: Clock used to interpret HTTP-date ``Retry-After`` values.
@@ -110,6 +122,7 @@ class _HTTPTransport:
         self._timeout_seconds = timeout_seconds
         self._timeout = aiohttp.ClientTimeout(total=timeout_seconds)
         self._retry_policy = retry_policy
+        self._event_dispatcher = event_dispatcher
         self._sleep = sleep
         self._random_source = random_source
         self._utc_now = utc_now or (lambda: datetime.now(UTC))
@@ -181,12 +194,16 @@ class _HTTPTransport:
         params: QueryParameters,
         *,
         conditional_headers: Mapping[str, str] | None = None,
+        context: _OperationContext | None = None,
+        refresh_id: str | None = None,
     ) -> _ResponseEnvelope:
         """Return one bounded response envelope using safe-GET retries.
 
         :param endpoint: Fixed endpoint path without query parameters.
         :param params: Validated scalar query parameters.
         :param conditional_headers: Safe validators for retained records.
+        :param context: Optional safe endpoint-operation correlation context.
+        :param refresh_id: Optional shared-refresh correlation identifier.
         :return: Decoded response and cache-relevant metadata.
         :raises CFBDClientStateError: If used outside its active context.
         :raises CFBDHTTPError: If the API returns an unsuccessful status.
@@ -197,6 +214,12 @@ class _HTTPTransport:
         url = f"{self._base_url}{endpoint}"
 
         for attempt in range(1, self._retry_policy.max_attempts + 1):
+            attempt_started_at = self._start_attempt(
+                context=context,
+                refresh_id=refresh_id,
+                endpoint=endpoint,
+                attempt=attempt,
+            )
             failure: _TransportFailure | None = None
             try:
                 result = await self._request_once(
@@ -208,6 +231,42 @@ class _HTTPTransport:
                     conditional_headers=conditional_headers,
                 )
             except asyncio.CancelledError:
+                self._finish_attempt(
+                    context=context,
+                    refresh_id=refresh_id,
+                    endpoint=endpoint,
+                    attempt=attempt,
+                    started_at=attempt_started_at,
+                    outcome=HTTPAttemptOutcome.cancelled,
+                    terminal=True,
+                    failure_category="cancelled",
+                )
+                raise
+            except CFBDHTTPError as exc:
+                self._finish_attempt(
+                    context=context,
+                    refresh_id=refresh_id,
+                    endpoint=endpoint,
+                    attempt=attempt,
+                    started_at=attempt_started_at,
+                    outcome=HTTPAttemptOutcome.http_error,
+                    terminal=True,
+                    status_class=exc.status // 100,
+                    failure_category=f"http_{exc.status}",
+                )
+                raise
+            except (CFBDNoContentError, CFBDResponseDecodeError) as exc:
+                self._finish_attempt(
+                    context=context,
+                    refresh_id=refresh_id,
+                    endpoint=endpoint,
+                    attempt=attempt,
+                    started_at=attempt_started_at,
+                    outcome=HTTPAttemptOutcome.response_error,
+                    terminal=True,
+                    status_class=(2 if isinstance(exc, CFBDNoContentError) else None),
+                    failure_category=_failure_category(exc),
+                )
                 raise
             except aiohttp.InvalidURL as exc:
                 failure = _TransportFailure(
@@ -270,17 +329,66 @@ class _HTTPTransport:
 
             if failure is not None:
                 if failure.retryable and attempt < self._retry_policy.max_attempts:
-                    await self._retry_after_failure(
+                    delay = self._backoff_delay(attempt)
+                    self._finish_attempt(
+                        context=context,
+                        refresh_id=refresh_id,
                         endpoint=endpoint,
                         attempt=attempt,
-                        category=failure.category,
+                        started_at=attempt_started_at,
+                        outcome=HTTPAttemptOutcome.retry,
+                        terminal=False,
+                        retry_delay_seconds=delay,
+                        failure_category=failure.category,
                     )
+                    _LOGGER.debug(
+                        "Retrying CFBD GET endpoint=%s category=%s "
+                        "attempt=%d delay=%.3f",
+                        endpoint,
+                        failure.category,
+                        attempt,
+                        delay,
+                    )
+                    await self._sleep(delay)
                     continue
+                self._finish_attempt(
+                    context=context,
+                    refresh_id=refresh_id,
+                    endpoint=endpoint,
+                    attempt=attempt,
+                    started_at=attempt_started_at,
+                    outcome=HTTPAttemptOutcome.transport_error,
+                    terminal=True,
+                    failure_category=failure.category,
+                )
                 raise failure.error from failure.cause
 
             if not isinstance(result, _RetryDecision):
+                self._finish_attempt(
+                    context=context,
+                    refresh_id=refresh_id,
+                    endpoint=endpoint,
+                    attempt=attempt,
+                    started_at=attempt_started_at,
+                    outcome=HTTPAttemptOutcome.success,
+                    terminal=True,
+                    status_class=result.status // 100,
+                    response_bytes=len(result.raw_body),
+                )
                 return result
 
+            self._finish_attempt(
+                context=context,
+                refresh_id=refresh_id,
+                endpoint=endpoint,
+                attempt=attempt,
+                started_at=attempt_started_at,
+                outcome=HTTPAttemptOutcome.retry,
+                terminal=False,
+                status_class=result.error.status // 100,
+                retry_delay_seconds=result.delay_seconds,
+                failure_category=result.category,
+            )
             _LOGGER.debug(
                 "Retrying CFBD GET endpoint=%s category=%s attempt=%d delay=%.3f",
                 endpoint,
@@ -382,23 +490,68 @@ class _HTTPTransport:
                 attempts=attempt,
             ) from safe_cause
 
-    async def _retry_after_failure(
+    def _start_attempt(
         self,
         *,
+        context: _OperationContext | None,
+        refresh_id: str | None,
         endpoint: str,
         attempt: int,
-        category: str,
-    ) -> None:
-        """Log and apply one client-selected full-jitter delay."""
-        delay = self._backoff_delay(attempt)
-        _LOGGER.debug(
-            "Retrying CFBD GET endpoint=%s category=%s attempt=%d delay=%.3f",
-            endpoint,
-            category,
-            attempt,
-            delay,
+    ) -> float | None:
+        """Emit one attempt start and return its monotonic start time."""
+        if context is None or refresh_id is None or not self._event_dispatcher.enabled:
+            return None
+        started_at = self._event_dispatcher.now()
+        self._event_dispatcher.emit(
+            HTTPAttemptStarted(
+                client_id=context.client_id,
+                operation_id=context.operation_id,
+                refresh_id=refresh_id,
+                endpoint=endpoint,
+                attempt_number=attempt,
+            )
         )
-        await self._sleep(delay)
+        return started_at
+
+    def _finish_attempt(
+        self,
+        *,
+        context: _OperationContext | None,
+        refresh_id: str | None,
+        endpoint: str,
+        attempt: int,
+        started_at: float | None,
+        outcome: HTTPAttemptOutcome,
+        terminal: bool,
+        status_class: int | None = None,
+        response_bytes: int = 0,
+        retry_delay_seconds: float | None = None,
+        failure_category: str | None = None,
+    ) -> None:
+        """Emit one bounded terminal event for a started HTTP attempt."""
+        if (
+            context is None
+            or refresh_id is None
+            or started_at is None
+            or not self._event_dispatcher.enabled
+        ):
+            return
+        self._event_dispatcher.emit(
+            HTTPAttemptFinished(
+                client_id=context.client_id,
+                operation_id=context.operation_id,
+                refresh_id=refresh_id,
+                endpoint=endpoint,
+                attempt_number=attempt,
+                outcome=outcome,
+                terminal=terminal,
+                status_class=status_class,
+                duration_seconds=self._event_dispatcher.elapsed(started_at),
+                response_bytes=response_bytes,
+                retry_delay_seconds=retry_delay_seconds,
+                failure_category=failure_category,
+            )
+        )
 
     def _backoff_delay(self, attempt: int) -> float:
         """Return capped exponential full-jitter backoff after an attempt."""
