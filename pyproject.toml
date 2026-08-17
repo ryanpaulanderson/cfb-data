@@ -32,7 +32,7 @@ polars = [
     "polars>=1.43.2,<2",
 ]
 redis = [
-    "redis>=7.1,<8",
+    "redis>=7.1,<9",
 ]
 dev = [
     "build>=1.5,<2",
