@@ -37,8 +37,6 @@ from cfb_data.errors import (
     CFBDTimeoutError,
     CFBDTLSError,
     CFBDTransportError,
-    _sanitized_cause,
-    _SanitizedCause,
 )
 from cfb_data.observability import (
     HTTPAttemptFinished,
@@ -49,6 +47,29 @@ from cfb_data.retry import RetryPolicy
 
 _LOGGER = logging.getLogger(__name__)
 _RETRYABLE_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
+
+
+class _DetachedTransportCause(Exception):
+    """Retain a transport category without request metadata or credentials."""
+
+    category: str
+
+    def __init__(self, *, category: str) -> None:
+        """Initialize a credential-safe transport cause.
+
+        :param category: Source exception type name without its retained state.
+        """
+        self.category = category
+        super().__init__(category)
+
+
+def _detached_transport_cause(source: BaseException) -> _DetachedTransportCause:
+    """Detach an exception that may retain authenticated request metadata.
+
+    :param source: Transport exception whose type identifies the failure.
+    :return: New exception retaining only the source type name.
+    """
+    return _DetachedTransportCause(category=type(source).__name__)
 
 
 class _TransportState(Enum):
@@ -73,7 +94,7 @@ class _TransportFailure:
     """Carry a safely detached transport failure outside its exception handler."""
 
     error: CFBDTransportError
-    cause: _SanitizedCause
+    cause: _DetachedTransportCause
     category: str
     retryable: bool
 
@@ -275,21 +296,21 @@ class _HTTPTransport:
                         attempts=attempt,
                         category="invalid_url",
                     ),
-                    cause=_sanitized_cause(exc),
+                    cause=_detached_transport_cause(exc),
                     category="invalid_url",
                     retryable=False,
                 )
             except aiohttp.ClientSSLError as exc:
                 failure = _TransportFailure(
                     error=CFBDTLSError(endpoint=endpoint, attempts=attempt),
-                    cause=_sanitized_cause(exc),
+                    cause=_detached_transport_cause(exc),
                     category="tls",
                     retryable=False,
                 )
             except TimeoutError as exc:
                 failure = _TransportFailure(
                     error=CFBDTimeoutError(endpoint=endpoint, attempts=attempt),
-                    cause=_sanitized_cause(exc),
+                    cause=_detached_transport_cause(exc),
                     category="timeout",
                     retryable=True,
                 )
@@ -300,7 +321,7 @@ class _HTTPTransport:
                         attempts=attempt,
                         category="truncated_payload",
                     ),
-                    cause=_sanitized_cause(exc),
+                    cause=_detached_transport_cause(exc),
                     category="truncated_payload",
                     retryable=True,
                 )
@@ -311,7 +332,7 @@ class _HTTPTransport:
                         attempts=attempt,
                         category="connection",
                     ),
-                    cause=_sanitized_cause(exc),
+                    cause=_detached_transport_cause(exc),
                     category="connection",
                     retryable=True,
                 )
@@ -322,7 +343,7 @@ class _HTTPTransport:
                         attempts=attempt,
                         category="client",
                     ),
-                    cause=_sanitized_cause(exc),
+                    cause=_detached_transport_cause(exc),
                     category="client",
                     retryable=False,
                 )
@@ -477,18 +498,19 @@ class _HTTPTransport:
                         headers=response.headers,
                     )
                 decoded: object = json.loads(raw_body)
-            except (
-                aiohttp.ContentTypeError,
-                json.JSONDecodeError,
-                UnicodeDecodeError,
-            ) as exc:
-                safe_cause = _sanitized_cause(exc)
+            except aiohttp.ContentTypeError as exc:
+                detached_cause = _detached_transport_cause(exc)
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise CFBDResponseDecodeError(
+                    endpoint=endpoint,
+                    attempts=attempt,
+                ) from exc
             else:
                 return _response_envelope(response, body=decoded, raw_body=raw_body)
             raise CFBDResponseDecodeError(
                 endpoint=endpoint,
                 attempts=attempt,
-            ) from safe_cause
+            ) from detached_cause
 
     def _start_attempt(
         self,

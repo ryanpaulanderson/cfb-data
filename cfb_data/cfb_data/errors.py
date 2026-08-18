@@ -1,33 +1,10 @@
-"""Define safe, actionable exceptions raised by :mod:`cfb_data`."""
+"""Define actionable exceptions raised by :mod:`cfb_data`."""
 
 from __future__ import annotations
 
 
 class CFBDError(Exception):
     """Provide the root exception for all library-owned failures."""
-
-
-class _SanitizedCause(Exception):
-    """Retain an exception category without retaining unsafe source data."""
-
-    category: str
-
-    def __init__(self, *, category: str) -> None:
-        """Initialize a safe diagnostic cause.
-
-        :param category: Source exception type name without its values or state.
-        """
-        self.category = category
-        super().__init__(category)
-
-
-def _sanitized_cause(source: BaseException) -> _SanitizedCause:
-    """Return a diagnostic cause detached from a potentially unsafe exception.
-
-    :param source: Exception whose type identifies the failure category.
-    :return: New exception retaining only the source type name.
-    """
-    return _SanitizedCause(category=type(source).__name__)
 
 
 class CFBDConfigurationError(CFBDError):

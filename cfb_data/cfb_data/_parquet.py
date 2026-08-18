@@ -22,7 +22,7 @@ from cfb_data._tabular import (
     _ScalarEncodingError,
     _UnsupportedTableAnnotationError,
 )
-from cfb_data.errors import CFBDError, _sanitized_cause
+from cfb_data.errors import CFBDError
 
 _ParquetOperation = Literal["read", "write"]
 _ParquetErrorCategory = Literal[
@@ -39,7 +39,7 @@ _PARQUET_COMPRESSION: Final = "snappy"
 
 
 class _ParquetCodecError(CFBDError):
-    """Report a safe categorized failure in the internal Parquet codec."""
+    """Report a categorized failure in the internal Parquet codec."""
 
     operation: _ParquetOperation
     category: _ParquetErrorCategory
@@ -50,10 +50,10 @@ class _ParquetCodecError(CFBDError):
         operation: _ParquetOperation,
         category: _ParquetErrorCategory,
     ) -> None:
-        """Initialize a path- and payload-free codec failure.
+        """Initialize a categorized codec failure.
 
         :param operation: File operation that failed.
-        :param category: Safe failure classification for internal policy.
+        :param category: Failure classification for internal policy.
         """
         self.operation = operation
         self.category = category
@@ -80,9 +80,10 @@ def _write_parquet(
         _write_parquet_file(Path(path), row_model=row_model, table=table)
         return
     except Exception as exc:
-        category = _codec_error_category(exc)
-        safe_cause = _sanitized_cause(exc)
-    raise _ParquetCodecError(operation="write", category=category) from safe_cause
+        raise _ParquetCodecError(
+            operation="write",
+            category=_codec_error_category(exc),
+        ) from exc
 
 
 def _read_parquet[ModelT: BaseModel](
@@ -118,9 +119,10 @@ def _read_parquet[ModelT: BaseModel](
         )
         return table
     except Exception as exc:
-        category = _codec_error_category(exc)
-        safe_cause = _sanitized_cause(exc)
-    raise _ParquetCodecError(operation="read", category=category) from safe_cause
+        raise _ParquetCodecError(
+            operation="read",
+            category=_codec_error_category(exc),
+        ) from exc
 
 
 def _write_parquet_file(
@@ -181,7 +183,7 @@ def _read_parquet_file[ModelT: BaseModel](
 
 
 def _codec_error_category(source: Exception) -> _ParquetErrorCategory:
-    """Classify a source exception without retaining its values or path."""
+    """Classify a source exception for internal recovery policy."""
     if isinstance(source, _CanonicalTableMetadataError):
         return "metadata"
     if isinstance(source, _CanonicalTableSchemaError):

@@ -19,7 +19,6 @@ from cfb_data._tabular import (
 from cfb_data.errors import (
     CFBDDataFrameConversionError,
     CFBDOptionalDependencyError,
-    _sanitized_cause,
 )
 
 if TYPE_CHECKING:
@@ -78,11 +77,10 @@ class _PandasAdapter:
         except CFBDDataFrameConversionError:
             raise
         except Exception as exc:
-            safe_cause = _sanitized_cause(exc)
-        raise CFBDDataFrameConversionError(
-            endpoint=endpoint,
-            backend="pandas",
-        ) from safe_cause
+            raise CFBDDataFrameConversionError(
+                endpoint=endpoint,
+                backend="pandas",
+            ) from exc
 
     def from_table(
         self,
@@ -125,11 +123,10 @@ class _PandasAdapter:
         except CFBDDataFrameConversionError:
             raise
         except Exception as exc:
-            safe_cause = _sanitized_cause(exc)
-        raise CFBDDataFrameConversionError(
-            endpoint=endpoint,
-            backend="pandas",
-        ) from safe_cause
+            raise CFBDDataFrameConversionError(
+                endpoint=endpoint,
+                backend="pandas",
+            ) from exc
 
 
 class _PolarsAdapter:
@@ -162,11 +159,10 @@ class _PolarsAdapter:
         except CFBDDataFrameConversionError:
             raise
         except Exception as exc:
-            safe_cause = _sanitized_cause(exc)
-        raise CFBDDataFrameConversionError(
-            endpoint=endpoint,
-            backend="polars",
-        ) from safe_cause
+            raise CFBDDataFrameConversionError(
+                endpoint=endpoint,
+                backend="polars",
+            ) from exc
 
     def from_table(
         self,
@@ -229,11 +225,10 @@ class _PolarsAdapter:
         except CFBDOptionalDependencyError:
             raise
         except Exception as exc:
-            safe_cause = _sanitized_cause(exc)
-        raise CFBDDataFrameConversionError(
-            endpoint=endpoint,
-            backend="polars",
-        ) from safe_cause
+            raise CFBDDataFrameConversionError(
+                endpoint=endpoint,
+                backend="polars",
+            ) from exc
 
     @staticmethod
     def _require_polars() -> None:

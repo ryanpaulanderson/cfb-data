@@ -578,7 +578,7 @@ def test_atomic_write_preserves_existing_target_and_cleans_temporary_file(
     path.write_bytes(original)
 
     def fail_write(*args: object, **kwargs: object) -> None:
-        raise RuntimeError("source failure containing sensitive values")
+        raise RuntimeError("diagnostic write failure")
 
     monkeypatch.setattr("cfb_data._parquet.pq.write_table", fail_write)
     with pytest.raises(_ParquetCodecError) as exc_info:
@@ -588,10 +588,9 @@ def test_atomic_write_preserves_existing_target_and_cleans_temporary_file(
     assert not list(tmp_path.glob(f".{path.name}.*.tmp"))
     assert exc_info.value.operation == "write"
     assert exc_info.value.category == "format"
-    assert exc_info.value.__context__ is None
-    assert exc_info.value.__cause__ is not None
-    assert str(exc_info.value.__cause__) == "RuntimeError"
-    assert "sensitive" not in str(exc_info.value.__cause__)
+    cause = exc_info.value.__cause__
+    assert isinstance(cause, RuntimeError)
+    assert str(cause) == "diagnostic write failure"
 
 
 def test_failed_temporary_close_preserves_target_and_cleans_resources(
@@ -616,7 +615,7 @@ def test_failed_temporary_close_preserves_target_and_cleans_resources(
 
         def __exit__(self, *args: object) -> None:
             self._file.close()
-            raise OSError("close failure with unsafe paths")
+            raise OSError("temporary Parquet file could not close")
 
     def fail_close(candidate: int, mode: str) -> CloseFailure:
         nonlocal descriptor
@@ -634,7 +633,8 @@ def test_failed_temporary_close_preserves_target_and_cleans_resources(
     assert path.read_bytes() == original
     assert not list(tmp_path.glob(f".{path.name}.*.tmp"))
     assert exc_info.value.category == "io"
-    assert str(exc_info.value.__cause__) == "OSError"
+    assert isinstance(exc_info.value.__cause__, OSError)
+    assert str(exc_info.value.__cause__) == "temporary Parquet file could not close"
 
 
 def test_failed_atomic_replacement_preserves_target_and_cleans_temporary_file(
@@ -646,7 +646,7 @@ def test_failed_atomic_replacement_preserves_target_and_cleans_temporary_file(
     path.write_bytes(original)
 
     def fail_replace(source: object, destination: object) -> None:
-        raise OSError("replacement failure with unsafe paths")
+        raise OSError("Parquet destination replacement failed")
 
     monkeypatch.setattr("cfb_data._parquet.os.replace", fail_replace)
     with pytest.raises(_ParquetCodecError) as exc_info:
@@ -655,10 +655,11 @@ def test_failed_atomic_replacement_preserves_target_and_cleans_temporary_file(
     assert path.read_bytes() == original
     assert not list(tmp_path.glob(f".{path.name}.*.tmp"))
     assert exc_info.value.category == "io"
-    assert str(exc_info.value.__cause__) == "OSError"
+    assert isinstance(exc_info.value.__cause__, OSError)
+    assert str(exc_info.value.__cause__) == "Parquet destination replacement failed"
 
 
-def test_codec_reports_missing_parent_and_corrupt_file_without_paths(
+def test_codec_preserves_missing_parent_and_corrupt_file_diagnostics(
     tmp_path: Path,
 ) -> None:
     missing_target = tmp_path / "missing" / "target.parquet"
@@ -676,11 +677,13 @@ def test_codec_reports_missing_parent_and_corrupt_file_without_paths(
 
     assert write_error.value.category == "io"
     assert read_error.value.category == "format"
-    for error in (write_error.value, read_error.value):
-        assert error.__context__ is None
-        assert error.__cause__ is not None
-        assert str(tmp_path) not in str(error)
-        assert str(tmp_path) not in str(error.__cause__)
+    assert isinstance(write_error.value.__cause__, FileNotFoundError)
+    assert (
+        str(write_error.value.__cause__) == "Parquet destination parent does not exist"
+    )
+    assert read_error.value.__cause__ is not None
+    assert "Parquet magic bytes not found" in str(read_error.value.__cause__)
+    assert str(corrupt_path) in str(read_error.value.__cause__)
 
 
 def test_reader_rejects_a_truncated_parquet_file(tmp_path: Path) -> None:
@@ -693,8 +696,9 @@ def test_reader_rejects_a_truncated_parquet_file(tmp_path: Path) -> None:
         _read_parquet(path, row_model=_StorageRow, response_adapter=_ROWS)
 
     assert exc_info.value.category == "format"
-    assert str(tmp_path) not in str(exc_info.value)
-    assert str(tmp_path) not in str(exc_info.value.__cause__)
+    assert exc_info.value.__cause__ is not None
+    assert "Parquet magic bytes not found" in str(exc_info.value.__cause__)
+    assert str(path) in str(exc_info.value.__cause__)
 
 
 def test_reader_rejects_unknown_validation_mode_before_io(tmp_path: Path) -> None:

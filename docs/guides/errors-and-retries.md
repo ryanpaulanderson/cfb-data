@@ -86,10 +86,14 @@ The most useful details are:
 - the exception class and message;
 - the `cfb-data` version;
 - whether pandas or Polars was selected; and
-- a minimal call with secrets and personal paths removed.
+- a minimal call with the API key removed.
 
-Library error messages omit API keys, query values, and response payloads, but
-it is still worth checking copied logs before sharing them.
+Validation, DataFrame, and Parquet exceptions preserve their original causes so
+tracebacks can identify the failing field, validation category, received value,
+and expected and received types. Authenticated transport exceptions that could
+retain request headers are detached from their original causes so the API key
+does not appear in the exception chain. It is still worth checking copied logs
+before sharing them.
 
 ## Go deeper
 

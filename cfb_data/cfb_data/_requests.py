@@ -6,7 +6,7 @@ from collections.abc import Mapping
 
 from pydantic import BaseModel, ValidationError
 
-from cfb_data.errors import CFBDRequestValidationError, _sanitized_cause
+from cfb_data.errors import CFBDRequestValidationError
 
 
 def _resolve_request[RequestT: BaseModel](
@@ -32,5 +32,4 @@ def _resolve_request[RequestT: BaseModel](
     try:
         return request_type.model_validate(filters)
     except ValidationError as exc:
-        safe_cause = _sanitized_cause(exc)
-    raise CFBDRequestValidationError(endpoint=endpoint) from safe_cause
+        raise CFBDRequestValidationError(endpoint=endpoint) from exc

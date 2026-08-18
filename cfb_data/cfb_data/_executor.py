@@ -26,7 +26,6 @@ from cfb_data.cache._coordinator import CacheCoordinator
 from cfb_data.errors import (
     CFBDRequestValidationError,
     CFBDResponseValidationError,
-    _sanitized_cause,
 )
 from cfb_data.observability import (
     RetrievalFinished,
@@ -210,8 +209,7 @@ def _serialize_request(
         )
         return parameters
     except TypeError as exc:
-        safe_cause = _sanitized_cause(exc)
-    raise CFBDRequestValidationError(endpoint=endpoint) from safe_cause
+        raise CFBDRequestValidationError(endpoint=endpoint) from exc
 
 
 def _response_contract[ValueT](response_adapter: TypeAdapter[ValueT]) -> str:
@@ -227,12 +225,11 @@ def _validate_many[ModelT: BaseModel](
     raw: object,
     response_adapter: TypeAdapter[list[ModelT]],
 ) -> list[ModelT]:
-    """Validate one decoded model-list response with a sanitized cause."""
+    """Validate one decoded model-list response with its diagnostic cause."""
     try:
         return response_adapter.validate_python(json_object_list(raw))
     except (TypeError, ValidationError) as exc:
-        safe_cause = _sanitized_cause(exc)
-    raise CFBDResponseValidationError(endpoint=endpoint) from safe_cause
+        raise CFBDResponseValidationError(endpoint=endpoint) from exc
 
 
 def _validate_one[ModelT: BaseModel](
@@ -240,12 +237,11 @@ def _validate_one[ModelT: BaseModel](
     raw: object,
     response_adapter: TypeAdapter[ModelT],
 ) -> ModelT:
-    """Validate one decoded model response with a sanitized cause."""
+    """Validate one decoded model response with its diagnostic cause."""
     try:
         return response_adapter.validate_python(json_object(raw))
     except (TypeError, ValidationError) as exc:
-        safe_cause = _sanitized_cause(exc)
-    raise CFBDResponseValidationError(endpoint=endpoint) from safe_cause
+        raise CFBDResponseValidationError(endpoint=endpoint) from exc
 
 
 def _validate_values[ValueT](
@@ -253,9 +249,8 @@ def _validate_values[ValueT](
     raw: object,
     response_adapter: TypeAdapter[list[ValueT]],
 ) -> list[ValueT]:
-    """Validate one decoded scalar-list response with a sanitized cause."""
+    """Validate one decoded scalar-list response with its diagnostic cause."""
     try:
         return response_adapter.validate_python(json_list(raw))
     except (TypeError, ValidationError) as exc:
-        safe_cause = _sanitized_cause(exc)
-    raise CFBDResponseValidationError(endpoint=endpoint) from safe_cause
+        raise CFBDResponseValidationError(endpoint=endpoint) from exc

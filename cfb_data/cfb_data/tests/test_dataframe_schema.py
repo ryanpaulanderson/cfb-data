@@ -35,10 +35,11 @@ def test_unsupported_annotation_fails_without_object_fallback(
 
     assert exc_info.value.backend == backend
     assert exc_info.value.endpoint == "/unsupported"
-    assert exc_info.value.__context__ is None
-    assert exc_info.value.__cause__ is not None
-    assert str(exc_info.value.__cause__) == "_UnsupportedTableAnnotationError"
-    assert "value" not in repr(vars(exc_info.value.__cause__))
+    cause = exc_info.value.__cause__
+    assert cause is not None
+    assert type(cause).__name__ == "_UnsupportedTableAnnotationError"
+    assert "Unsupported table annotation" in str(cause)
+    assert "dict[str, int]" in str(cause)
 
 
 @pytest.mark.parametrize(
@@ -59,4 +60,8 @@ def test_unapproved_union_still_fails_without_object_fallback(
 
     assert exc_info.value.backend == backend
     assert exc_info.value.endpoint == "/unsupported-union"
-    assert str(exc_info.value.__cause__) == "_UnsupportedTableAnnotationError"
+    cause = exc_info.value.__cause__
+    assert cause is not None
+    assert type(cause).__name__ == "_UnsupportedTableAnnotationError"
+    assert "Only T | None unions are supported" in str(cause)
+    assert "str | int" in str(cause)

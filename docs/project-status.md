@@ -56,7 +56,9 @@ backend failures without retaining requests or response bodies. See
 Calls made in one client context share an HTTP session. The client closes that
 session when the context exits, retries a small set of temporary failures, and
 uses finite timeouts. API responses are validated before they become
-DataFrames, and exception messages omit credentials and response payloads.
+DataFrames. Validation and conversion errors retain their original diagnostic
+causes, while authenticated transport failures omit API keys and authorization
+headers.
 
 Tabular results use a common Arrow representation before pandas or Polars
 materialization:
