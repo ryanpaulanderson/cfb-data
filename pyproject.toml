@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cfb-data"
-version = "0.6.0"
+version = "0.7.0"
 description = "Async validated CollegeFootballData access for pandas and Polars"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -32,7 +32,7 @@ polars = [
     "polars>=1.43.2,<2",
 ]
 redis = [
-    "redis>=7.1,<8",
+    "redis>=7.1,<9",
 ]
 dev = [
     "build>=1.5,<2",
