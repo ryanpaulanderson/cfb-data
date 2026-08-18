@@ -21,13 +21,13 @@ import cfb_data
 def test_distribution_and_package_are_importable() -> None:
     """Verify an editable install exposes the package and its metadata."""
     assert cfb_data.__doc__
-    assert version("cfb-data") == "0.7.1"
+    assert version("cfb-data") == "0.8.0"
     assert resource_files(cfb_data).joinpath("py.typed").is_file()
     assert resource_files("cfb_data.cache").joinpath("sql", "schema.sql").is_file()
 
 
-def test_distribution_requires_supported_python_versions() -> None:
-    """Verify package metadata advertises the supported Python versions."""
+def test_distribution_advertises_supported_python_and_beta_status() -> None:
+    """Verify package metadata advertises supported Python and beta status."""
     distribution_metadata = metadata("cfb-data")
     classifiers = distribution_metadata.get_all("Classifier")
 
@@ -36,6 +36,8 @@ def test_distribution_requires_supported_python_versions() -> None:
     assert "Programming Language :: Python :: 3.11" not in classifiers
     assert "Programming Language :: Python :: 3.12" in classifiers
     assert "Programming Language :: Python :: 3.13" in classifiers
+    assert "Development Status :: 2 - Pre-Alpha" not in classifiers
+    assert "Development Status :: 4 - Beta" in classifiers
 
 
 def test_project_license_matches_distribution_metadata() -> None:
@@ -66,7 +68,7 @@ def test_release_workflow_uses_trusted_main_push() -> None:
 
 
 def test_legacy_clients_and_generic_routing_are_not_exported() -> None:
-    """Keep the 0.7.1 package surface free of compatibility wrappers."""
+    """Keep the current package surface free of compatibility wrappers."""
     legacy_names = {
         "CFBDAPIBase",
         "CFBDValidationAPI",

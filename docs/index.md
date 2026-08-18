@@ -1,6 +1,6 @@
 # cfb-data
 
-`cfb-data` is a pre-alpha Python toolkit for enthusiasts exploring the public
+`cfb-data` is a beta Python toolkit for enthusiasts exploring the public
 [CollegeFootballData API](https://collegefootballdata.com/). Most calls return
 eager pandas DataFrames that are ready for analysis; Polars is available as an
 optional backend, and a few naturally nested results return Pydantic models.
@@ -97,9 +97,10 @@ notices-of-decision/0001-canonical-nested-tabular-representation
   locally queryable identity catalog. Both are useful on a single computer;
   Redis can also be shared by several scripts or machines.
 
-This is an enthusiast-focused pre-alpha project. The API may still change as
-the library gets easier to use. The documentation describes the current
-version.
+This is an enthusiast-focused beta project. Its core retrieval, validation,
+DataFrame, caching, and identity workflows are usable and carefully tested.
+Public APIs and local cache formats may still change before 1.0. The
+documentation describes the current version.
 
 Curious about the implementation? The [request lifecycle
 diagram](architecture/request-lifecycle.md) shows the validation, HTTP, Arrow,
