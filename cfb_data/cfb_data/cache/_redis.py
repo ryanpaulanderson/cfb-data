@@ -169,7 +169,7 @@ class RedisCacheBackend:
         lock = client.lock(
             self._key("lock", "catalog-commit"),
             timeout=_MAX_CATALOG_COMMIT_TIMEOUT_SECONDS,
-            blocking_timeout=self._config.io_timeout_seconds,
+            blocking_timeout=None,
         )
         try:
             async with lock:
@@ -252,6 +252,19 @@ class RedisCacheBackend:
             source=record.endpoint,
         )
         return merged
+
+    async def has_current_projection(
+        self, *, endpoint: str, canonical_filters: str
+    ) -> bool:
+        """Return whether durable coverage uses the current contract."""
+        identity = _digest(f"{endpoint}:{canonical_filters}")
+        raw = await self._active_client().get(self._key("coverage", identity))
+        if raw is None:
+            return False
+        record = json_object(json.loads(_bytes(raw)))
+        return _json_required_text(
+            record, "projection_contract"
+        ) == projection_contract(endpoint)
 
     async def delete_response(self, key: str) -> None:
         """Delete one invalid response record without catalog pruning."""

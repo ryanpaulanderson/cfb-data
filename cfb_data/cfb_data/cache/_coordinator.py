@@ -24,7 +24,7 @@ from cfb_data._observability import (
 from cfb_data._transport import _HTTPTransport
 from cfb_data.base.types import QueryParameters
 from cfb_data.cache._backend import CacheBackend
-from cfb_data.cache._catalog import project_catalog
+from cfb_data.cache._catalog import canonical_filters, project_catalog
 from cfb_data.cache._key import response_cache_key
 from cfb_data.cache._models import MAX_RESPONSE_BODY_BYTES, ResponseRecord
 from cfb_data.cache._null import NullCacheBackend
@@ -154,6 +154,7 @@ class CacheCoordinator:
         )
         self._flights: dict[str, _FlightState] = {}
         self._flights_lock = asyncio.Lock()
+        self._catalog_write_lock = asyncio.Lock()
         self._backend_available = False
         self._transient_available = False
 
@@ -1184,8 +1185,74 @@ class CacheCoordinator:
             fresh_until=record.fresh_until,
             retained_until=record.retained_until,
         )
-        await self._commit_catalog_response(
-            "reproject", record, projection, context=context
+        filters = canonical_filters(parameters)
+        answered, current = await self._projection_is_current(
+            endpoint=endpoint,
+            canonical_filters=filters,
+            context=context,
+        )
+        if not answered:
+            await self._transient.commit_response(record, projection)
+            return
+        if current:
+            await self._mirror_catalog_projection(record, projection, context=context)
+            return
+
+        async with self._catalog_write_lock:
+            answered, current = await self._projection_is_current(
+                endpoint=endpoint,
+                canonical_filters=filters,
+                context=context,
+            )
+            if not answered:
+                await self._transient.commit_response(record, projection)
+                return
+            if current:
+                await self._mirror_catalog_projection(
+                    record, projection, context=context
+                )
+                return
+            await self._commit_catalog_response_locked(
+                "reproject",
+                record,
+                projection,
+                timeout_seconds=_MAX_CATALOG_COMMIT_TIMEOUT_SECONDS,
+                context=context,
+            )
+
+    async def _projection_is_current(
+        self,
+        *,
+        endpoint: str,
+        canonical_filters: str,
+        context: _OperationContext | None,
+    ) -> tuple[bool, bool]:
+        """Return whether durable projection metadata answered and is current."""
+        answered, current = await self._catalog_call(
+            "reproject_status",
+            self._backend.has_current_projection(
+                endpoint=endpoint,
+                canonical_filters=canonical_filters,
+            ),
+            context=context,
+        )
+        return answered, bool(current)
+
+    async def _mirror_catalog_projection(
+        self,
+        record: ResponseRecord,
+        projection: CatalogProjection,
+        *,
+        context: _OperationContext | None,
+    ) -> None:
+        """Mirror one read-only canonical merge into the transient catalog."""
+        answered, merged = await self._catalog_call(
+            "reproject_merge_read",
+            self._backend.merge_catalog_projection(record, projection),
+            context=context,
+        )
+        await self._transient.commit_response(
+            record, merged if answered and merged is not None else projection
         )
 
     async def _commit_catalog_response(
@@ -1197,10 +1264,33 @@ class CacheCoordinator:
         context: _OperationContext | None,
     ) -> None:
         """Commit durably and mirror the canonical merged state in memory."""
+        async with self._catalog_write_lock:
+            await self._commit_catalog_response_locked(
+                operation,
+                record,
+                projection,
+                timeout_seconds=None,
+                context=context,
+            )
+
+    async def _commit_catalog_response_locked(
+        self,
+        operation: str,
+        record: ResponseRecord,
+        projection: CatalogProjection,
+        *,
+        timeout_seconds: float | None,
+        context: _OperationContext | None,
+    ) -> None:
+        """Commit while the process-local catalog-write lock is held."""
         answered, merged = await self._catalog_call(
             operation,
             self._backend.commit_response(record, projection),
-            timeout_seconds=self._catalog_commit_timeout(projection),
+            timeout_seconds=(
+                timeout_seconds
+                if timeout_seconds is not None
+                else self._catalog_commit_timeout(projection)
+            ),
             context=context,
         )
         write_answered = answered

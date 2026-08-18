@@ -142,6 +142,16 @@ class NullCacheBackend:
         )
         return projection_from_observations(merged, original=projection)
 
+    async def has_current_projection(
+        self, *, endpoint: str, canonical_filters: str
+    ) -> bool:
+        """Return whether transient coverage uses the current contract."""
+        coverage = self._coverage.get((endpoint, canonical_filters))
+        return bool(
+            coverage is not None
+            and coverage.projection_contract == projection_contract(endpoint)
+        )
+
     async def delete_response(self, key: str) -> None:
         """Delete no response because response bytes are never retained."""
 

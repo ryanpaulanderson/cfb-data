@@ -1,5 +1,6 @@
 """Test typed identity resolution and minimal hydration through the client."""
 
+import asyncio
 import sqlite3
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
@@ -11,6 +12,7 @@ from aiohttp import web
 from cfb_data._catalog.models import CatalogProjection
 from cfb_data.cache._models import ResponseRecord
 from cfb_data.cache._sqlite import SQLiteCacheBackend
+from cfb_data.observability import CacheBackendFailed, CacheWriteCompleted
 from cfb_data.tests._sqlite_test_sql import sqlite_test_sql
 
 from cfb_data import (
@@ -22,6 +24,7 @@ from cfb_data import (
     CFBDServerError,
     Classification,
     FreshnessMode,
+    RetrievalEvent,
     RetryPolicy,
     SQLiteCacheConfig,
 )
@@ -642,9 +645,14 @@ async def test_local_only_identity_reads_surface_durable_catalog_failures(
 async def test_retained_response_reprojects_after_projection_contract_change(
     api_server: ServerFactory,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Rebuild catalog facts locally when source-owned projection metadata changes."""
+    """Serialize stale repairs and recheck metadata before writing durably."""
     calls = 0
+    commit_calls = 0
+    status_calls = 0
+    initial_status_reads = asyncio.Event()
+    events: list[RetrievalEvent] = []
     path = tmp_path / "cache.sqlite3"
 
     async def handler(request: web.Request) -> web.Response:
@@ -664,17 +672,235 @@ async def test_retained_response_reprojects_after_projection_contract_change(
             connection.execute(sqlite_test_sql("delete_team_observations.sql"))
             connection.execute(sqlite_test_sql("stale_team_projection_contract.sql"))
 
+        original_status = SQLiteCacheBackend.has_current_projection
+        original_commit = SQLiteCacheBackend.commit_response
+
+        async def synchronized_status(
+            backend: SQLiteCacheBackend, **kwargs: str
+        ) -> bool:
+            nonlocal status_calls
+            status_calls += 1
+            if status_calls <= 2:
+                if status_calls == 2:
+                    initial_status_reads.set()
+                await initial_status_reads.wait()
+                return False
+            return await original_status(backend, **kwargs)
+
+        async def count_commit(
+            backend: SQLiteCacheBackend,
+            record: ResponseRecord,
+            projection: CatalogProjection,
+        ) -> CatalogProjection:
+            nonlocal commit_calls
+            commit_calls += 1
+            return await original_commit(backend, record, projection)
+
+        monkeypatch.setattr(
+            SQLiteCacheBackend, "has_current_projection", synchronized_status
+        )
+        monkeypatch.setattr(SQLiteCacheBackend, "commit_response", count_commit)
         async with CFBDClient(
-            "key", base_url=base_url, cache=SQLiteCacheConfig(path=path)
+            "key",
+            base_url=base_url,
+            cache=SQLiteCacheConfig(path=path),
+            observer=events.append,
         ) as client:
             with client.cache_mode(CacheMode.local_only):
-                await client.teams.list()
+                first, second = await asyncio.gather(
+                    client.teams.list(), client.teams.list()
+                )
             identity = await client.identities.teams.resolve(
                 "Wolverines", freshness=FreshnessMode.local_only
             )
 
+    assert first.equals(second)
     assert identity.id == 130
     assert calls == 1
+    assert commit_calls == 1
+    writes = [event for event in events if isinstance(event, CacheWriteCompleted)]
+    assert [event.outcome for event in writes] == ["reprojected"]
+
+
+@pytest.mark.asyncio
+async def test_current_projection_cache_hit_is_read_only(
+    api_server: ServerFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Avoid durable catalog commits for current retained projections."""
+    calls = 0
+    commit_calls = 0
+    events: list[RetrievalEvent] = []
+    path = tmp_path / "cache.sqlite3"
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        return web.json_response([_team()])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            cache=SQLiteCacheConfig(path=path),
+            observer=events.append,
+        ) as client:
+            expected = await client.teams.list()
+            events.clear()
+            original_commit = SQLiteCacheBackend.commit_response
+
+            async def count_commit(
+                backend: SQLiteCacheBackend,
+                record: ResponseRecord,
+                projection: CatalogProjection,
+            ) -> CatalogProjection:
+                nonlocal commit_calls
+                commit_calls += 1
+                return await original_commit(backend, record, projection)
+
+            monkeypatch.setattr(SQLiteCacheBackend, "commit_response", count_commit)
+            with client.cache_mode(CacheMode.local_only):
+                actual = await client.teams.list()
+
+    assert actual.equals(expected)
+    assert calls == 1
+    assert commit_calls == 0
+    assert not any(isinstance(event, CacheWriteCompleted) for event in events)
+
+
+@pytest.mark.asyncio
+async def test_projection_status_failure_returns_validated_cached_response(
+    api_server: ServerFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail open without HTTP after one observable projection-status error."""
+    calls = 0
+    events: list[RetrievalEvent] = []
+    path = tmp_path / "cache.sqlite3"
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        return web.json_response([_team()])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            cache=SQLiteCacheConfig(path=path),
+            observer=events.append,
+        ) as client:
+            expected = await client.teams.list()
+            events.clear()
+
+            async def fail_status(backend: SQLiteCacheBackend, **kwargs: str) -> bool:
+                raise RuntimeError("projection status unavailable")
+
+            monkeypatch.setattr(
+                SQLiteCacheBackend, "has_current_projection", fail_status
+            )
+            with client.cache_mode(CacheMode.local_only):
+                actual = await client.teams.list()
+
+    assert actual.equals(expected)
+    assert calls == 1
+    failures = [event for event in events if isinstance(event, CacheBackendFailed)]
+    assert [(event.operation, event.failure_category) for event in failures] == [
+        ("reproject_status", "RuntimeError")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cancelled_catalog_repair_waiter_does_not_poison_later_writes(
+    api_server: ServerFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Propagate queued cancellation and leave the catalog-write lock usable."""
+    calls = 0
+    commit_calls = 0
+    first_commit_started = asyncio.Event()
+    release_first_commit = asyncio.Event()
+    second_status_read = asyncio.Event()
+    path = tmp_path / "cache.sqlite3"
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        return web.json_response([_team()])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key", base_url=base_url, cache=SQLiteCacheConfig(path=path)
+        ) as client:
+            await client.teams.list(conference="B1G")
+            await client.teams.list(conference="SEC")
+
+        with sqlite3.connect(path) as connection:
+            connection.execute(sqlite_test_sql("stale_all_projection_contracts.sql"))
+
+        original_status = SQLiteCacheBackend.has_current_projection
+        original_commit = SQLiteCacheBackend.commit_response
+
+        async def observe_status(
+            backend: SQLiteCacheBackend,
+            *,
+            endpoint: str,
+            canonical_filters: str,
+        ) -> bool:
+            result = await original_status(
+                backend,
+                endpoint=endpoint,
+                canonical_filters=canonical_filters,
+            )
+            if canonical_filters == "conference='SEC'":
+                second_status_read.set()
+            return result
+
+        async def block_first_commit(
+            backend: SQLiteCacheBackend,
+            record: ResponseRecord,
+            projection: CatalogProjection,
+        ) -> CatalogProjection:
+            nonlocal commit_calls
+            commit_calls += 1
+            if commit_calls == 1:
+                first_commit_started.set()
+                await release_first_commit.wait()
+            return await original_commit(backend, record, projection)
+
+        monkeypatch.setattr(
+            SQLiteCacheBackend, "has_current_projection", observe_status
+        )
+        monkeypatch.setattr(SQLiteCacheBackend, "commit_response", block_first_commit)
+
+        async with CFBDClient(
+            "key", base_url=base_url, cache=SQLiteCacheConfig(path=path)
+        ) as client:
+
+            async def local_teams(conference: str) -> object:
+                with client.cache_mode(CacheMode.local_only):
+                    return await client.teams.list(conference=conference)
+
+            first = asyncio.create_task(local_teams("B1G"))
+            await first_commit_started.wait()
+            cancelled = asyncio.create_task(local_teams("SEC"))
+            await second_status_read.wait()
+            await asyncio.sleep(0)
+            cancelled.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await cancelled
+
+            release_first_commit.set()
+            first_result = await first
+            later_result = await local_teams("SEC")
+
+    assert first_result is not None
+    assert later_result is not None
+    assert calls == 2
+    assert commit_calls == 2
 
 
 @pytest.mark.asyncio
