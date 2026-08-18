@@ -1,6 +1,6 @@
 # College Football Data Python Toolkit
 
-`cfb-data` 0.7.1 is a pre-alpha Python toolkit for exploring the public
+`cfb-data` 0.8.0 is a beta Python toolkit for exploring the public
 [CollegeFootballData API](https://collegefootballdata.com/). Most calls return
 eager pandas DataFrames that are ready for analysis. Polars is available as an
 option, and a few naturally nested results return Pydantic models.
@@ -239,7 +239,10 @@ is organized in layers:
 The [product constitution](docs/product-constitution.md) is the concise north
 star used to evaluate product and engineering decisions.
 
-The project is pre-alpha, and the documentation describes the current version.
+The project is in beta: its core retrieval, validation, DataFrame, caching, and
+identity workflows are usable and carefully tested. Public APIs and local cache
+formats may still change before 1.0, and the documentation describes the
+current version.
 
 ## Development
 

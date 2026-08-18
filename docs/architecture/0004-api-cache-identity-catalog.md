@@ -669,7 +669,8 @@ Rejected as the foundation after comparing the current options:
   security and per-entry expiry foundation.
 - [`Hishel`](https://hishel.com/overview/) has strong RFC-oriented policy and
   safe serialization, but its current integrations target HTTPX and Requests,
-  not `aiohttp`, and the current package is classified as alpha.
+  not `aiohttp`; Hishel was classified as alpha when this decision was
+  recorded.
 - [`DiskCache`](https://grantjenks.com/docs/diskcache/) is synchronous, uses
   pickle for non-native values by default, lacks Redis, and would still require
   project-owned HTTP and async coordination policy.

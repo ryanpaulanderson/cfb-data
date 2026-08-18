@@ -1,14 +1,16 @@
 # Project status
 
-`cfb-data` is a pre-alpha project for people who want to explore college
+`cfb-data` is a beta project for people who want to explore college
 football data in Python. That includes data engineers and statisticians, but
 also fans learning pandas, Polars, or sports analytics. The library is built
-carefully, while the user-facing API and documentation are still being shaped
-around what is most useful in real analyses.
+carefully, and its core retrieval, validation, DataFrame, caching, and identity
+workflows are usable and carefully tested. The user-facing API and
+documentation continue to be shaped around what is most useful in real
+analyses.
 
-The current package version is 0.7.1 and the endpoint reference was checked
+The current package version is 0.8.0 and the endpoint reference was checked
 against CFBD API v5.24.0 on August 13, 2026. The Python API and local cache
-format may still change during pre-alpha development.
+format may still change before 1.0.
 
 ## What works today
 
