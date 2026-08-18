@@ -60,6 +60,9 @@ async with CFBDClient(retry_policy=policy) as client:
 
 `max_attempts` includes the initial request. Set it to `1` to disable retries.
 
-Error messages and retry debug events include endpoint, status, and attempt
-metadata without API keys, query values, response payloads, or Redis
-credentials.
+Public wrapper messages and retry debug events include endpoint, status, and
+attempt metadata without API keys, authorization headers, response bodies, or
+Redis credentials. Validation, DataFrame, and Parquet exceptions retain their
+original causes, which may include rejected query values, response fields,
+local paths, and expected and received types. Transport causes that could
+retain authenticated request metadata are detached before they are chained.

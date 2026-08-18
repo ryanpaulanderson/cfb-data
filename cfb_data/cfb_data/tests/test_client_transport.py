@@ -12,6 +12,7 @@ from email.utils import format_datetime
 import aiohttp
 import pytest
 from aiohttp import web
+from pydantic import ValidationError
 
 from cfb_data import (
     CFBDAuthenticationError,
@@ -36,13 +37,13 @@ from cfb_data import (
 ServerFactory = Callable[[Callable[..., object]], AbstractAsyncContextManager[str]]
 
 
-def _assert_sanitized_exception_chain(
+def _assert_detached_transport_exception_chain(
     error: BaseException,
     *,
     category: str,
     sensitive_values: tuple[str, ...],
 ) -> None:
-    """Assert that a public error retains only a safe diagnostic cause."""
+    """Assert that an authenticated transport cause retains no request state."""
     cause = error.__cause__
     assert cause is not None
     assert str(cause) == category
@@ -540,16 +541,15 @@ async def test_invalid_json_is_not_retried(api_server: ServerFactory) -> None:
         return web.Response(text="not json", content_type="application/json")
 
     async with api_server(handler) as base_url:
-        async with CFBDClient("key", base_url=base_url) as client:
+        async with CFBDClient("never-expose-api-key", base_url=base_url) as client:
             with pytest.raises(CFBDResponseDecodeError) as exc_info:
                 await client.games.calendar(year=2024)
 
     assert attempts == 1
-    _assert_sanitized_exception_chain(
-        exc_info.value,
-        category="JSONDecodeError",
-        sensitive_values=("not json",),
-    )
+    cause = exc_info.value.__cause__
+    assert isinstance(cause, json.JSONDecodeError)
+    assert cause.doc == "not json"
+    assert "never-expose-api-key" not in repr(cause)
 
 
 @pytest.mark.asyncio
@@ -576,10 +576,10 @@ async def test_undocumented_no_content_is_distinct_and_not_retried(
 
 
 @pytest.mark.asyncio
-async def test_decode_error_cause_does_not_retain_request_data(
+async def test_content_type_error_chain_does_not_retain_api_key(
     api_server: ServerFactory,
 ) -> None:
-    """Keep credentials, query values, and response bodies out of error chains."""
+    """Keep authenticated request metadata out of content-type failures."""
 
     async def handler(request: web.Request) -> web.Response:
         return web.Response(text="private-response-body", content_type="text/plain")
@@ -589,45 +589,50 @@ async def test_decode_error_cause_does_not_retain_request_data(
             with pytest.raises(CFBDResponseDecodeError) as exc_info:
                 await client.games.list(year=2024, team="private-team-filter")
 
-    _assert_sanitized_exception_chain(
+    _assert_detached_transport_exception_chain(
         exc_info.value,
         category="ContentTypeError",
-        sensitive_values=(
-            "private-api-key",
-            "private-team-filter",
-            "private-response-body",
-        ),
+        sensitive_values=("private-api-key",),
     )
 
 
 @pytest.mark.asyncio
-async def test_validation_error_causes_do_not_retain_external_values(
+async def test_validation_errors_preserve_diagnostics_without_api_key(
     api_server: ServerFactory,
 ) -> None:
-    """Keep rejected request and response values out of public error chains."""
-    client = CFBDClient("key")
+    """Expose Pydantic field diagnostics without retaining authentication."""
+    api_key = "never-expose-api-key"
+    client = CFBDClient(api_key)
     with pytest.raises(CFBDRequestValidationError) as request_error:
-        await client.games.calendar(year="private-request-value")
+        await client.games.calendar(year="diagnostic-year")
 
-    _assert_sanitized_exception_chain(
-        request_error.value,
-        category="ValidationError",
-        sensitive_values=("private-request-value",),
-    )
+    request_cause = request_error.value.__cause__
+    assert isinstance(request_cause, ValidationError)
+    request_detail = request_cause.errors(include_url=False)[0]
+    assert request_detail["loc"] == ("year",)
+    assert request_detail["type"] == "int_parsing"
+    assert request_detail["input"] == "diagnostic-year"
+    assert "valid integer" in str(request_cause)
+    assert "input_type=str" in str(request_cause)
+    assert api_key not in repr(request_cause)
 
     async def handler(request: web.Request) -> web.Response:
-        return web.json_response([{"season": "private-response-value"}])
+        return web.json_response([{"season": "diagnostic-season"}])
 
     async with api_server(handler) as base_url:
-        async with CFBDClient("key", base_url=base_url) as client:
+        async with CFBDClient(api_key, base_url=base_url) as client:
             with pytest.raises(CFBDResponseValidationError) as response_error:
                 await client.games.calendar(year=2024)
 
-    _assert_sanitized_exception_chain(
-        response_error.value,
-        category="ValidationError",
-        sensitive_values=("private-response-value",),
-    )
+    response_cause = response_error.value.__cause__
+    assert isinstance(response_cause, ValidationError)
+    response_detail = response_cause.errors(include_url=False)[0]
+    assert response_detail["loc"] == (0, "season")
+    assert response_detail["type"] == "int_parsing"
+    assert response_detail["input"] == "diagnostic-season"
+    assert "valid integer" in str(response_cause)
+    assert "input_type=str" in str(response_cause)
+    assert api_key not in repr(response_cause)
 
 
 @pytest.mark.asyncio

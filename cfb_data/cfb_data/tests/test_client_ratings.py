@@ -16,8 +16,9 @@ from cfb_data.ratings import (
     TeamSP,
     TeamSRS,
 )
+from pydantic import ValidationError
 
-from cfb_data import CFBDClient
+from cfb_data import CFBDClient, CFBDResponseValidationError
 
 ServerFactory = Callable[[Callable[..., object]], AbstractAsyncContextManager[str]]
 
@@ -213,3 +214,37 @@ async def test_ratings_routes_preserve_public_dataframe_contract(
         "seasonType": "regular",
         "team": "Michigan",
     }
+
+
+@pytest.mark.asyncio
+async def test_sp_validation_preserves_nested_null_rating_diagnostics(
+    api_server: ServerFactory,
+) -> None:
+    """Report the field path and numeric type mismatch seen in issue 89."""
+    payload = _payloads()["/ratings/sp"]
+    assert isinstance(payload, list)
+    first_row = payload[0]
+    assert isinstance(first_row, dict)
+    offense = first_row["offense"]
+    assert isinstance(offense, dict)
+    offense["rating"] = None
+
+    async def handler(request: web.Request) -> web.Response:
+        return web.json_response(payload)
+
+    api_key = "never-expose-api-key"
+    async with api_server(handler) as base_url:
+        async with CFBDClient(api_key, base_url=base_url) as client:
+            with pytest.raises(CFBDResponseValidationError) as exc_info:
+                await client.ratings.sp(team="Penn State")
+
+    cause = exc_info.value.__cause__
+    assert isinstance(cause, ValidationError)
+    detail = cause.errors(include_url=False)[0]
+    assert detail["loc"] == (0, "offense", "rating")
+    assert detail["type"] == "float_type"
+    assert detail["input"] is None
+    assert "valid number" in str(cause)
+    assert "input_type=NoneType" in str(cause)
+    assert api_key not in repr(exc_info.value)
+    assert api_key not in repr(cause)

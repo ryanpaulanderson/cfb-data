@@ -72,10 +72,12 @@ assert concrete type, exact field/column/row order, recursive nullability,
 nullable and UTC dtypes, typed empty and all-null frames, nested values, and no
 row loss. Parquet tests must cover populated and empty round trips, versioned
 metadata, physical-schema compatibility, strict validation, tagged mixed
-scalars, atomic replacement, sanitized failures, and the checked-in v1
+scalars, atomic replacement, actionable failure causes, and the checked-in v1
 compatibility fixture. Request tests must prove invalid input stops before
-HTTP. Transport tests must be deterministic and must not expose credentials,
-query parameters, or response payloads in failure text.
+HTTP. Transport tests must be deterministic and prove that API keys and
+authorization headers never appear anywhere in an exception chain. Request,
+response-validation, tabular, and persistence tests should preserve the
+original diagnostic cause, including relevant invalid values.
 
 The default suite skips external services. Use the repository-owned local
 Redis configuration for integration verification:
