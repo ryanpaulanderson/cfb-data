@@ -116,7 +116,9 @@ async with CFBDClient(cache=cache) as client:
 - `default` uses a fresh cached response and calls the API on a miss.
 - `refresh` calls the API even if a fresh response is cached.
 - `bypass` calls the API without reading or writing the cache.
-- `local_only` reads retained data without making a network call.
+- `local_only` reads retained data without making a network call. It normally
+  leaves durable catalog state unchanged, but may repair the catalog from a
+  retained response when projection metadata is missing or outdated.
 
 ## Measure cache performance and API attempts
 

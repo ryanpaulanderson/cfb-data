@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import os
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -32,12 +33,14 @@ from cfb_data._catalog.models import (
     VocabularyFact,
 )
 from cfb_data._catalog.projection import CatalogSink, ObservationAuthority
+from cfb_data._catalog.sources import projection_contract
 from cfb_data.cache._models import ResponseRecord
 from cfb_data.cache._redis import RedisCacheBackend
 from cfb_data.errors import CFBDCacheBackendError
+from cfb_data.observability import CacheBackendFailed
 from redis.asyncio import Redis
 
-from cfb_data import CFBDClient, RedisCacheConfig, RetrievalStats
+from cfb_data import CacheMode, CFBDClient, RedisCacheConfig, RetrievalStats
 
 ServerFactory = Callable[[Callable[[web.Request], object]], object]
 
@@ -107,6 +110,220 @@ async def redis_config() -> AsyncIterator[RedisCacheConfig]:
         if owned_keys:
             await client.delete(*owned_keys)
         await client.aclose()
+
+
+@pytest.mark.redis
+@pytest.mark.asyncio
+async def test_redis_projection_state_depends_only_on_the_stored_contract(
+    redis_config: RedisCacheConfig,
+) -> None:
+    """Distinguish current, missing, stale, and corrupt projection markers."""
+    now = datetime.now(UTC)
+    record = ResponseRecord(
+        key="e" * 64,
+        endpoint="/games",
+        response_contract="Game:list:v1",
+        body=b"[]",
+        fetched_at=now,
+        fresh_until=now - timedelta(days=1),
+        retained_until=now + timedelta(days=30),
+        etag=None,
+        last_modified=None,
+        row_count=0,
+    )
+    projection = CatalogProjection(
+        coverage=CoverageRecord(
+            partition_key="/games:year=2024",
+            namespace="game",
+            canonical_filters="year=2024",
+            capabilities=("game.identity",),
+            status=CoverageStatus.complete,
+            response_key=record.key,
+            endpoint=record.endpoint,
+            fetched_at=now,
+            validated_at=now,
+            fresh_until=record.fresh_until,
+            retained_until=record.retained_until,
+            row_count=0,
+            known_cap=None,
+            projection_contract=projection_contract("/games"),
+        )
+    )
+    coverage = projection.coverage
+    assert coverage is not None
+    backend = await RedisCacheBackend(redis_config).open()
+
+    assert not await backend.has_current_projection(
+        endpoint="/games", canonical_filters="year=2024"
+    )
+    current = projection
+    await backend.commit_response(record, current)
+    assert await backend.has_current_projection(
+        endpoint="/games", canonical_filters="year=2024"
+    )
+    assert not await backend.has_current_projection(
+        endpoint="/games", canonical_filters="year=2025"
+    )
+
+    await backend.commit_response(
+        record,
+        replace(
+            current,
+            coverage=replace(coverage, projection_contract="stale-contract"),
+        ),
+    )
+    assert not await backend.has_current_projection(
+        endpoint="/games", canonical_filters="year=2024"
+    )
+
+    await backend.commit_response(
+        record,
+        replace(
+            current,
+            coverage=replace(coverage, projection_contract="corrupt"),
+        ),
+    )
+    assert not await backend.has_current_projection(
+        endpoint="/games", canonical_filters="year=2024"
+    )
+
+    await backend.close()
+
+
+@pytest.mark.redis
+@pytest.mark.asyncio
+async def test_concurrent_local_only_replays_and_repairs_are_race_free(
+    redis_config: RedisCacheConfig,
+    api_server: ServerFactory,
+    game_response: dict[str, object],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Match sequential catalog state without Redis lock or timeout failures."""
+    calls = 0
+    events: list[object] = []
+    years = tuple(range(1980, 2016))
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        year = int(request.query["year"])
+        row = dict(game_response)
+        row["id"] = 401_000_000 + year
+        row["season"] = year
+        return web.json_response([row])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            cache=redis_config,
+            observer=events.append,
+        ) as client:
+            hydrated = [await client.games.list(year=year) for year in years]
+            assert calls == len(years)
+
+            catalog = await RedisCacheBackend(redis_config).open()
+            control_counts = await catalog.catalog_counts()
+            control_teams = await catalog.find_teams("Alabama")
+            assert control_counts.games == len(years)
+            assert [team.id for team in control_teams] == [333]
+            assert all(
+                [
+                    await catalog.has_current_projection(
+                        endpoint="/games", canonical_filters=f"year={year}"
+                    )
+                    for year in years
+                ]
+            )
+
+            redis_client = Redis.from_url(redis_config.url)
+            lock_key = f"{redis_config.key_prefix}:v1:lock:catalog-commit"
+            assert await redis_client.set(lock_key, "test-held", nx=True, px=30_000)
+            events.clear()
+            caplog.clear()
+            with caplog.at_level(logging.WARNING):
+                with client.cache_mode(CacheMode.local_only):
+                    sequential = [await client.games.list(year=year) for year in years]
+                    concurrent = await asyncio.gather(
+                        *(client.games.list(year=year) for year in years)
+                    )
+            await redis_client.delete(lock_key)
+
+            assert calls == len(years)
+            assert all(
+                expected.equals(actual)
+                for expected, actual in zip(hydrated, sequential, strict=True)
+            )
+            assert all(
+                expected.equals(actual)
+                for expected, actual in zip(hydrated, concurrent, strict=True)
+            )
+            assert not any(isinstance(event, CacheBackendFailed) for event in events)
+            assert not [
+                record
+                for record in caplog.records
+                if "cache backend failure" in record.getMessage().lower()
+            ]
+            assert await catalog.catalog_counts() == control_counts
+            assert await catalog.find_teams("Alabama") == control_teams
+
+            coverage_keys = [
+                key
+                async for key in redis_client.scan_iter(
+                    match=f"{redis_config.key_prefix}:v1:coverage:*"
+                )
+            ]
+            assert len(coverage_keys) == len(years)
+            async with redis_client.pipeline(transaction=True) as pipeline:
+                for key in coverage_keys:
+                    raw = await redis_client.get(key)
+                    assert raw is not None
+                    coverage = json.loads(raw)
+                    assert isinstance(coverage, dict)
+                    coverage["projection_contract"] = "stale-contract"
+                    pipeline.set(key, json.dumps(coverage))
+                await pipeline.execute()
+            assert not any(
+                [
+                    await catalog.has_current_projection(
+                        endpoint="/games", canonical_filters=f"year={year}"
+                    )
+                    for year in years
+                ]
+            )
+
+            events.clear()
+            caplog.clear()
+            with caplog.at_level(logging.WARNING):
+                with client.cache_mode(CacheMode.local_only):
+                    repaired = await asyncio.gather(
+                        *(client.games.list(year=year) for year in years)
+                    )
+
+            assert calls == len(years)
+            assert all(
+                expected.equals(actual)
+                for expected, actual in zip(hydrated, repaired, strict=True)
+            )
+            assert not any(isinstance(event, CacheBackendFailed) for event in events)
+            assert not [
+                record
+                for record in caplog.records
+                if "cache backend failure" in record.getMessage().lower()
+            ]
+            assert await catalog.catalog_counts() == control_counts
+            assert await catalog.find_teams("Alabama") == control_teams
+            assert all(
+                [
+                    await catalog.has_current_projection(
+                        endpoint="/games", canonical_filters=f"year={year}"
+                    )
+                    for year in years
+                ]
+            )
+
+            await catalog.close()
+            await redis_client.aclose()
 
 
 @pytest.mark.redis

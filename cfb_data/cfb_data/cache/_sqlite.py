@@ -225,6 +225,21 @@ class SQLiteCacheBackend:
                 persist=False,
             )
 
+    async def has_current_projection(
+        self, *, endpoint: str, canonical_filters: str
+    ) -> bool:
+        """Return whether durable coverage uses the current contract."""
+        async with self._operation_lock:
+            cursor = await self._active_connection().execute(
+                self._sql.render("select_projection_contract.sql"),
+                (endpoint, canonical_filters),
+            )
+            row = await cursor.fetchone()
+            await cursor.close()
+            return bool(
+                row is not None and _row_str(row, 0) == projection_contract(endpoint)
+            )
+
     async def delete_response(self, key: str) -> None:
         """Delete one invalid or expired response record."""
         async with self._operation_lock:

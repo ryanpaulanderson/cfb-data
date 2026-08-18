@@ -126,6 +126,12 @@ turn the behavior off.
 Every cache hit is decoded and validated again with the current Pydantic model.
 Corrupt, oversized, or incompatible entries are evicted and treated as misses.
 
+`local_only` never performs HTTP. A retained response normally uses a read-only
+durable catalog merge and mirrors the result into the client-local catalog. If
+its projection metadata is missing or outdated, the client may durably
+reproject that retained response to repair the catalog; a repair failure still
+returns the validated response through the client-local projection.
+
 ## Exact identity matching
 
 Identity resolution tries a provider ID first, followed by an exact normalized

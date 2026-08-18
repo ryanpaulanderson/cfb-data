@@ -60,6 +60,16 @@ class CatalogWriter(Protocol):
         ...
 
 
+class ProjectionStateStore(Protocol):
+    """Report whether durable coverage uses the current projection contract."""
+
+    async def has_current_projection(
+        self, *, endpoint: str, canonical_filters: str
+    ) -> bool:
+        """Return whether one partition was projected by the current contract."""
+        ...
+
+
 class CoverageStore(Protocol):
     """Read and record capability-aware catalog coverage."""
 
@@ -150,6 +160,7 @@ class CacheBackend(
     BackendLifecycle,
     ResponseStore,
     CatalogWriter,
+    ProjectionStateStore,
     CoverageStore,
     LeaseStore,
     IdentityReader,
