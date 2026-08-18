@@ -9,7 +9,7 @@ import math
 import unicodedata
 from collections.abc import Awaitable, Iterable, Mapping
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Self, cast
+from typing import TYPE_CHECKING, Self, cast, overload
 
 from redis.asyncio import Redis
 
@@ -212,9 +212,10 @@ class RedisCacheBackend:
                             self._index_key(namespace, normalized), identifier
                         )
                     if athlete_indexes:
-                        pipeline.hset(
+                        _queue_hset(
+                            pipeline,
                             self._compact_index_key("athlete"),
-                            mapping=athlete_indexes,
+                            athlete_indexes,
                         )
                     if removed_athlete_indexes:
                         pipeline.hdel(
@@ -222,14 +223,16 @@ class RedisCacheBackend:
                             *removed_athlete_indexes,
                         )
                     if membership_indexes:
-                        pipeline.hset(
+                        _queue_hset(
+                            pipeline,
                             self._compact_index_key("athlete-membership"),
-                            mapping=membership_indexes,
+                            membership_indexes,
                         )
                     if encoded_observations:
-                        pipeline.hset(
+                        _queue_hset(
+                            pipeline,
                             self._observation_hash_key(),
-                            mapping=dict(encoded_observations),
+                            dict(encoded_observations),
                         )
                     if projection.coverage is not None:
                         self._project_coverage(pipeline, projection.coverage)
@@ -737,9 +740,10 @@ class RedisCacheBackend:
         for team_fact in projection.teams:
             key = self._entity_key("team", team_fact.id)
             pipe.hsetnx(key, "first_seen_at", observed_at)
-            pipe.hset(
+            _queue_hset(
+                pipe,
                 key,
-                mapping=_without_none(
+                _without_none(
                     {
                         "id": str(team_fact.id),
                         "school": team_fact.school,
@@ -768,9 +772,10 @@ class RedisCacheBackend:
                 str(season_fact.season),
             )
             pipe.hsetnx(key, "first_seen_at", observed_at)
-            pipe.hset(
+            _queue_hset(
+                pipe,
                 key,
-                mapping=_without_none(
+                _without_none(
                     {
                         "team_id": str(season_fact.team_id),
                         "season": str(season_fact.season),
@@ -791,9 +796,10 @@ class RedisCacheBackend:
         for conference_fact in projection.conferences:
             key = self._entity_key("conference", conference_fact.id)
             pipe.hsetnx(key, "first_seen_at", observed_at)
-            pipe.hset(
+            _queue_hset(
+                pipe,
                 key,
-                mapping=_without_none(
+                _without_none(
                     {
                         "id": str(conference_fact.id),
                         "name": conference_fact.name,
@@ -838,9 +844,10 @@ class RedisCacheBackend:
         for fact in projection.venues:
             key = self._entity_key("venue", fact.id)
             pipe.hsetnx(key, "first_seen_at", observed_at)
-            pipe.hset(
+            _queue_hset(
+                pipe,
                 key,
-                mapping=_without_none(
+                _without_none(
                     {
                         "id": str(fact.id),
                         "name": fact.name,
@@ -862,9 +869,10 @@ class RedisCacheBackend:
         for fact in projection.games:
             key = self._entity_key("game", fact.id)
             pipe.hsetnx(key, "first_seen_at", observed_at)
-            pipe.hset(
+            _queue_hset(
+                pipe,
                 key,
-                mapping=_without_none(
+                _without_none(
                     {
                         "id": str(fact.id),
                         "season": str(fact.season) if fact.season is not None else None,
@@ -903,7 +911,7 @@ class RedisCacheBackend:
             "athlete", projection.athletes, projection, observed_at
         )
         if athlete_payloads:
-            pipe.hset(self._compact_catalog_key("athlete"), mapping=athlete_payloads)
+            _queue_hset(pipe, self._compact_catalog_key("athlete"), athlete_payloads)
         membership_payloads = _compact_fact_payloads(
             "athlete-membership",
             projection.athlete_team_seasons,
@@ -911,9 +919,10 @@ class RedisCacheBackend:
             observed_at,
         )
         if membership_payloads:
-            pipe.hset(
+            _queue_hset(
+                pipe,
                 self._compact_catalog_key("athlete-membership"),
-                mapping=membership_payloads,
+                membership_payloads,
             )
 
     def _project_remaining(
@@ -937,9 +946,10 @@ class RedisCacheBackend:
                 pipe.hsetnx(key, "first_seen_at", observed_at)
                 payload["source_version"] = 1
                 payload["schema_version"] = 1
-                pipe.hset(
+                _queue_hset(
+                    pipe,
                     key,
-                    mapping={
+                    {
                         field: str(value)
                         for field, value in payload.items()
                         if value is not None
@@ -949,7 +959,7 @@ class RedisCacheBackend:
             "recruit", projection.recruits, projection, observed_at
         )
         if recruit_payloads:
-            pipe.hset(self._compact_catalog_key("recruit"), mapping=recruit_payloads)
+            _queue_hset(pipe, self._compact_catalog_key("recruit"), recruit_payloads)
         self._project_coach_team_seasons(pipe, projection, observed_at)
 
     def _project_coach_team_seasons(
@@ -961,9 +971,10 @@ class RedisCacheBackend:
             identity = _fact_identity("coach-team-season", payload)
             key = self._key("catalog", "coach-team-season", identity)
             pipe.hsetnx(key, "first_seen_at", observed_at)
-            pipe.hset(
+            _queue_hset(
+                pipe,
                 key,
-                mapping=_without_none(
+                _without_none(
                     {
                         "coach_id": str(fact.coach_id),
                         "team_id": str(fact.team_id),
@@ -1052,9 +1063,7 @@ class RedisCacheBackend:
             for identifier in sorted(identifiers):
                 pipeline.hgetall(self._entity_key(namespace, identifier))
             rows = await pipeline.execute()
-        return [
-            _byte_mapping(row) for row in rows if isinstance(row, Mapping) and bool(row)
-        ]
+        return [_byte_mapping(row) for row in rows if row]
 
     async def _compact_json_records(
         self, namespace: str, identifiers: set[str]
@@ -1262,6 +1271,21 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+type _RedisEncodable = bytes | bytearray | memoryview | str | int | float
+
+
+def _queue_hset(
+    pipeline: Redis,
+    key: str,
+    mapping: Mapping[str, _RedisEncodable],
+) -> None:
+    """Queue one hash update with a mapping accepted by Redis 7 and 8."""
+    items: list[_RedisEncodable] = [
+        item for field, value in mapping.items() for item in (field, value)
+    ]
+    pipeline.hset(key, items=items)
+
+
 def _without_none(values: Mapping[str, str | None]) -> dict[str, str]:
     """Return Redis hash fields with absent optional values omitted."""
     return {key: value for key, value in values.items() if value is not None}
@@ -1287,6 +1311,16 @@ def _integer(value: object) -> int:
     if isinstance(value, int) and not isinstance(value, bool):
         return value
     raise CFBDCacheBackendError("Redis operation returned an unexpected value")
+
+
+@overload
+async def _redis_result[ResultT](value: Awaitable[ResultT]) -> ResultT: ...
+
+
+@overload
+async def _redis_result[ResultT](
+    value: Awaitable[ResultT] | ResultT,
+) -> ResultT: ...
 
 
 async def _redis_result[ResultT](
