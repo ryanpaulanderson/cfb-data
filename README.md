@@ -1,6 +1,6 @@
 # College Football Data Python Toolkit
 
-`cfb-data` 0.7.0 is a pre-alpha Python toolkit for exploring the public
+`cfb-data` 0.7.1 is a pre-alpha Python toolkit for exploring the public
 [CollegeFootballData API](https://collegefootballdata.com/). Most calls return
 eager pandas DataFrames that are ready for analysis. Polars is available as an
 option, and a few naturally nested results return Pydantic models.
