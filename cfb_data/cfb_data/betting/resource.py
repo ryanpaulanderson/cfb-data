@@ -4,13 +4,10 @@ from __future__ import annotations
 
 from typing import Literal, overload
 
-from pydantic import TypeAdapter
-
 from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
-from cfb_data._requests import _resolve_request
+from cfb_data.betting._operations import BETTING_LINES
 from cfb_data.betting.models.pydantic.requests import BettingLinesRequest
-from cfb_data.betting.models.pydantic.responses import BettingGame
 from cfb_data.enums import SeasonType
 
 type _SeasonTypeArgument = (
@@ -24,8 +21,6 @@ type _SeasonTypeArgument = (
         "spring_postseason",
     ]
 )
-
-_BETTING_GAME_ROWS = TypeAdapter(list[BettingGame])
 
 
 class BettingResource[FrameT]:
@@ -71,20 +66,11 @@ class BettingResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        endpoint = "/lines"
-        validated = _resolve_request(
-            endpoint=endpoint,
-            request_type=BettingLinesRequest,
+        return await BETTING_LINES.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-        )
-        rows = await self._executor.fetch_many(
-            endpoint=endpoint,
-            request=validated,
-            response_adapter=_BETTING_GAME_ROWS,
-        )
-        return self._dataframe_adapter.from_models(
-            endpoint=endpoint, row_model=BettingGame, models=rows
         )
 
 
