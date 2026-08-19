@@ -8,8 +8,14 @@ from cfb_data.games.models.pydantic.responses import (
     Game,
     PlayerGameStats,
     TeamGameStats,
+    TeamRecords,
 )
-from cfb_data.games.sources import games, player_game_stats, team_game_stats
+from cfb_data.games.sources import (
+    games,
+    player_game_stats,
+    team_game_stats,
+    team_records,
+)
 
 
 @dataset(
@@ -51,6 +57,18 @@ def _source_faithful_player_game_stats(
 ) -> RecipeRef[list[PlayerGameStats]]:
     """Build the player-stat source through its public callable."""
     return player_game_stats(game_id=game_id)
+
+
+@dataset(
+    id="tests.source_faithful_team_records",
+    revision=1,
+    row=TeamRecords,
+    grain="one team season",
+    keys=("year", "team_id"),
+)
+def _source_faithful_team_records(year: int) -> RecipeRef[list[TeamRecords]]:
+    """Build the Records source through its public callable."""
+    return team_records(year=year)
 
 
 def test_public_games_source_derives_endpoint_owned_identity() -> None:
@@ -96,6 +114,17 @@ def test_player_game_stats_source_uses_its_domain_operation() -> None:
 
     assert player_game_stats.id == "cfbd.games.player_stats"
     assert player_game_stats.revision == 1
+    source_node = graph.nodes[0]
+    assert source_node.declaration.operation is not None
+    assert source_node.declaration.source_cost == 1
+
+
+def test_team_records_source_uses_its_domain_operation() -> None:
+    """Derive Records identity and cost from the client endpoint contract."""
+    graph = _compile_recipe(_source_faithful_team_records, (), {"year": 2024})
+
+    assert team_records.id == "cfbd.games.team_records"
+    assert team_records.revision == 1
     source_node = graph.nodes[0]
     assert source_node.declaration.operation is not None
     assert source_node.declaration.source_cost == 1

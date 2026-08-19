@@ -8,12 +8,14 @@ from cfb_data._operation import _ManyEndpointOperation
 from cfb_data.games.models.pydantic.requests import (
     GamesRequest,
     PlayerGameStatsRequest,
+    RecordsRequest,
     TeamGameStatsRequest,
 )
 from cfb_data.games.models.pydantic.responses import (
     Game,
     PlayerGameStats,
     TeamGameStats,
+    TeamRecords,
 )
 
 GAMES_LIST = _ManyEndpointOperation(
@@ -43,5 +45,15 @@ GAMES_PLAYER_STATS = _ManyEndpointOperation(
     request_type=PlayerGameStatsRequest,
     response_adapter=TypeAdapter(list[PlayerGameStats]),
     row_model=PlayerGameStats,
+    access_tier="free",
+)
+
+TEAM_RECORDS = _ManyEndpointOperation(
+    id="cfbd.games.team_records",
+    revision=1,
+    endpoint="/records",
+    request_type=RecordsRequest,
+    response_adapter=TypeAdapter(list[TeamRecords]),
+    row_model=TeamRecords,
     access_tier="free",
 )

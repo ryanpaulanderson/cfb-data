@@ -10,11 +10,13 @@ from cfb_data.games._operations import (
     GAMES_LIST,
     GAMES_PLAYER_STATS,
     GAMES_TEAM_STATS,
+    TEAM_RECORDS,
 )
 from cfb_data.games.models.pydantic.responses import (
     Game,
     PlayerGameStats,
     TeamGameStats,
+    TeamRecords,
 )
 
 type _SeasonTypeArgument = (
@@ -155,4 +157,23 @@ async def player_game_stats(
     )
 
 
-__all__ = ["games", "player_game_stats", "team_game_stats"]
+@source(operation=TEAM_RECORDS)
+async def team_records(
+    context: SourceContext[TeamRecords],
+    *,
+    year: int | None = None,
+    team: str | None = None,
+    conference: str | None = None,
+) -> list[TeamRecords]:
+    """Return validated team-season records.
+
+    :param context: Engine-owned source execution context.
+    :param year: Optional season year when team is absent.
+    :param team: Optional team selector.
+    :param conference: Optional conference selector.
+    :return: Validated team-season records in source order.
+    """
+    return await context.retrieve(year=year, team=team, conference=conference)
+
+
+__all__ = ["games", "player_game_stats", "team_game_stats", "team_records"]
