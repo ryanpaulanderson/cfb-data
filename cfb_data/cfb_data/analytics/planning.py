@@ -16,7 +16,7 @@ from cfb_data.client import DataFrameBackend
 
 from ._compiler import _CompilableRecipe, _compile_recipe, _digest
 from ._contracts import _table_row_model
-from ._graph import _CompiledGraph, _ValueRef
+from ._graph import _CompiledGraph, _CompiledNode, _ValueRef
 from .errors import CFBDRecipeCompilationError
 
 type ExecutorName = Literal["local", "dask"]
@@ -136,6 +136,7 @@ def _plan_recipe(
     graph = _compile_recipe(recipe, args, kwargs, max_nodes=selected.max_expanded_nodes)
     nodes: list[RecipePlanNode] = []
     logical_source_cost = 0
+    planned_source_requests: set[str] = set()
     for node in graph.nodes:
         if bridge.dataframe_backend not in node.declaration.supported_backends:
             raise CFBDRecipeCompilationError(
@@ -150,7 +151,10 @@ def _plan_recipe(
         ):
             placement = "dask"
         if node.kind == "source":
-            logical_source_cost += node.declaration.source_cost or 0
+            request_key = _source_request_key(node)
+            if request_key not in planned_source_requests:
+                planned_source_requests.add(request_key)
+                logical_source_cost += node.declaration.source_cost or 0
         deferred = tuple(
             name
             for name, argument in node.arguments.items()
@@ -179,6 +183,7 @@ def _plan_recipe(
             "placements": [node.placement for node in nodes],
             "attempts": worst_case_attempts,
             "max_nodes": selected.max_expanded_nodes,
+            "checkpoint_mode": selected.checkpoint_mode,
         }
     )
     plan = RecipePlan(
@@ -194,6 +199,32 @@ def _plan_recipe(
         diagnostics=(),
     )
     return plan, graph
+
+
+def _source_request_key(node: _CompiledNode) -> str:
+    """Return a static identity for one exact or identically deferred request."""
+    operation = node.declaration.operation
+    if not isinstance(operation, _ManyEndpointOperation):
+        return _digest({"source_node": node.node_id})
+    if all(argument.kind == "literal" for argument in node.arguments.values()):
+        filters = {name: argument.value for name, argument in node.arguments.items()}
+        request = operation.resolve(None, filters)
+        request_identity: object = operation.serialized_parameters(request)
+    else:
+        request_identity = {
+            "arguments": {
+                name: argument.value for name, argument in node.arguments.items()
+            },
+            "provided": sorted(node.provided),
+        }
+    return _digest(
+        {
+            "operation": operation.id,
+            "revision": operation.revision,
+            "contract": operation.response_contract,
+            "request": request_identity,
+        }
+    )
 
 
 async def _inspect_recipe(

@@ -92,7 +92,7 @@ async def test_workflow_expands_a_finite_range_and_deduplicates_games(
         **{path: 2 for path in _PER_SEASON_SOURCES},
         "/coaches/seasons": 1,
     }
-    assert plan.worst_case_http_attempts > sum(calls.values())
+    assert plan.worst_case_http_attempts == sum(calls.values())
     assert any(len(node.dependencies) == 2 for node in plan.nodes)
 
 

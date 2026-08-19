@@ -14,6 +14,7 @@ from cfb_data.analytics import (
     RecipePlan,
     RecipeRef,
     dataset,
+    workflow,
 )
 from cfb_data.games.models.pydantic.responses import Game
 from cfb_data.games.sources import games
@@ -100,6 +101,24 @@ async def test_plan_rejects_retry_inclusive_attempts_above_policy() -> None:
             year=2024,
             policy=ExecutionPolicy(max_http_attempts=2),
         )
+
+
+@pytest.mark.asyncio
+async def test_plan_counts_identical_source_requests_once() -> None:
+    """Match runtime request deduplication in retry-inclusive preflight cost."""
+
+    @workflow(id="tests.planned_deduplicated_games", revision=1)
+    def planned_deduplicated_games() -> dict[str, RecipeRef[list[Game]]]:
+        return {
+            "first": games.as_("first")(year=2024, team="Penn State"),
+            "second": games.as_("second")(year=2024, team="Penn State"),
+        }
+
+    client = CFBDClient("planning-key", retry_policy=RetryPolicy(max_attempts=3))
+
+    plan = await planned_deduplicated_games.plan(client)
+
+    assert plan.worst_case_http_attempts == 3
 
 
 @pytest.mark.asyncio
