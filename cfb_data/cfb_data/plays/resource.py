@@ -10,6 +10,7 @@ from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
 from cfb_data._requests import _resolve_request
 from cfb_data.enums import Classification, SeasonType
+from cfb_data.plays._operations import PLAYS_LIST
 from cfb_data.plays.models.pydantic.requests import (
     LivePlaysRequest,
     PlaysRequest,
@@ -17,7 +18,6 @@ from cfb_data.plays.models.pydantic.requests import (
 )
 from cfb_data.plays.models.pydantic.responses import (
     LiveGame,
-    Play,
     PlayStat,
     PlayStatType,
     PlayType,
@@ -36,7 +36,6 @@ type _SeasonTypeArgument = (
 )
 type _ClassificationArgument = Classification | Literal["fbs", "fcs", "ii", "iii"]
 
-_PLAY_ROWS = TypeAdapter(list[Play])
 _PLAY_TYPE_ROWS = TypeAdapter(list[PlayType])
 _PLAY_STAT_ROWS = TypeAdapter(list[PlayStat])
 _PLAY_STAT_TYPE_ROWS = TypeAdapter(list[PlayStatType])
@@ -100,22 +99,11 @@ class PlaysResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        endpoint = "/plays"
-        validated = _resolve_request(
-            endpoint=endpoint,
-            request_type=PlaysRequest,
+        return await PLAYS_LIST.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-        )
-        rows = await self._executor.fetch_many(
-            endpoint=endpoint,
-            request=validated,
-            response_adapter=_PLAY_ROWS,
-        )
-        return self._dataframe_adapter.from_models(
-            endpoint=endpoint,
-            row_model=Play,
-            models=rows,
         )
 
     async def types(self) -> FrameT:
