@@ -8,10 +8,12 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
+from pathlib import Path
 
 import aiohttp
 import pytest
 from aiohttp import web
+from cfb_data._transport import _attempt_reservation_context
 from pydantic import ValidationError
 
 from cfb_data import (
@@ -32,6 +34,7 @@ from cfb_data import (
     CFBDTLSError,
     CFBDTransportError,
     RetryPolicy,
+    SQLiteCacheConfig,
 )
 
 ServerFactory = Callable[[Callable[..., object]], AbstractAsyncContextManager[str]]
@@ -186,6 +189,101 @@ async def test_retryable_http_statuses_use_total_attempt_limit(
 
     assert result.empty
     assert attempts == 3
+
+
+@pytest.mark.asyncio
+async def test_each_retry_is_reserved_immediately_before_dispatch(
+    api_server: ServerFactory,
+) -> None:
+    sequence: list[tuple[str, int]] = []
+    dispatched = 0
+
+    async def reserve(endpoint: str, attempt: int) -> None:
+        sequence.append((f"reserve:{endpoint}", attempt))
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal dispatched
+        dispatched += 1
+        sequence.append(("dispatch", dispatched))
+        if dispatched < 3:
+            return web.Response(status=503)
+        return web.json_response([])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            retry_policy=RetryPolicy(
+                max_attempts=3,
+                base_delay_seconds=0,
+                max_backoff_seconds=0,
+            ),
+        ) as client:
+            with _attempt_reservation_context(reserve):
+                await client.games.calendar(year=2024)
+
+    assert sequence == [
+        ("reserve:/calendar", 1),
+        ("dispatch", 1),
+        ("reserve:/calendar", 2),
+        ("dispatch", 2),
+        ("reserve:/calendar", 3),
+        ("dispatch", 3),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_failed_attempt_reservation_prevents_dispatch(
+    api_server: ServerFactory,
+) -> None:
+    dispatched = 0
+
+    async def reject(endpoint: str, attempt: int) -> None:
+        del endpoint, attempt
+        raise RuntimeError("attempt budget exhausted")
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal dispatched
+        dispatched += 1
+        return web.json_response([])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient("key", base_url=base_url) as client:
+            with _attempt_reservation_context(reject):
+                with pytest.raises(RuntimeError, match="budget exhausted"):
+                    await client.games.calendar(year=2024)
+
+    assert dispatched == 0
+
+
+@pytest.mark.asyncio
+async def test_cache_hit_consumes_no_attempt_reservation(
+    api_server: ServerFactory,
+    tmp_path: Path,
+) -> None:
+    reservations: list[tuple[str, int]] = []
+    dispatched = 0
+
+    async def reserve(endpoint: str, attempt: int) -> None:
+        reservations.append((endpoint, attempt))
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal dispatched
+        dispatched += 1
+        return web.json_response([])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "key",
+            base_url=base_url,
+            cache=SQLiteCacheConfig(path=tmp_path / "cache.sqlite3"),
+        ) as client:
+            with _attempt_reservation_context(reserve):
+                await client.games.calendar(year=2024)
+                await client.games.calendar(year=2024)
+
+    assert dispatched == 1
+    assert reservations == [("/calendar", 1)]
 
 
 @pytest.mark.asyncio

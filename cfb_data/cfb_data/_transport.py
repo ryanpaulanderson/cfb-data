@@ -8,7 +8,9 @@ import logging
 import math
 import os
 import random
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -47,6 +49,30 @@ from cfb_data.retry import RetryPolicy
 
 _LOGGER = logging.getLogger(__name__)
 _RETRYABLE_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
+type _AttemptReservation = Callable[[str, int], Awaitable[None]]
+_ATTEMPT_RESERVATION: ContextVar[_AttemptReservation | None] = ContextVar(
+    "cfb_data_attempt_reservation",
+    default=None,
+)
+
+
+@contextmanager
+def _attempt_reservation_context(
+    reservation: _AttemptReservation,
+) -> Iterator[None]:
+    """Bind a task-local durable reservation immediately before HTTP dispatch."""
+    token = _ATTEMPT_RESERVATION.set(reservation)
+    try:
+        yield
+    finally:
+        _ATTEMPT_RESERVATION.reset(token)
+
+
+async def _reserve_attempt(endpoint: str, attempt: int) -> None:
+    """Await the active reservation boundary before one real HTTP attempt."""
+    reservation = _ATTEMPT_RESERVATION.get()
+    if reservation is not None:
+        await reservation(endpoint, attempt)
 
 
 class _DetachedTransportCause(Exception):
@@ -235,6 +261,7 @@ class _HTTPTransport:
         url = f"{self._base_url}{endpoint}"
 
         for attempt in range(1, self._retry_policy.max_attempts + 1):
+            await _reserve_attempt(endpoint, attempt)
             attempt_started_at = self._start_attempt(
                 context=context,
                 refresh_id=refresh_id,

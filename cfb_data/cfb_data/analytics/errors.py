@@ -71,6 +71,21 @@ class CFBDPersistenceError(CFBDAnalyticsError):
         super().__init__(f"Analytics persistence failed ({category})")
 
 
+class CFBDAttemptBudgetExceeded(CFBDAnalyticsError):
+    """Report an analytics run that exhausted its actual-attempt budget."""
+
+    run_id: str
+    node_id: str
+    limit: int
+
+    def __init__(self, *, run_id: str, node_id: str, limit: int) -> None:
+        """Initialize a safe run-wide attempt-budget failure."""
+        self.run_id = run_id
+        self.node_id = node_id
+        self.limit = limit
+        super().__init__(f"Analytics run {run_id} exhausted its HTTP attempt budget")
+
+
 class CFBDRunError(CFBDAnalyticsError):
     """Report a safely identified analytics execution failure."""
 
@@ -97,6 +112,7 @@ __all__ = [
     "CFBDArtifactCorruptionError",
     "CFBDArtifactError",
     "CFBDPersistenceError",
+    "CFBDAttemptBudgetExceeded",
     "CFBDRecipeCompilationError",
     "CFBDRecipeConfigurationError",
     "CFBDRecipeDiscoveryError",

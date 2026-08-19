@@ -26,6 +26,7 @@ from cfb_data.analytics._persistence import (
 from cfb_data.analytics.config import AnalyticsConfig
 from cfb_data.analytics.errors import (
     CFBDArtifactCorruptionError,
+    CFBDAttemptBudgetExceeded,
     CFBDPersistenceError,
 )
 from pydantic import BaseModel, ConfigDict
@@ -304,6 +305,78 @@ def test_database_file_uses_private_permissions(tmp_path: Path) -> None:
     database.close()
 
     assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+
+
+def test_actual_attempt_budget_is_durable_and_retry_inclusive(
+    tmp_path: Path,
+) -> None:
+    database = _RunDatabase(tmp_path / "runs.sqlite3", clock=lambda: _NOW)
+    try:
+        run = database.create_run(
+            recipe_id="cfbd.game_summaries",
+            recipe_revision=1,
+            recipe_kind="dataset",
+            parameter_fingerprint="a" * 64,
+            graph_fingerprint="b" * 64,
+            credential_scope="scope-a",
+            max_http_attempts=2,
+        )
+        database.transition_run(run.run_id, "running")
+
+        first = database.reserve_attempt(
+            run_id=run.run_id,
+            node_id="source:games",
+            endpoint="/games",
+            retry_number=1,
+        )
+        second = database.reserve_attempt(
+            run_id=run.run_id,
+            node_id="source:games",
+            endpoint="/games",
+            retry_number=2,
+        )
+
+        with pytest.raises(CFBDAttemptBudgetExceeded) as exc_info:
+            database.reserve_attempt(
+                run_id=run.run_id,
+                node_id="source:games",
+                endpoint="/games",
+                retry_number=3,
+            )
+
+        assert first.ordinal == 1
+        assert second.ordinal == 2
+        assert database.attempt_count(run.run_id) == 2
+        assert exc_info.value.limit == 2
+        assert exc_info.value.run_id == run.run_id
+    finally:
+        database.close()
+
+
+def test_attempt_reservation_requires_running_run(tmp_path: Path) -> None:
+    database = _RunDatabase(tmp_path / "runs.sqlite3", clock=lambda: _NOW)
+    try:
+        run = database.create_run(
+            recipe_id="cfbd.game_summaries",
+            recipe_revision=1,
+            recipe_kind="dataset",
+            parameter_fingerprint="a" * 64,
+            graph_fingerprint="b" * 64,
+            credential_scope="scope-a",
+        )
+
+        with pytest.raises(CFBDPersistenceError) as exc_info:
+            database.reserve_attempt(
+                run_id=run.run_id,
+                node_id="source:games",
+                endpoint="/games",
+                retry_number=1,
+            )
+
+        assert exc_info.value.category == "attempt_run_state"
+        assert database.attempt_count(run.run_id) == 0
+    finally:
+        database.close()
 
 
 def test_active_run_and_pin_both_protect_artifact_from_pruning(

@@ -25,7 +25,11 @@ from ._artifacts import (
 )
 from ._compiler import _digest
 from .config import AnalyticsConfig
-from .errors import CFBDArtifactCorruptionError, CFBDPersistenceError
+from .errors import (
+    CFBDArtifactCorruptionError,
+    CFBDAttemptBudgetExceeded,
+    CFBDPersistenceError,
+)
 
 type _RecipeKind = Literal["dataset", "workflow"]
 type _RunState = Literal["created", "running", "completed", "failed", "cancelled"]
@@ -74,6 +78,7 @@ class _RunRecord:
     parameter_fingerprint: str
     graph_fingerprint: str
     credential_scope: str
+    max_http_attempts: int
     parent_run_id: str | None
     source_behavior: _SourceBehavior
     created_at: datetime
@@ -115,6 +120,18 @@ class _PrunePlan:
 
     candidates: tuple[_PruneCandidate, ...]
     validation_digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class _AttemptReservationRecord:
+    """Expose safe durable evidence for one actual transport attempt."""
+
+    run_id: str
+    node_id: str
+    endpoint: str
+    retry_number: int
+    ordinal: int
+    reserved_at: datetime
 
 
 def _analytics_root(config: AnalyticsConfig) -> Path:
@@ -306,10 +323,17 @@ class _RunDatabase:
         parameter_fingerprint: str,
         graph_fingerprint: str,
         credential_scope: str,
+        max_http_attempts: int = 100,
         parent_run_id: str | None = None,
         source_behavior: _SourceBehavior = "normal_freshness",
     ) -> _RunRecord:
         """Create one immutable run identity and initial transition."""
+        if (
+            not isinstance(max_http_attempts, int)
+            or isinstance(max_http_attempts, bool)
+            or max_http_attempts < 1
+        ):
+            raise ValueError("max_http_attempts must be a positive integer")
         run_id = uuid.uuid4().hex
         created_at = _as_utc(self._clock())
         with self._transaction() as connection:
@@ -318,8 +342,8 @@ class _RunDatabase:
                 INSERT INTO runs (
                     run_id, recipe_id, recipe_revision, recipe_kind,
                     parameter_fingerprint, graph_fingerprint, parent_run_id,
-                    credential_scope, source_behavior, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    credential_scope, max_http_attempts, source_behavior, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -330,6 +354,7 @@ class _RunDatabase:
                     graph_fingerprint,
                     parent_run_id,
                     credential_scope,
+                    max_http_attempts,
                     source_behavior,
                     created_at.isoformat(),
                 ),
@@ -350,6 +375,77 @@ class _RunDatabase:
                 (run_id, created_at.isoformat()),
             )
         return self.get_run(run_id)
+
+    def reserve_attempt(
+        self,
+        *,
+        run_id: str,
+        node_id: str,
+        endpoint: str,
+        retry_number: int,
+    ) -> _AttemptReservationRecord:
+        """Durably reserve one actual attempt before transport dispatch."""
+        if retry_number < 1:
+            raise ValueError("retry_number must be positive")
+        reserved_at = _as_utc(self._clock())
+        with self._transaction() as connection:
+            current = self._current_run_state(connection, run_id)
+            if current != "running":
+                raise CFBDPersistenceError(category="attempt_run_state")
+            run = connection.execute(
+                "SELECT max_http_attempts FROM runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if run is None:
+                raise CFBDPersistenceError(category="run_missing")
+            limit = int(run["max_http_attempts"])
+            count_row = connection.execute(
+                "SELECT COUNT(*) AS count FROM attempt_reservations WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if count_row is None:
+                raise AssertionError("Attempt reservation count is missing")
+            ordinal = int(count_row["count"]) + 1
+            if ordinal > limit:
+                raise CFBDAttemptBudgetExceeded(
+                    run_id=run_id,
+                    node_id=node_id,
+                    limit=limit,
+                )
+            connection.execute(
+                """
+                INSERT INTO attempt_reservations (
+                    run_id, node_id, endpoint, retry_number, ordinal, reserved_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    node_id,
+                    endpoint,
+                    retry_number,
+                    ordinal,
+                    reserved_at.isoformat(),
+                ),
+            )
+        return _AttemptReservationRecord(
+            run_id=run_id,
+            node_id=node_id,
+            endpoint=endpoint,
+            retry_number=retry_number,
+            ordinal=ordinal,
+            reserved_at=reserved_at,
+        )
+
+    def attempt_count(self, run_id: str) -> int:
+        """Return the exact durable attempt count for one run."""
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT COUNT(*) AS count FROM attempt_reservations WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            raise AssertionError("Attempt reservation count is missing")
+        return int(row["count"])
 
     def transition_run(
         self,
@@ -925,11 +1021,16 @@ class _RunDatabase:
     def _migrate(self) -> None:
         with self._lock:
             version = self._connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in {0, 1, 2, 3}:
+            if version not in {0, 1, 2, 3, 4}:
                 raise CFBDPersistenceError(category="database_version")
-            if version == 3:
+            if version == 4:
                 return
-            migrations = {0: (_SCHEMA_V1, 1), 1: (_SCHEMA_V2, 2), 2: (_SCHEMA_V3, 3)}
+            migrations = {
+                0: (_SCHEMA_V1, 1),
+                1: (_SCHEMA_V2, 2),
+                2: (_SCHEMA_V3, 3),
+                3: (_SCHEMA_V4, 4),
+            }
             migration, target_version = migrations[version]
             try:
                 self._connection.executescript(
@@ -940,7 +1041,7 @@ class _RunDatabase:
                 if self._connection.in_transaction:
                     self._connection.execute("ROLLBACK")
                 raise
-            if target_version < 3:
+            if target_version < 4:
                 self._migrate()
 
 
@@ -955,6 +1056,7 @@ def _run_record(row: sqlite3.Row) -> _RunRecord:
         parameter_fingerprint=str(row["parameter_fingerprint"]),
         graph_fingerprint=str(row["graph_fingerprint"]),
         credential_scope=str(row["credential_scope"]),
+        max_http_attempts=int(row["max_http_attempts"]),
         parent_run_id=(
             None if row["parent_run_id"] is None else str(row["parent_run_id"])
         ),
@@ -1236,6 +1338,30 @@ BEGIN SELECT RAISE(ABORT, 'gc transitions are immutable'); END;
 CREATE TRIGGER gc_is_immutable_delete
 BEFORE DELETE ON artifact_gc_transitions
 BEGIN SELECT RAISE(ABORT, 'gc transitions are immutable'); END;
+"""
+
+_SCHEMA_V4: Final = """
+ALTER TABLE runs ADD COLUMN max_http_attempts INTEGER NOT NULL DEFAULT 100;
+
+CREATE TABLE attempt_reservations (
+    reservation_id INTEGER PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(run_id),
+    node_id TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    retry_number INTEGER NOT NULL CHECK (retry_number > 0),
+    ordinal INTEGER NOT NULL CHECK (ordinal > 0),
+    reserved_at TEXT NOT NULL,
+    UNIQUE (run_id, ordinal)
+) STRICT;
+CREATE INDEX attempts_by_run
+    ON attempt_reservations(run_id, reservation_id);
+
+CREATE TRIGGER attempts_are_immutable_update
+BEFORE UPDATE ON attempt_reservations
+BEGIN SELECT RAISE(ABORT, 'attempt reservations are immutable'); END;
+CREATE TRIGGER attempts_are_immutable_delete
+BEFORE DELETE ON attempt_reservations
+BEGIN SELECT RAISE(ABORT, 'attempt reservations are immutable'); END;
 """
 
 
