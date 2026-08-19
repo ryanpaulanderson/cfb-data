@@ -14,10 +14,14 @@ from cfb_data.analytics import (
     workflow,
 )
 from cfb_data.analytics._compiler import _compile_recipe
-from cfb_data.tests.test_analytics_authoring import (
-    _DatasetRow,
-    _game_analysis,
-    _game_summaries,
+from cfb_data.tests._analytics_fixtures import (
+    DatasetRow as _DatasetRow,
+)
+from cfb_data.tests._analytics_fixtures import (
+    game_analysis as _game_analysis,
+)
+from cfb_data.tests._analytics_fixtures import (
+    game_summaries as _game_summaries,
 )
 from pydantic import BaseModel
 

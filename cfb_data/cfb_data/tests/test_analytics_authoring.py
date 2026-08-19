@@ -38,20 +38,20 @@ class _DatasetRow(BaseModel):
     year: int
 
 
-@source(id="tests.games", revision=1, output=_SourceRow, cost=1)
+@source(id="tests.authoring_games", revision=1, output=_SourceRow, cost=1)
 async def _games(context: SourceContext[_SourceRow], *, year: int) -> list[_SourceRow]:
     """Retrieve test games."""
     return await context.retrieve(year=year)
 
 
-@step(id="tests.normalize", revision=1, output=_DatasetRow)
+@step(id="tests.authoring_normalize", revision=1, output=_DatasetRow)
 def _normalize(rows: list[_SourceRow]) -> list[_DatasetRow]:
     """Normalize test games."""
     return [_DatasetRow(game_id=row.game_id, year=row.year) for row in rows]
 
 
 @dataset(
-    id="tests.game_summaries",
+    id="tests.authoring_game_summaries",
     revision=1,
     row=_DatasetRow,
     grain="one game",
@@ -64,7 +64,7 @@ def _game_summaries(year: int, team: str | None = None) -> RecipeRef[list[_Datas
     return _normalize(_games(year=year))
 
 
-@workflow(id="tests.game_analysis", revision=1)
+@workflow(id="tests.authoring_game_analysis", revision=1)
 def _game_analysis(year: int) -> dict[str, RecipeRef[list[_DatasetRow]]]:
     """Build a test workflow graph."""
     return {"games": _game_summaries(year=year)}
@@ -78,7 +78,7 @@ def test_decorators_create_typed_immutable_callable_recipes() -> None:
     assert isinstance(_game_analysis, WorkflowRecipe)
     assert (_game_summaries.kind, _game_summaries.id, _game_summaries.revision) == (
         "dataset",
-        "tests.game_summaries",
+        "tests.authoring_game_summaries",
         1,
     )
 
