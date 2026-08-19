@@ -46,6 +46,13 @@ from .operations import (
     value,
 )
 from .planning import ExecutionPolicy, RecipeInspection, RecipePlan, RecipePlanNode
+from .results import (
+    ArtifactDescriptor,
+    ArtifactRef,
+    RecipeRun,
+    RunNodeEvidence,
+    WorkflowOutputs,
+)
 from .tabular import (
     PortableDType,
     rename_columns,
@@ -53,7 +60,7 @@ from .tabular import (
     sort_rows,
     strict_cast_columns,
 )
-from .types import RecipeRef, SourceContext, ValueRef, WorkflowOutputs
+from .types import RecipeRef, SourceContext, ValueRef
 
 __all__ = [
     "AnalyticsConfig",
@@ -63,6 +70,8 @@ __all__ = [
     "AnalyticsOutcome",
     "AnalyticsStats",
     "AnalyticsStatsSnapshot",
+    "ArtifactDescriptor",
+    "ArtifactRef",
     "CFBDAnalyticsError",
     "CFBDArtifactCodecError",
     "CFBDArtifactCorruptionError",
@@ -81,6 +90,7 @@ __all__ = [
     "ExecutionPolicy",
     "RecipeRef",
     "RecipeProviderTrust",
+    "RecipeRun",
     "RecipeInspection",
     "RecipePlan",
     "RecipePlanNode",
@@ -89,6 +99,7 @@ __all__ = [
     "SourceRecipe",
     "StepRecipe",
     "ValueRef",
+    "RunNodeEvidence",
     "WorkflowOutputs",
     "WorkflowRecipe",
     "dataset",

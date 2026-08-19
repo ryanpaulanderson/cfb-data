@@ -29,7 +29,9 @@ from .errors import CFBDRecipeConfigurationError, CFBDRecipeUsageError
 from .types import RecipeRef, SourceContext
 
 if TYPE_CHECKING:
+    from ._runtime import SourceBehavior
     from .planning import ExecutionPolicy, RecipeInspection, RecipePlan
+    from .results import RecipeRun, WorkflowOutputs
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -265,9 +267,41 @@ class DatasetRecipe[**P, R](_Recipe[P, R]):
             plan=plan,
         )
 
+    async def run(
+        self,
+        client: object,
+        *args: object,
+        policy: ExecutionPolicy | None = None,
+        resume_from: str | None = None,
+        source_behavior: SourceBehavior | None = None,
+        **kwargs: object,
+    ) -> RecipeRun[FrameT]:
+        """Execute the dataset and return its frame and durable evidence."""
+        from ._compiler import _CompilableRecipe
+        from ._runtime import _execute_run
+
+        result = await _execute_run(
+            cast(_CompilableRecipe, self),
+            client,
+            args,
+            kwargs,
+            policy=policy,
+            resume_from=resume_from,
+            source_behavior=source_behavior,
+        )
+        return cast("RecipeRun[FrameT]", result)
+
 
 class WorkflowRecipe[**P, R](_Recipe[P, R]):
     """Represent one directly executable named-output workflow."""
+
+    @overload
+    def __call__(
+        self, client: object, *args: P.args, **kwargs: P.kwargs
+    ) -> Awaitable[WorkflowOutputs[FrameT]]: ...
+
+    @overload
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> RecipeRef[R]: ...
 
     def __call__(self, *args: object, **kwargs: object) -> object:
         """Build a nested reference or execute this workflow through a client."""
@@ -321,6 +355,30 @@ class WorkflowRecipe[**P, R](_Recipe[P, R]):
             policy=policy,
             plan=plan,
         )
+
+    async def run(
+        self,
+        client: object,
+        *args: object,
+        policy: ExecutionPolicy | None = None,
+        resume_from: str | None = None,
+        source_behavior: SourceBehavior | None = None,
+        **kwargs: object,
+    ) -> RecipeRun[WorkflowOutputs[FrameT]]:
+        """Execute the workflow and return named frames and durable evidence."""
+        from ._compiler import _CompilableRecipe
+        from ._runtime import _execute_run
+
+        result = await _execute_run(
+            cast(_CompilableRecipe, self),
+            client,
+            args,
+            kwargs,
+            policy=policy,
+            resume_from=resume_from,
+            source_behavior=source_behavior,
+        )
+        return cast("RecipeRun[WorkflowOutputs[FrameT]]", result)
 
 
 @overload

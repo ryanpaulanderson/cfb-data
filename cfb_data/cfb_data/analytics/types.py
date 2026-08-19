@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Protocol, TypeVar
+from typing import TYPE_CHECKING, Protocol, TypeVar
 
 RowT = TypeVar("RowT")
 OutputT_co = TypeVar("OutputT_co", covariant=True)
@@ -18,8 +18,12 @@ class SourceContext[RowT](Protocol):
         ...
 
 
-class RecipeRef[OutputT_co](Protocol):
-    """Represent a typed recipe output while a graph is being built."""
+if TYPE_CHECKING:
+    type RecipeRef[OutputT] = OutputT
+else:
+
+    class RecipeRef[OutputT_co](Protocol):
+        """Represent a typed recipe output while a graph is being built."""
 
 
 class ValueRef[ValueT_co](Protocol):

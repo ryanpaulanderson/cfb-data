@@ -15,6 +15,9 @@ from typing import Protocol, cast, get_args, get_origin
 
 from pydantic import BaseModel
 
+from cfb_data._operation import _ManyEndpointOperation
+from cfb_data.errors import CFBDRequestValidationError
+
 from ._declarations import RecipeKind, _RecipeDeclaration
 from ._graph import (
     _CompiledGraph,
@@ -171,6 +174,8 @@ class _GraphBuilder:
             kind = recipe.kind
             if kind in {"source", "step"}:
                 arguments = _encode_arguments(validated.values)
+                if kind == "source":
+                    _validate_literal_source_request(recipe, arguments)
                 node = _CompiledNode(
                     node_id=path,
                     kind=kind,
@@ -228,6 +233,27 @@ class _GraphBuilder:
                 f"Recipe graph exceeds the {self._max_nodes}-node limit"
             )
         self._nodes.append(node)
+
+
+def _validate_literal_source_request(
+    recipe: _CompilableRecipe,
+    arguments: Mapping[str, _NodeArgument],
+) -> None:
+    """Validate descriptor-owned literal requests during pure compilation."""
+    if any(argument.kind != "literal" for argument in arguments.values()):
+        return
+    operation = recipe._declaration.operation
+    if not isinstance(operation, _ManyEndpointOperation):
+        return
+    try:
+        operation.resolve(
+            None,
+            {name: argument.value for name, argument in arguments.items()},
+        )
+    except (CFBDRequestValidationError, TypeError) as exc:
+        raise CFBDRecipeCompilationError(
+            "Source request parameters violate the endpoint contract"
+        ) from exc
 
 
 def _compile_recipe(

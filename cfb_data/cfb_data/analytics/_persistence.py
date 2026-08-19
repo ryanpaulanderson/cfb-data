@@ -501,48 +501,68 @@ class _RunDatabase:
         placement: _Placement,
     ) -> _NodeArtifactBinding:
         """Commit artifact registration, binding, and node success last."""
+        return self.bind_completed_outputs(
+            run_id=run_id,
+            node_id=node_id,
+            outputs=((output_name, node_fingerprint, artifact, placement),),
+        )[0]
+
+    def bind_completed_outputs(
+        self,
+        *,
+        run_id: str,
+        node_id: str,
+        outputs: Sequence[tuple[str, str, _StoredArtifact, _Placement]],
+    ) -> tuple[_NodeArtifactBinding, ...]:
+        """Commit named artifact bindings and node success in one transaction."""
+        if not outputs:
+            raise ValueError("Completed nodes require at least one output")
+        names = tuple(output[0] for output in outputs)
+        if len(set(names)) != len(names):
+            raise ValueError("Completed node output names must be unique")
         committed_at = _as_utc(self._clock())
-        manifest_payload = _canonical_json_bytes(
-            artifact.manifest.model_dump(mode="json")
-        ).decode("utf-8")
         with self._transaction() as connection:
             self._require_run(connection, run_id)
-            self._require_artifact_not_retired(
-                connection,
-                artifact.content_digest,
-            )
-            row = connection.execute(
-                self._sql.render("artifacts/select_manifest.sql"),
-                (artifact.content_digest,),
-            ).fetchone()
-            if row is not None and row["manifest_json"] != manifest_payload:
-                raise CFBDArtifactCorruptionError(
-                    content_digest=artifact.content_digest,
-                    category="database_collision",
+            for output_name, node_fingerprint, artifact, placement in outputs:
+                manifest_payload = _canonical_json_bytes(
+                    artifact.manifest.model_dump(mode="json")
+                ).decode("utf-8")
+                self._require_artifact_not_retired(
+                    connection,
+                    artifact.content_digest,
                 )
-            connection.execute(
-                self._sql.render("artifacts/insert_object.sql"),
-                (
-                    artifact.content_digest,
-                    artifact.manifest.body.kind,
-                    artifact.manifest.body.codec_id,
-                    artifact.manifest.body.codec_version,
-                    manifest_payload,
-                    committed_at.isoformat(),
-                ),
-            )
-            connection.execute(
-                self._sql.render("nodes/insert_binding.sql"),
-                (
-                    run_id,
-                    node_id,
-                    output_name,
-                    node_fingerprint,
-                    artifact.content_digest,
-                    placement,
-                    committed_at.isoformat(),
-                ),
-            )
+                row = connection.execute(
+                    self._sql.render("artifacts/select_manifest.sql"),
+                    (artifact.content_digest,),
+                ).fetchone()
+                if row is not None and row["manifest_json"] != manifest_payload:
+                    raise CFBDArtifactCorruptionError(
+                        content_digest=artifact.content_digest,
+                        category="database_collision",
+                    )
+                connection.execute(
+                    self._sql.render("artifacts/insert_object.sql"),
+                    (
+                        artifact.content_digest,
+                        artifact.manifest.body.kind,
+                        artifact.manifest.body.codec_id,
+                        artifact.manifest.body.codec_version,
+                        manifest_payload,
+                        committed_at.isoformat(),
+                    ),
+                )
+                connection.execute(
+                    self._sql.render("nodes/insert_binding.sql"),
+                    (
+                        run_id,
+                        node_id,
+                        output_name,
+                        node_fingerprint,
+                        artifact.content_digest,
+                        placement,
+                        committed_at.isoformat(),
+                    ),
+                )
             current = connection.execute(
                 self._sql.render("nodes/select_current_state.sql"),
                 (run_id, node_id),
@@ -553,14 +573,17 @@ class _RunDatabase:
                 self._sql.render("nodes/insert_transition.sql"),
                 (run_id, node_id, "completed", committed_at.isoformat(), None),
             )
-        return _NodeArtifactBinding(
-            run_id=run_id,
-            node_id=node_id,
-            output_name=output_name,
-            node_fingerprint=node_fingerprint,
-            content_digest=artifact.content_digest,
-            placement=placement,
-            committed_at=committed_at,
+        return tuple(
+            _NodeArtifactBinding(
+                run_id=run_id,
+                node_id=node_id,
+                output_name=output_name,
+                node_fingerprint=node_fingerprint,
+                content_digest=artifact.content_digest,
+                placement=placement,
+                committed_at=committed_at,
+            )
+            for output_name, node_fingerprint, artifact, placement in outputs
         )
 
     def bind_reused_node(

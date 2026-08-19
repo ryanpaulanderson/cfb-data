@@ -21,8 +21,6 @@ from cfb_data.analytics import (
 )
 from pydantic import BaseModel
 
-from cfb_data import CFBDClient
-
 
 class _SourceRow(BaseModel):
     """Represent a test source row."""
@@ -104,11 +102,9 @@ def test_sources_and_steps_are_build_only_top_level_values() -> None:
 
 
 def test_datasets_require_an_explicit_client_at_top_level() -> None:
-    """Keep direct execution separate from graph-building calls."""
+    """Reject a top-level analytical call that omits its client."""
     with pytest.raises(CFBDRecipeUsageError, match="CFBDClient"):
         _game_summaries(year=2024)
-    with pytest.raises(CFBDRecipeUsageError, match="not available yet"):
-        _game_summaries(CFBDClient("test-key"), year=2024)
 
 
 def test_aliases_preserve_recipe_kind_and_are_immutable() -> None:
