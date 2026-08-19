@@ -86,6 +86,10 @@ class CFBDAttemptBudgetExceeded(CFBDAnalyticsError):
         super().__init__(f"Analytics run {run_id} exhausted its HTTP attempt budget")
 
 
+class CFBDTransformError(CFBDAnalyticsError, ValueError):
+    """Report a reusable analytical operation contract violation."""
+
+
 class CFBDRunError(CFBDAnalyticsError):
     """Report a safely identified analytics execution failure."""
 
@@ -113,6 +117,7 @@ __all__ = [
     "CFBDArtifactError",
     "CFBDPersistenceError",
     "CFBDAttemptBudgetExceeded",
+    "CFBDTransformError",
     "CFBDRecipeCompilationError",
     "CFBDRecipeConfigurationError",
     "CFBDRecipeDiscoveryError",

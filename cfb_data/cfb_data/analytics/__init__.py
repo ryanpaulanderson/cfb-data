@@ -25,6 +25,7 @@ from .errors import (
     CFBDRecipeParameterError,
     CFBDRecipeUsageError,
     CFBDRunError,
+    CFBDTransformError,
 )
 from .observability import (
     AnalyticsEvent,
@@ -34,7 +35,15 @@ from .observability import (
     AnalyticsStats,
     AnalyticsStatsSnapshot,
 )
-from .operations import require_one, value
+from .operations import (
+    NestedTransformDiagnostics,
+    NestedTransformResult,
+    explode_list,
+    flatten_struct,
+    nested_value,
+    require_one,
+    value,
+)
 from .planning import ExecutionPolicy, RecipeInspection, RecipePlan, RecipePlanNode
 from .types import RecipeRef, SourceContext, ValueRef, WorkflowOutputs
 
@@ -52,6 +61,7 @@ __all__ = [
     "CFBDArtifactError",
     "CFBDPersistenceError",
     "CFBDAttemptBudgetExceeded",
+    "CFBDTransformError",
     "CFBDRecipeCompilationError",
     "CFBDRecipeConfigurationError",
     "CFBDRecipeDiscoveryError",
@@ -74,6 +84,11 @@ __all__ = [
     "WorkflowRecipe",
     "dataset",
     "discover_recipes",
+    "explode_list",
+    "flatten_struct",
+    "nested_value",
+    "NestedTransformDiagnostics",
+    "NestedTransformResult",
     "source",
     "step",
     "workflow",
