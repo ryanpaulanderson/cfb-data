@@ -143,6 +143,24 @@ def test_object_store_publishes_and_deduplicates_content(tmp_path: Path) -> None
     assert not any(staging.iterdir())
 
 
+def test_object_store_replaces_verified_corruption_with_identical_content(
+    tmp_path: Path,
+) -> None:
+    """Quarantine a corrupt destination before publishing revalidated bytes."""
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+    original = _publish(store)
+    directory = store.directory(original.content_digest)
+    (directory / "manifest.json").write_bytes(b"{}")
+
+    repaired = _publish(store)
+
+    assert repaired == original
+    assert store.load_manifest(original.content_digest) == original.manifest
+    staging = root / "objects" / "sha256" / "staging"
+    assert not any(staging.iterdir())
+
+
 def test_object_store_cleans_abandoned_staging(tmp_path: Path) -> None:
     store = _ArtifactObjectStore(tmp_path / "analytics")
 
@@ -167,6 +185,31 @@ def test_object_store_rejects_unsafe_content_identities(
         store.load_manifest(content_digest)
 
     assert exc_info.value.category == "identity"
+
+
+def test_object_store_rejects_symlinked_object_directory(tmp_path: Path) -> None:
+    """Never follow an object identity outside the owned immutable store."""
+    external_store = _ArtifactObjectStore(tmp_path / "external")
+    external = _publish(external_store)
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+    destination = (
+        root
+        / "objects"
+        / "sha256"
+        / external.content_digest[:2]
+        / external.content_digest
+    )
+    destination.parent.mkdir()
+    destination.symlink_to(
+        external_store.directory(external.content_digest),
+        target_is_directory=True,
+    )
+
+    with pytest.raises(CFBDArtifactCorruptionError) as exc_info:
+        store.load_manifest(external.content_digest)
+
+    assert exc_info.value.category == "manifest"
 
 
 def test_run_database_commits_artifact_binding_and_success_last(

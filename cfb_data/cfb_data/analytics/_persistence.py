@@ -210,23 +210,14 @@ class _ArtifactObjectStore:
             os.rename(staged.directory, destination)
             _flush_directory(destination.parent)
         except FileExistsError:
-            existing = self.load_manifest(digest)
-            if existing != manifest:
-                raise CFBDArtifactCorruptionError(
-                    content_digest=digest,
-                    category="collision",
-                ) from None
-            _remove_owned_staging(staged.directory, staged.directory.parent)
+            self._deduplicate_or_replace_corrupt(staged, destination, manifest)
         except OSError as exc:
             if destination.exists():
-                existing = self.load_manifest(digest)
-                if existing == manifest:
-                    _remove_owned_staging(staged.directory, staged.directory.parent)
-                else:
-                    raise CFBDArtifactCorruptionError(
-                        content_digest=digest,
-                        category="collision",
-                    ) from exc
+                self._deduplicate_or_replace_corrupt(
+                    staged,
+                    destination,
+                    manifest,
+                )
             else:
                 raise CFBDPersistenceError(category="artifact_publish") from exc
         restored = self.load_manifest(digest)
@@ -236,6 +227,55 @@ class _ArtifactObjectStore:
                 category="publish",
             )
         return _StoredArtifact(content_digest=digest, manifest=restored)
+
+    def _deduplicate_or_replace_corrupt(
+        self,
+        staged: _StagedArtifact,
+        destination: Path,
+        manifest: _ArtifactManifest,
+    ) -> None:
+        """Reuse valid identical content or quarantine and replace corruption."""
+        digest = manifest.content_digest
+        try:
+            existing = self.load_manifest(digest)
+        except CFBDArtifactCorruptionError:
+            self._replace_corrupt_destination(staged, destination, digest)
+            return
+        if existing != manifest:
+            raise CFBDArtifactCorruptionError(
+                content_digest=digest,
+                category="collision",
+            ) from None
+        _remove_owned_staging(staged.directory, staged.directory.parent)
+
+    def _replace_corrupt_destination(
+        self,
+        staged: _StagedArtifact,
+        destination: Path,
+        digest: str,
+    ) -> None:
+        """Publish revalidated identical content after quarantining corruption."""
+        quarantine_parent = self._objects / "staging"
+        _make_private_directory(quarantine_parent)
+        quarantine = quarantine_parent / f".corrupt-{digest}-{uuid.uuid4().hex}"
+        try:
+            os.rename(destination, quarantine)
+            _flush_directory(destination.parent)
+            _flush_directory(quarantine_parent)
+            os.rename(staged.directory, destination)
+            _flush_directory(destination.parent)
+            _remove_owned_quarantine(quarantine, quarantine_parent)
+            _flush_directory(quarantine_parent)
+        except OSError as exc:
+            if not destination.exists() and quarantine.exists():
+                try:
+                    os.rename(quarantine, destination)
+                    _flush_directory(destination.parent)
+                except OSError as restore_exc:
+                    raise CFBDPersistenceError(
+                        category="artifact_restore"
+                    ) from restore_exc
+            raise CFBDPersistenceError(category="artifact_replace") from exc
 
     def load_manifest(self, content_digest: str) -> _ArtifactManifest:
         """Read and validate one immutable object's canonical manifest."""
@@ -1444,6 +1484,18 @@ def _remove_owned_staging(directory: Path, expected_parent: Path) -> None:
     if directory.parent != expected_parent or not directory.name.startswith(".stage-"):
         raise CFBDPersistenceError(category="staging_ownership")
     shutil.rmtree(directory)
+
+
+def _remove_owned_quarantine(path: Path, expected_parent: Path) -> None:
+    """Remove only a bounded store-owned corrupt-object quarantine."""
+    if path.parent != expected_parent or not path.name.startswith(".corrupt-"):
+        raise CFBDPersistenceError(category="staging_ownership")
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+    else:
+        raise CFBDPersistenceError(category="artifact_replace")
 
 
 def _validate_pin_name(name: str) -> None:

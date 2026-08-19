@@ -441,6 +441,10 @@ def _read_manifest(directory: Path) -> _ArtifactManifest:
     """Read one bounded strict manifest without loading artifact payloads."""
     path = directory / _MANIFEST_NAME
     try:
+        if directory.is_symlink() or not directory.is_dir():
+            raise ValueError("Artifact object directory is invalid")
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("Artifact manifest is not a regular file")
         size = path.stat().st_size
         if size > _MAX_MANIFEST_BYTES:
             raise ValueError("Artifact manifest exceeds its size limit")
@@ -487,14 +491,17 @@ def _verify_directory_members(
 ) -> None:
     """Reject missing or unexpected files in an immutable object directory."""
     expected = {_MANIFEST_NAME, *(part.name for part in manifest.body.parts)}
-    actual = {path.name for path in directory.iterdir()}
+    members = tuple(directory.iterdir())
+    actual = {path.name for path in members}
     if actual != expected:
         raise ValueError("Artifact object members do not match its manifest")
+    if any(path.is_symlink() or not path.is_file() for path in members):
+        raise ValueError("Artifact object members must be regular files")
 
 
 def _verify_part(path: Path, part: _ArtifactPart) -> None:
     """Verify one part's existence, byte count, and content digest."""
-    if not path.is_file():
+    if path.is_symlink() or not path.is_file():
         raise ValueError("Artifact part is missing")
     if path.stat().st_size != part.size_bytes:
         raise ValueError("Artifact part size is invalid")

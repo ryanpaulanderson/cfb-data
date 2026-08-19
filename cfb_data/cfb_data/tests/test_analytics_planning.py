@@ -311,6 +311,13 @@ async def test_inspection_reports_corrupt_checkpoint_without_repair(
 
         inspection = await _static_dataset.inspect(client)
 
-    assert inspection.checkpoint_dispositions[step_id] == "corrupt"
-    assert manifest.read_bytes() == b"{}"
-    assert manifest.stat().st_mtime_ns == before_mtime
+        assert inspection.checkpoint_dispositions[step_id] == "corrupt"
+        assert manifest.read_bytes() == b"{}"
+        assert manifest.stat().st_mtime_ns == before_mtime
+
+        repaired = await _static_dataset.run(client)
+        after_repair = await _static_dataset.inspect(client)
+
+    assert repaired.reused_nodes == 1
+    assert after_repair.checkpoint_dispositions[step_id] == "reusable"
+    assert manifest.read_bytes() != b"{}"
