@@ -11,6 +11,8 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Protocol
 
+from cfb_data.adjusted_metrics.models.pydantic.responses import AdjustedTeamMetrics
+from cfb_data.adjusted_metrics.sources import adjusted_team_metrics
 from cfb_data.analytics import RecipeRef, dataset, step
 from cfb_data.enums import Classification, SeasonType
 from cfb_data.games.models.pydantic.responses import TeamRecord, TeamRecords
@@ -166,11 +168,18 @@ class TeamSeason(BaseModel):
         default=None,
         description="Source Football Power Index result when requested.",
     )
+    adjusted_metrics_coverage: TeamSeasonCoverage = Field(
+        description="Explicit opponent-adjusted metric availability."
+    )
+    adjusted_metrics: AdjustedTeamMetrics | None = Field(
+        default=None,
+        description="Source opponent-adjusted team metrics when requested.",
+    )
 
 
 @step(
     id="cfbd.team_seasons.compose",
-    revision=4,
+    revision=5,
     output=TeamSeason,
     deterministic=True,
 )
@@ -188,6 +197,7 @@ def compose_team_seasons(
     srs: list[TeamSRS] | None,
     elo: list[TeamElo] | None,
     fpi: list[TeamFPI] | None,
+    adjusted: list[AdjustedTeamMetrics] | None,
 ) -> list[TeamSeason]:
     """Attach required season statistics to the records-defined universe.
 
@@ -203,6 +213,7 @@ def compose_team_seasons(
     :param srs: Requested SRS ratings, or ``None`` when omitted.
     :param elo: Requested Elo ratings, or ``None`` when omitted.
     :param fpi: Requested FPI ratings, or ``None`` when omitted.
+    :param adjusted: Requested opponent-adjusted metrics, or ``None``.
     :return: Complete team seasons in stable season/team-ID order.
     :raises ValueError: If identity, coverage, or statistic keys are ambiguous.
     """
@@ -270,6 +281,7 @@ def compose_team_seasons(
     srs_by_key = _index_rating(record_keys, srs, label="SRS ratings")
     elo_by_key = _index_rating(record_keys, elo, label="Elo ratings")
     fpi_by_key = _index_rating(record_keys, fpi, label="FPI ratings")
+    adjusted_by_key = _index_adjusted(record_keys, adjusted)
 
     rows: list[TeamSeason] = []
     for key, record in record_keys.items():
@@ -326,6 +338,10 @@ def compose_team_seasons(
                 elo_rating=elo_by_key.get(key) if elo_by_key is not None else None,
                 fpi_rating_coverage=_coverage(fpi_by_key, key),
                 fpi_rating=fpi_by_key.get(key) if fpi_by_key is not None else None,
+                adjusted_metrics_coverage=_coverage(adjusted_by_key, key),
+                adjusted_metrics=(
+                    adjusted_by_key.get(key) if adjusted_by_key is not None else None
+                ),
             )
         )
     return sorted(rows, key=lambda row: (row.season, row.team_id))
@@ -333,7 +349,7 @@ def compose_team_seasons(
 
 @dataset(
     id="cfbd.team_seasons",
-    revision=4,
+    revision=5,
     row=TeamSeason,
     grain="one team season established by the records source",
     keys=("season", "team_id"),
@@ -360,6 +376,7 @@ def team_seasons(
     elo_week: int | None = None,
     elo_season_type: SeasonType | None = None,
     include_fpi_rating: bool = False,
+    include_adjusted_metrics: bool = False,
 ) -> RecipeRef[list[TeamSeason]]:
     """Build complete team-season records and core statistics.
 
@@ -381,6 +398,7 @@ def team_seasons(
     :param elo_week: Optional week cutoff for requested Elo.
     :param elo_season_type: Optional season phase for requested Elo.
     :param include_fpi_rating: Request the Football Power Index result.
+    :param include_adjusted_metrics: Request opponent-adjusted team metrics.
     :return: A reference to the validated team-seasons dataset.
     :raises ValueError: If Elo period selectors are supplied without Elo.
     """
@@ -455,6 +473,11 @@ def team_seasons(
         fpi=(
             fpi_ratings(year=season, team=team, conference=conference)
             if include_fpi_rating
+            else None
+        ),
+        adjusted=(
+            adjusted_team_metrics(year=season, team=team, conference=conference)
+            if include_adjusted_metrics
             else None
         ),
     )
@@ -595,6 +618,40 @@ def _index_rating[RatingT: _TeamRating](
         indexed[key] = item
     if ratings and set(indexed) != set(records):
         raise ValueError(f"Requested {label} are incomplete")
+    return indexed
+
+
+def _index_adjusted(
+    records: dict[tuple[int, str], TeamRecords],
+    adjusted: list[AdjustedTeamMetrics] | None,
+) -> dict[tuple[int, str], AdjustedTeamMetrics] | None:
+    """Attach adjusted metrics by stable team ID within the records season.
+
+    :param records: Authoritative team-season records keyed within season.
+    :param adjusted: Requested adjusted rows, or ``None`` when omitted.
+    :return: Matching metrics by records identity, or ``None`` when omitted.
+    :raises ValueError: If identity conflicts, duplicates, or coverage is partial.
+    """
+    if adjusted is None:
+        return None
+    record_keys_by_id = {
+        (record.year, record.team_id): key for key, record in records.items()
+    }
+    indexed: dict[tuple[int, str], AdjustedTeamMetrics] = {}
+    for item in adjusted:
+        key = record_keys_by_id.get((item.year, item.team_id))
+        if key is None:
+            continue
+        record = records[key]
+        if _identity_text(item.team) != _identity_text(record.team):
+            raise ValueError("Adjusted metrics conflict with record team name")
+        if item.conference != record.conference:
+            raise ValueError("Adjusted metrics conflict with record conference")
+        if key in indexed:
+            raise ValueError("Adjusted metrics contain duplicate team seasons")
+        indexed[key] = item
+    if adjusted and set(indexed) != set(records):
+        raise ValueError("Requested adjusted metrics are incomplete")
     return indexed
 
 

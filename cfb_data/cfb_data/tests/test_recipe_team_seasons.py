@@ -289,6 +289,42 @@ def _rating_payloads() -> dict[str, object]:
     }
 
 
+def _adjusted_metrics() -> dict[str, object]:
+    """Return one valid opponent-adjusted team metric row."""
+    return {
+        "year": 2024,
+        "teamId": 130,
+        "team": "Michigan",
+        "conference": "Big Ten",
+        "epa": {"total": 0.12, "passing": 0.18, "rushing": 0.07},
+        "epaAllowed": {"total": -0.04, "passing": -0.02, "rushing": -0.06},
+        "successRate": {
+            "total": 0.45,
+            "standardDowns": 0.49,
+            "passingDowns": 0.37,
+        },
+        "successRateAllowed": {
+            "total": 0.38,
+            "standardDowns": 0.40,
+            "passingDowns": 0.33,
+        },
+        "rushing": {
+            "lineYards": 3.1,
+            "secondLevelYards": 1.2,
+            "openFieldYards": 0.7,
+            "highlightYards": 1.9,
+        },
+        "rushingAllowed": {
+            "lineYards": 2.3,
+            "secondLevelYards": 0.8,
+            "openFieldYards": 0.3,
+            "highlightYards": 1.1,
+        },
+        "explosiveness": 1.28,
+        "explosivenessAllowed": 0.91,
+    }
+
+
 @pytest.mark.asyncio
 async def test_recipe_uses_records_universe_and_preserves_ordered_statistics(
     api_server: ServerFactory,
@@ -342,6 +378,8 @@ async def test_recipe_uses_records_universe_and_preserves_ordered_statistics(
             frame.loc[0, f"{field}_rating_coverage"] == TeamSeasonCoverage.not_requested
         )
         assert frame.loc[0, f"{field}_rating"] is None
+    assert frame.loc[0, "adjusted_metrics_coverage"] == TeamSeasonCoverage.not_requested
+    assert frame.loc[0, "adjusted_metrics"] is None
 
 
 @pytest.mark.asyncio
@@ -361,6 +399,7 @@ async def test_recipe_has_four_way_canonical_parity(
         "/teams/ats": 0,
         "/player/returning": 0,
         **{path: 0 for path in _rating_payloads()},
+        "/wepa/team/season": 0,
     }
 
     async def handler(request: web.Request) -> web.Response:
@@ -374,6 +413,7 @@ async def test_recipe_has_four_way_canonical_parity(
             "/teams/ats": [_ats()],
             "/player/returning": [_returning_production()],
             **_rating_payloads(),
+            "/wepa/team/season": [_adjusted_metrics()],
         }
         return web.json_response(payloads[request.path])
 
@@ -408,6 +448,7 @@ async def test_recipe_has_four_way_canonical_parity(
                     elo_week=16,
                     elo_season_type=SeasonType.postseason,
                     include_fpi_rating=True,
+                    include_adjusted_metrics=True,
                     policy=ExecutionPolicy(executor=executor, dask_max_workers=1),
                 )
             digests.append(run.artifact.descriptor.content_digest)
@@ -429,6 +470,11 @@ async def test_recipe_has_four_way_canonical_parity(
             assert restored.loc[0, "srs_rating"]["rating"] == 10.0
             assert restored.loc[0, "elo_rating"]["elo"] == 1600
             assert restored.loc[0, "fpi_rating"]["fpi"] == 12.5
+            assert (
+                restored.loc[0, "adjusted_metrics_coverage"]
+                == TeamSeasonCoverage.present
+            )
+            assert restored.loc[0, "adjusted_metrics"]["epa"]["total"] == 0.12
 
     assert calls == {
         "/records": 4,
@@ -439,6 +485,7 @@ async def test_recipe_has_four_way_canonical_parity(
         "/teams/ats": 4,
         "/player/returning": 4,
         **{path: 4 for path in _rating_payloads()},
+        "/wepa/team/season": 4,
     }
     assert len(set(digests)) == 1
     assert all(result == records[0] for result in records[1:])
@@ -469,7 +516,7 @@ async def test_required_statistical_coverage_fails_closed(
             with pytest.raises(CFBDRunError) as exc_info:
                 await team_seasons(client, season=2024)
 
-    assert exc_info.value.node_id.endswith("cfbd.team_seasons.compose@4")
+    assert exc_info.value.node_id.endswith("cfbd.team_seasons.compose@5")
     assert exc_info.value.category == "ValueError"
 
 
@@ -490,6 +537,7 @@ async def test_requested_empty_ppa_is_explicit_without_changing_universe(
             "/teams/ats": [],
             "/player/returning": [],
             **{path: [] for path in _rating_payloads()},
+            "/wepa/team/season": [],
         }
         return web.json_response(payloads[request.path])
 
@@ -513,6 +561,7 @@ async def test_requested_empty_ppa_is_explicit_without_changing_universe(
                 include_srs_rating=True,
                 include_elo_rating=True,
                 include_fpi_rating=True,
+                include_adjusted_metrics=True,
             )
 
     assert len(frame) == 1
@@ -527,3 +576,5 @@ async def test_requested_empty_ppa_is_explicit_without_changing_universe(
     for field in ("core", "sp", "srs", "elo", "fpi"):
         assert frame.loc[0, f"{field}_rating_coverage"] == TeamSeasonCoverage.empty
         assert frame.loc[0, f"{field}_rating"] is None
+    assert frame.loc[0, "adjusted_metrics_coverage"] == TeamSeasonCoverage.empty
+    assert frame.loc[0, "adjusted_metrics"] is None
