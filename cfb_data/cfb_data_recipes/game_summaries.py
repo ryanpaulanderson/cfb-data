@@ -5,6 +5,8 @@ produces one row per selected game, keyed by ``game_id``. It preserves future,
 incomplete, and completed games. Total points, absolute margin, result state,
 and winner/loser identifiers are populated only when the source marks a game
 complete and reports both scores; a missing score is never treated as zero.
+Broadcasts and Tier 1 weather are explicit enrichments with per-game coverage;
+neither enrichment may add or remove a base game.
 """
 
 from __future__ import annotations
@@ -12,10 +14,21 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from cfb_data.analytics import RecipeRef, dataset, step
-from cfb_data.enums import Classification, PlayoffCompetition, PlayoffRound, SeasonType
-from cfb_data.games.models.pydantic.responses import Game, GamePlayoff
-from cfb_data.games.sources import games
+from cfb_data.analytics import RecipeRef, dataset, require_one, step, value
+from cfb_data.enums import (
+    Classification,
+    MediaType,
+    PlayoffCompetition,
+    PlayoffRound,
+    SeasonType,
+)
+from cfb_data.games.models.pydantic.responses import (
+    Game,
+    GameMedia,
+    GamePlayoff,
+    GameWeather,
+)
+from cfb_data.games.sources import game_media, game_weather, games
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -25,6 +38,14 @@ class GameResultState(StrEnum):
     home_win = "home_win"
     away_win = "away_win"
     tie = "tie"
+
+
+class GameEnrichmentCoverage(StrEnum):
+    """Describe whether one optional game enrichment was found."""
+
+    not_requested = "not_requested"
+    empty = "empty"
+    present = "present"
 
 
 class GameSummary(BaseModel):
@@ -181,6 +202,22 @@ class GameSummary(BaseModel):
         default=None,
         description="Validated nested playoff context, when available.",
     )
+    media_coverage: GameEnrichmentCoverage = Field(
+        default=GameEnrichmentCoverage.not_requested,
+        description="Explicit broadcast enrichment availability.",
+    )
+    media: list[GameMedia] | None = Field(
+        default=None,
+        description="Source-ordered broadcast outlets when requested.",
+    )
+    weather_coverage: GameEnrichmentCoverage = Field(
+        default=GameEnrichmentCoverage.not_requested,
+        description="Explicit Tier 1 weather enrichment availability.",
+    )
+    weather: GameWeather | None = Field(
+        default=None,
+        description="Validated game weather when requested and available.",
+    )
     result_state: GameResultState | None = Field(
         default=None,
         description="Derived result only when completion and both scores prove it.",
@@ -214,7 +251,7 @@ class GameSummary(BaseModel):
 
 @step(
     id="cfbd.game_summaries.normalize",
-    revision=1,
+    revision=2,
     output=GameSummary,
     deterministic=True,
 )
@@ -231,9 +268,37 @@ def normalize_games(rows: list[Game]) -> list[GameSummary]:
     )
 
 
+@step(
+    id="cfbd.game_summaries.attach_enrichments",
+    revision=1,
+    output=GameSummary,
+    deterministic=True,
+)
+def attach_game_enrichments(
+    summaries: list[GameSummary],
+    *,
+    media: list[GameMedia] | None,
+    weather: list[GameWeather] | None,
+) -> list[GameSummary]:
+    """Attach requested media and weather without changing base rows.
+
+    :param summaries: Validated game-summary base universe.
+    :param media: Requested source media, or ``None`` when omitted.
+    :param weather: Requested source weather, or ``None`` when omitted.
+    :return: The same ordered game universe with explicit enrichment coverage.
+    :raises ValueError: If enrichment identity is duplicated or conflicts.
+    """
+    enriched = summaries
+    if media is not None:
+        enriched = _attach_media(enriched, media)
+    if weather is not None:
+        enriched = _attach_weather(enriched, weather)
+    return enriched
+
+
 @dataset(
     id="cfbd.game_summaries",
-    revision=1,
+    revision=2,
     row=GameSummary,
     grain="one selected game",
     keys=("game_id",),
@@ -254,6 +319,9 @@ def game_summaries(
     game_id: int | None = None,
     competition: PlayoffCompetition | None = None,
     round: PlayoffRound | None = None,
+    include_media: bool = False,
+    media_type: MediaType | None = None,
+    include_weather: bool = False,
 ) -> RecipeRef[list[GameSummary]]:
     """Build game summaries from the registered Games source.
 
@@ -268,9 +336,13 @@ def game_summaries(
     :param game_id: Optional exact game identifier.
     :param competition: Optional playoff competition.
     :param round: Optional playoff round.
+    :param include_media: Request source-faithful game broadcasts.
+    :param media_type: Optional broadcast-medium selector for requested media.
+    :param include_weather: Request Tier 1 game weather.
     :return: A reference to the validated game-summary dataset.
+    :raises ValueError: If an enrichment lacks a safe bounded selector shape.
     """
-    return normalize_games(
+    summaries = normalize_games(
         games(
             year=year,
             week=week,
@@ -284,6 +356,61 @@ def game_summaries(
             competition=competition,
             round=round,
         )
+    )
+    if media_type is not None and not include_media:
+        raise ValueError("media_type requires include_media=True")
+
+    requested_media: RecipeRef[list[GameMedia]] | None = None
+    if include_media and game_id is not None:
+        context = require_one(summaries)
+        requested_media = game_media(
+            year=value(context, path=("season",), expected_type=int),
+            week=value(context, path=("week",), expected_type=int),
+            team=value(context, path=("home_team",), expected_type=str),
+            media_type=media_type,
+        )
+    elif include_media:
+        if year is None:
+            raise ValueError("Media enrichment requires a season or exact game ID")
+        if any(selector is not None for selector in (home, away, competition, round)):
+            raise ValueError(
+                "Media enrichment does not support home, away, or playoff selectors"
+            )
+        requested_media = game_media(
+            year=year,
+            week=week,
+            season_type=season_type,
+            team=team,
+            conference=conference,
+            media_type=media_type,
+            classification=classification,
+        )
+
+    requested_weather: RecipeRef[list[GameWeather]] | None = None
+    if include_weather and game_id is not None:
+        requested_weather = game_weather(game_id=game_id)
+    elif include_weather:
+        if year is None:
+            raise ValueError("Weather enrichment requires a season or exact game ID")
+        if any(selector is not None for selector in (home, away, competition, round)):
+            raise ValueError(
+                "Weather enrichment does not support home, away, or playoff selectors"
+            )
+        requested_weather = game_weather(
+            year=year,
+            week=week,
+            season_type=season_type,
+            team=team,
+            conference=conference,
+            classification=classification,
+        )
+
+    if requested_media is None and requested_weather is None:
+        return summaries
+    return attach_game_enrichments(
+        summaries,
+        media=requested_media,
+        weather=requested_weather,
     )
 
 
@@ -346,4 +473,170 @@ def _result(
     return GameResultState.away_win, total, margin, game.away_id, game.home_id
 
 
-__all__ = ["GameResultState", "GameSummary", "game_summaries"]
+def _attach_media(
+    summaries: list[GameSummary],
+    media: list[GameMedia],
+) -> list[GameSummary]:
+    """Attach source-ordered broadcasts by stable game ID.
+
+    :param summaries: Complete base game universe.
+    :param media: Validated media rows returned for the declared selector.
+    :return: The unchanged base universe with media coverage and rows attached.
+    :raises ValueError: If media are duplicated, conflicting, or out of scope.
+    """
+    base = {summary.game_id: summary for summary in summaries}
+    indexed: dict[int, list[GameMedia]] = {}
+    observed: set[tuple[int, MediaType, str]] = set()
+    for item in media:
+        key = (item.id, item.media_type, item.outlet)
+        if key in observed:
+            raise ValueError("Game media contain a duplicate game/type/outlet key")
+        observed.add(key)
+        summary = base.get(item.id)
+        if summary is None:
+            raise ValueError("Game media fall outside the base row universe")
+        _validate_game_enrichment(
+            summary,
+            season=item.season,
+            week=item.week,
+            season_type=item.season_type,
+            start_time=item.start_time,
+            home_team=item.home_team,
+            home_conference=item.home_conference,
+            away_team=item.away_team,
+            away_conference=item.away_conference,
+            label="Game media",
+        )
+        indexed.setdefault(item.id, []).append(item)
+    return [
+        summary.model_copy(
+            update={
+                "media_coverage": (
+                    GameEnrichmentCoverage.present
+                    if summary.game_id in indexed
+                    else GameEnrichmentCoverage.empty
+                ),
+                "media": indexed.get(summary.game_id, []),
+            }
+        )
+        for summary in summaries
+    ]
+
+
+def _attach_weather(
+    summaries: list[GameSummary],
+    weather: list[GameWeather],
+) -> list[GameSummary]:
+    """Attach at most one weather observation by stable game ID.
+
+    :param summaries: Complete base game universe.
+    :param weather: Validated weather rows returned for the declared selector.
+    :return: The unchanged base universe with weather coverage attached.
+    :raises ValueError: If weather is duplicated, conflicting, or out of scope.
+    """
+    base = {summary.game_id: summary for summary in summaries}
+    indexed: dict[int, GameWeather] = {}
+    for item in weather:
+        if item.id in indexed:
+            raise ValueError("Game weather contains a duplicate game key")
+        summary = base.get(item.id)
+        if summary is None:
+            raise ValueError("Game weather falls outside the base row universe")
+        _validate_game_enrichment(
+            summary,
+            season=item.season,
+            week=item.week,
+            season_type=item.season_type,
+            start_time=item.start_time,
+            home_team=item.home_team,
+            home_conference=item.home_conference,
+            away_team=item.away_team,
+            away_conference=item.away_conference,
+            label="Game weather",
+        )
+        if (
+            summary.venue_id is not None
+            and item.venue_id != summary.venue_id
+            or summary.venue is not None
+            and item.venue != summary.venue
+        ):
+            raise ValueError("Game weather conflicts with the selected venue")
+        indexed[item.id] = item
+    return [
+        summary.model_copy(
+            update={
+                "weather_coverage": (
+                    GameEnrichmentCoverage.present
+                    if summary.game_id in indexed
+                    else GameEnrichmentCoverage.empty
+                ),
+                "weather": indexed.get(summary.game_id),
+            }
+        )
+        for summary in summaries
+    ]
+
+
+def _validate_game_enrichment(
+    summary: GameSummary,
+    *,
+    season: int,
+    week: int,
+    season_type: SeasonType,
+    start_time: datetime,
+    home_team: str,
+    home_conference: str | None,
+    away_team: str,
+    away_conference: str | None,
+    label: str,
+) -> None:
+    """Validate common source context before attaching an enrichment.
+
+    :param summary: Selected base game.
+    :param season: Enrichment season.
+    :param week: Enrichment week.
+    :param season_type: Enrichment season phase.
+    :param start_time: Enrichment scheduled instant.
+    :param home_team: Enrichment home-team name.
+    :param home_conference: Enrichment home conference, when reported.
+    :param away_team: Enrichment away-team name.
+    :param away_conference: Enrichment away conference, when reported.
+    :param label: Safe enrichment label for a validation error.
+    :raises ValueError: If stable game context conflicts.
+    """
+    if (
+        season != summary.season
+        or week != summary.week
+        or season_type != summary.season_type
+        or start_time != summary.start_date
+        or _normalized_team(home_team) != _normalized_team(summary.home_team)
+        or _normalized_team(away_team) != _normalized_team(summary.away_team)
+        or (
+            home_conference is not None
+            and summary.home_conference is not None
+            and home_conference != summary.home_conference
+        )
+        or (
+            away_conference is not None
+            and summary.away_conference is not None
+            and away_conference != summary.away_conference
+        )
+    ):
+        raise ValueError(f"{label} conflict with the selected game context")
+
+
+def _normalized_team(value: str) -> str:
+    """Return a deterministic comparison form for one source team name.
+
+    :param value: Source team name.
+    :return: Whitespace-normalized, case-insensitive text.
+    """
+    return " ".join(value.split()).casefold()
+
+
+__all__ = [
+    "GameEnrichmentCoverage",
+    "GameResultState",
+    "GameSummary",
+    "game_summaries",
+]
