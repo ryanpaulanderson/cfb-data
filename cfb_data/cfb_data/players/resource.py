@@ -10,7 +10,7 @@ from pydantic import BaseModel, TypeAdapter
 from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
 from cfb_data._requests import _resolve_request
-from cfb_data.players._operations import PLAYER_USAGE
+from cfb_data.players._operations import PLAYER_USAGE, RETURNING_PRODUCTION
 from cfb_data.players.models.pydantic.requests import (
     PlayerSearchRequest,
     PlayerSeasonOverviewRequest,
@@ -22,7 +22,6 @@ from cfb_data.players.models.pydantic.responses import (
     PlayerSearchResult,
     PlayerSeasonOverview,
     PlayerTransfer,
-    ReturningProduction,
 )
 
 _RequestT = TypeVar("_RequestT", bound=BaseModel)
@@ -30,7 +29,6 @@ _RowT = TypeVar("_RowT", bound=BaseModel)
 
 _SEARCH_ROWS = TypeAdapter(list[PlayerSearchResult])
 _SEASON_OVERVIEW = TypeAdapter(PlayerSeasonOverview)
-_RETURNING_ROWS = TypeAdapter(list[ReturningProduction])
 _TRANSFER_ROWS = TypeAdapter(list[PlayerTransfer])
 
 
@@ -188,13 +186,11 @@ class PlayersResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/player/returning",
-            request_type=ReturningProductionRequest,
+        return await RETURNING_PRODUCTION.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_RETURNING_ROWS,
-            row_model=ReturningProduction,
         )
 
     @overload

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from cfb_data.analytics import SourceContext, source
-from cfb_data.players._operations import PLAYER_USAGE
-from cfb_data.players.models.pydantic.responses import PlayerUsage
+from cfb_data.players._operations import PLAYER_USAGE, RETURNING_PRODUCTION
+from cfb_data.players.models.pydantic.responses import PlayerUsage, ReturningProduction
 
 
 @source(operation=PLAYER_USAGE)
@@ -39,4 +39,23 @@ async def player_usage(
     )
 
 
-__all__ = ["player_usage"]
+@source(operation=RETURNING_PRODUCTION)
+async def returning_production(
+    context: SourceContext[ReturningProduction],
+    *,
+    year: int | None = None,
+    team: str | None = None,
+    conference: str | None = None,
+) -> list[ReturningProduction]:
+    """Return validated team returning-production rows in source order.
+
+    :param context: Engine-owned source execution context.
+    :param year: Season year required when team is absent.
+    :param team: Optional team selector.
+    :param conference: Optional conference selector.
+    :return: Source-faithful returning-production rows.
+    """
+    return await context.retrieve(year=year, team=team, conference=conference)
+
+
+__all__ = ["player_usage", "returning_production"]

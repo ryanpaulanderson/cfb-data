@@ -10,8 +10,9 @@ import pytest
 from aiohttp import web
 from cfb_data.analytics import AnalyticsConfig, RecipeRef, dataset
 from cfb_data.analytics._compiler import _compile_recipe
-from cfb_data.players.models.pydantic.responses import PlayerUsage
-from cfb_data.players.sources import player_usage
+from cfb_data.players.models.pydantic.responses import PlayerUsage, ReturningProduction
+from cfb_data.players.sources import player_usage, returning_production
+from pandas import DataFrame
 
 from cfb_data import CFBDClient
 
@@ -30,12 +31,40 @@ def _source_faithful_player_usage(year: int) -> RecipeRef[list[PlayerUsage]]:
     return player_usage(year=year)
 
 
+@dataset(
+    id="tests.source_faithful_returning_production",
+    revision=1,
+    row=ReturningProduction,
+    grain="one team returning-production season",
+    keys=("season", "team"),
+)
+def _source_faithful_returning_production(
+    year: int,
+) -> RecipeRef[list[ReturningProduction]]:
+    """Build returning production through its public source callable."""
+    return returning_production(year=year)
+
+
 def test_player_usage_source_uses_its_domain_operation() -> None:
     """Derive stable identity and cost from the shared endpoint contract."""
     graph = _compile_recipe(_source_faithful_player_usage, (), {"year": 2024})
 
     assert player_usage.id == "cfbd.players.usage"
     assert player_usage.revision == 1
+    assert graph.nodes[0].declaration.operation is not None
+    assert graph.nodes[0].declaration.source_cost == 1
+
+
+def test_returning_production_source_uses_its_domain_operation() -> None:
+    """Derive returning-production identity from the endpoint contract."""
+    graph = _compile_recipe(
+        _source_faithful_returning_production,
+        (),
+        {"year": 2024},
+    )
+
+    assert returning_production.id == "cfbd.players.returning_production"
+    assert returning_production.revision == 1
     assert graph.nodes[0].declaration.operation is not None
     assert graph.nodes[0].declaration.source_cost == 1
 
@@ -78,6 +107,6 @@ async def test_player_usage_source_preserves_endpoint_rows_without_manipulation(
             analytics=AnalyticsConfig(root=tmp_path / "analytics"),
         ) as client:
             endpoint = await client.players.usage(year=2024)
-            recipe = await _source_faithful_player_usage(client, year=2024)
+            recipe: DataFrame = await _source_faithful_player_usage(client, year=2024)
 
     assert recipe.to_dict(orient="records") == endpoint.to_dict(orient="records")
