@@ -22,6 +22,7 @@ from .errors import (
     CFBDRunError,
 )
 from .operations import require_one, value
+from .planning import ExecutionPolicy, RecipeInspection, RecipePlan, RecipePlanNode
 from .types import RecipeRef, SourceContext, ValueRef, WorkflowOutputs
 
 __all__ = [
@@ -34,8 +35,12 @@ __all__ = [
     "CFBDRecipeUsageError",
     "CFBDRunError",
     "DatasetRecipe",
+    "ExecutionPolicy",
     "RecipeRef",
     "RecipeProviderTrust",
+    "RecipeInspection",
+    "RecipePlan",
+    "RecipePlanNode",
     "RecipeSnapshot",
     "SourceContext",
     "SourceRecipe",

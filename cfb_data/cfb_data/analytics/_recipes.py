@@ -5,11 +5,11 @@ from __future__ import annotations
 import inspect
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
-from typing import ParamSpec, Self, TypeVar, cast, overload
+from typing import TYPE_CHECKING, ParamSpec, Self, TypeVar, cast, overload
 
 from pydantic import BaseModel
 
-from ._declarations import _RecipeDeclaration, _validate_row_type
+from ._declarations import RecipeKind, _RecipeDeclaration, _validate_row_type
 from ._parameters import (
     _bind_graph_parameters,
     _validate_builder_signature,
@@ -19,6 +19,9 @@ from ._parameters import (
 from ._registration import _publish_candidate
 from .errors import CFBDRecipeConfigurationError, CFBDRecipeUsageError
 from .types import RecipeRef
+
+if TYPE_CHECKING:
+    from .planning import ExecutionPolicy, RecipeInspection, RecipePlan
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -35,6 +38,8 @@ class _Recipe[**P, R]:
     _signature: inspect.Signature
     _alias: str | None
     _sealed: bool
+    __qualname__: str
+    __module__: str
 
     __slots__ = (
         "__dict__",
@@ -94,7 +99,7 @@ class _Recipe[**P, R]:
         return self._declaration.revision
 
     @property
-    def kind(self) -> str:
+    def kind(self) -> RecipeKind:
         """Return the recipe boundary kind."""
         return self._declaration.kind
 
@@ -193,6 +198,43 @@ class DatasetRecipe[**P, R](_Recipe[P, R]):
 
         return _execute_direct(self, args[0], args[1:], kwargs)
 
+    async def plan(
+        self,
+        client: object,
+        *args: object,
+        policy: ExecutionPolicy | None = None,
+        **kwargs: object,
+    ) -> RecipePlan:
+        """Return a pure state-independent execution plan."""
+        from ._compiler import _CompilableRecipe
+        from .planning import _plan_recipe
+
+        plan, _ = _plan_recipe(
+            cast(_CompilableRecipe, self), client, args, kwargs, policy
+        )
+        return plan
+
+    async def inspect(
+        self,
+        client: object,
+        *args: object,
+        policy: ExecutionPolicy | None = None,
+        plan: RecipePlan | None = None,
+        **kwargs: object,
+    ) -> RecipeInspection:
+        """Inspect exact cache and checkpoint state without mutation."""
+        from ._compiler import _CompilableRecipe
+        from .planning import _inspect_recipe
+
+        return await _inspect_recipe(
+            cast(_CompilableRecipe, self),
+            client,
+            args,
+            kwargs,
+            policy=policy,
+            plan=plan,
+        )
+
 
 class WorkflowRecipe[**P, R](_Recipe[P, R]):
     """Represent one directly executable named-output workflow."""
@@ -212,6 +254,43 @@ class WorkflowRecipe[**P, R](_Recipe[P, R]):
         from ._runtime import _execute_direct
 
         return _execute_direct(self, args[0], args[1:], kwargs)
+
+    async def plan(
+        self,
+        client: object,
+        *args: object,
+        policy: ExecutionPolicy | None = None,
+        **kwargs: object,
+    ) -> RecipePlan:
+        """Return a pure state-independent execution plan."""
+        from ._compiler import _CompilableRecipe
+        from .planning import _plan_recipe
+
+        plan, _ = _plan_recipe(
+            cast(_CompilableRecipe, self), client, args, kwargs, policy
+        )
+        return plan
+
+    async def inspect(
+        self,
+        client: object,
+        *args: object,
+        policy: ExecutionPolicy | None = None,
+        plan: RecipePlan | None = None,
+        **kwargs: object,
+    ) -> RecipeInspection:
+        """Inspect exact cache and checkpoint state without mutation."""
+        from ._compiler import _CompilableRecipe
+        from .planning import _inspect_recipe
+
+        return await _inspect_recipe(
+            cast(_CompilableRecipe, self),
+            client,
+            args,
+            kwargs,
+            policy=policy,
+            plan=plan,
+        )
 
 
 @overload

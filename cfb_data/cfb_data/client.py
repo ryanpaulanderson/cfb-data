@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from types import TracebackType
 from typing import (
     TYPE_CHECKING,
@@ -60,7 +61,24 @@ from cfb_data.venues.resource import VenuesResource
 if TYPE_CHECKING:
     import polars as pl
 
+    from cfb_data.analytics import AnalyticsConfig
+
 type DataFrameBackend = Literal["pandas", "polars"]
+
+
+@dataclass(frozen=True, slots=True)
+class _AnalyticsClientBridge[FrameT]:
+    """Expose coordinator dependencies without adding public client resources."""
+
+    executor: _EndpointExecutor
+    dataframe_adapter: _DataFrameAdapter[FrameT]
+    cache_coordinator: CacheCoordinator
+    dataframe_backend: DataFrameBackend
+    retry_max_attempts: int
+    base_url: str
+    credential_scope: str
+    cache_enabled: bool
+    config: object | None
 
 
 class CFBDClient[FrameT]:
@@ -83,6 +101,7 @@ class CFBDClient[FrameT]:
         cache: CacheConfig | None = None,
         cache_policy: CachePolicyConfig | None = None,
         observer: RetrievalObserver | None = None,
+        analytics: AnalyticsConfig | None = None,
     ) -> None: ...
 
     @overload
@@ -97,6 +116,7 @@ class CFBDClient[FrameT]:
         cache: CacheConfig | None = None,
         cache_policy: CachePolicyConfig | None = None,
         observer: RetrievalObserver | None = None,
+        analytics: AnalyticsConfig | None = None,
     ) -> None: ...
 
     @overload
@@ -111,6 +131,7 @@ class CFBDClient[FrameT]:
         cache: CacheConfig | None = None,
         cache_policy: CachePolicyConfig | None = None,
         observer: RetrievalObserver | None = None,
+        analytics: AnalyticsConfig | None = None,
     ) -> None: ...
 
     def __init__(
@@ -124,6 +145,7 @@ class CFBDClient[FrameT]:
         cache: CacheConfig | None = None,
         cache_policy: CachePolicyConfig | None = None,
         observer: RetrievalObserver | None = None,
+        analytics: AnalyticsConfig | None = None,
     ) -> None:
         """Initialize a one-shot client without opening its HTTP session.
 
@@ -135,20 +157,33 @@ class CFBDClient[FrameT]:
         :param cache: Optional SQLite or Redis cache and catalog backend.
         :param cache_policy: Optional immutable profile TTL overrides.
         :param observer: Optional synchronous retrieval-event observer.
+        :param analytics: Optional lazy analytics configuration.
         :raises CFBDConfigurationError: If client configuration is invalid.
         """
         if dataframe_backend not in {"pandas", "polars"}:
             raise CFBDConfigurationError(
                 "dataframe_backend must be either 'pandas' or 'polars'"
             )
+        if analytics is not None:
+            from cfb_data.analytics import AnalyticsConfig
+
+            if not isinstance(analytics, AnalyticsConfig):
+                raise CFBDConfigurationError(
+                    "analytics must be an AnalyticsConfig instance or None"
+                )
 
         resolved_api_key = _resolve_api_key(api_key)
+        resolved_base_url = _validate_base_url(base_url)
+        resolved_retry_policy = retry_policy or RetryPolicy()
+        credential_scope = (
+            credential_scope_digest(resolved_api_key) if cache is not None else ""
+        )
         event_dispatcher = _EventDispatcher(observer)
         transport = _HTTPTransport(
             api_key=resolved_api_key,
-            base_url=_validate_base_url(base_url),
+            base_url=resolved_base_url,
             timeout_seconds=_validate_timeout(timeout_seconds),
-            retry_policy=retry_policy or RetryPolicy(),
+            retry_policy=resolved_retry_policy,
             event_dispatcher=event_dispatcher,
         )
         cache_backend, cache_timeout = _cache_backend(cache)
@@ -156,9 +191,7 @@ class CFBDClient[FrameT]:
             transport=transport,
             backend=cache_backend,
             enabled=cache is not None,
-            credential_scope=(
-                credential_scope_digest(resolved_api_key) if cache is not None else ""
-            ),
+            credential_scope=credential_scope,
             policy=cache_policy or CachePolicyConfig(),
             io_timeout_seconds=cache_timeout,
             event_dispatcher=event_dispatcher,
@@ -174,6 +207,17 @@ class CFBDClient[FrameT]:
 
         self._transport = transport
         self._cache_coordinator = cache_coordinator
+        self._analytics_bridge_value = _AnalyticsClientBridge(
+            executor=executor,
+            dataframe_adapter=adapter,
+            cache_coordinator=cache_coordinator,
+            dataframe_backend=dataframe_backend,
+            retry_max_attempts=resolved_retry_policy.max_attempts,
+            base_url=resolved_base_url,
+            credential_scope=credential_scope,
+            cache_enabled=cache is not None,
+            config=analytics,
+        )
         self._games = GamesResource(executor, adapter)
         self._drives = DrivesResource(executor, adapter)
         self._plays = PlaysResource(executor, adapter)
@@ -362,6 +406,10 @@ class CFBDClient[FrameT]:
         :raises ValueError: If the mode string is not supported.
         """
         return self._cache_coordinator.mode_scope(CacheMode(mode))
+
+    def _analytics_bridge(self) -> _AnalyticsClientBridge[FrameT]:
+        """Return in-memory dependencies owned by this client."""
+        return self._analytics_bridge_value
 
     async def __aenter__(self) -> Self:
         await self._transport.open()

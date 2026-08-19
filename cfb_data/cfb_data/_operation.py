@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, TypeAdapter
 
 from cfb_data._dataframes import _DataFrameAdapter
-from cfb_data._executor import _EndpointExecutor
+from cfb_data._executor import _EndpointExecutor, _response_contract, _serialize_request
 from cfb_data._requests import _resolve_request
 
 
@@ -66,3 +66,14 @@ class _ManyEndpointOperation[RequestT: BaseModel, RowT: BaseModel]:
             row_model=self.row_model,
             models=rows,
         )
+
+    @property
+    def response_contract(self) -> str:
+        """Return the stable response schema fingerprint used by the cache."""
+        return _response_contract(self.response_adapter)
+
+    def serialized_parameters(
+        self, request: RequestT
+    ) -> dict[str, str | int | float | bool]:
+        """Return the exact typed upstream request parameters."""
+        return _serialize_request(self.endpoint, request)
