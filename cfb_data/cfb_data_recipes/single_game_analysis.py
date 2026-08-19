@@ -36,12 +36,14 @@ def single_game_analysis(
     *,
     game_id: int,
     include_team_stats: bool = False,
+    include_advanced_box: bool = False,
     include_win_probability: bool = False,
 ) -> SingleGameAnalysisRefs:
     """Build the core named products for one exact game.
 
     :param game_id: Stable CFBD game identifier.
     :param include_team_stats: Request conventional team-game statistics.
+    :param include_advanced_box: Request the nested advanced game box score.
     :param include_win_probability: Request exact play win probabilities.
     :return: Typed references to six named dataset outputs.
     """
@@ -55,6 +57,7 @@ def single_game_analysis(
         "team_games": team_games(
             game_id=game_id,
             include_team_stats=include_team_stats,
+            include_advanced_box=include_advanced_box,
         ),
         "player_game_stats": player_game_stats(game_id=game_id),
         "drives": drives(

@@ -15,8 +15,12 @@ from enum import StrEnum
 
 from cfb_data.analytics import RecipeRef, dataset, step
 from cfb_data.enums import Classification, PlayoffCompetition, PlayoffRound, SeasonType
-from cfb_data.games.models.pydantic.responses import TeamGameStat, TeamGameStats
-from cfb_data.games.sources import team_game_stats
+from cfb_data.games.models.pydantic.responses import (
+    AdvancedBoxScore,
+    TeamGameStat,
+    TeamGameStats,
+)
+from cfb_data.games.sources import advanced_box_score, team_game_stats
 from cfb_data.metrics.models.pydantic.responses import (
     TeamGamePPAUnit,
     TeamGamePredictedPointsAdded,
@@ -146,6 +150,13 @@ class TeamGame(BaseModel):
         default=None,
         description="Source-ordered conventional statistics when requested.",
     )
+    advanced_box_coverage: TeamStatsCoverage = Field(
+        description="Explicit exact-game advanced-box availability."
+    )
+    advanced_box: AdvancedBoxScore | None = Field(
+        default=None,
+        description="Complete validated advanced box score when requested.",
+    )
     advanced_stats_coverage: TeamStatsCoverage = Field(
         description="Explicit advanced-stat enrichment availability."
     )
@@ -191,6 +202,8 @@ def normalize_team_games(
     summaries: list[GameSummary],
     *,
     statistics: list[TeamGameStats] | None,
+    advanced_box: list[AdvancedBoxScore] | None,
+    advanced_box_game_id: int | None,
     advanced: list[AdvancedGameStat] | None,
     havoc: list[GameHavocStats] | None,
     ppa: list[TeamGamePredictedPointsAdded] | None,
@@ -200,6 +213,8 @@ def normalize_team_games(
 
     :param summaries: Validated base game summaries.
     :param statistics: Requested team-stat responses, or ``None`` when omitted.
+    :param advanced_box: Requested advanced box score, or ``None`` when omitted.
+    :param advanced_box_game_id: Exact game ID used for the box-score request.
     :param advanced: Requested advanced-stat rows, or ``None`` when omitted.
     :param havoc: Requested havoc rows, or ``None`` when omitted.
     :param ppa: Requested game-PPA rows, or ``None`` when omitted.
@@ -217,6 +232,12 @@ def normalize_team_games(
     ]
     if statistics is not None:
         rows = _attach_team_stats(rows, statistics)
+    if advanced_box is not None:
+        rows = _attach_advanced_box(
+            rows,
+            advanced_box,
+            requested_game_id=advanced_box_game_id,
+        )
     if advanced is not None:
         rows = _attach_advanced_stats(rows, advanced, requested_team=requested_team)
     if havoc is not None:
@@ -258,6 +279,7 @@ def team_games(
     competition: PlayoffCompetition | None = None,
     round: PlayoffRound | None = None,
     include_team_stats: bool = False,
+    include_advanced_box: bool = False,
     include_advanced_stats: bool = False,
     include_havoc: bool = False,
     include_ppa: bool = False,
@@ -277,12 +299,13 @@ def team_games(
     :param competition: Optional playoff competition.
     :param round: Optional playoff round.
     :param include_team_stats: Request conventional nested team statistics.
+    :param include_advanced_box: Request the exact-game nested advanced box score.
     :param include_advanced_stats: Request advanced team-game statistics.
     :param include_havoc: Request team-game havoc statistics.
     :param include_ppa: Request team-game predicted-points-added metrics.
     :param exclude_garbage_time: Optional source policy for advanced stats and PPA.
     :return: A reference to the validated team-game dataset.
-    :raises ValueError: If game PPA is requested without a season year.
+    :raises ValueError: If an enrichment lacks its required bounded selector.
     """
     summaries = game_summaries(
         year=year,
@@ -308,6 +331,13 @@ def team_games(
             classification=classification,
         )
         if include_team_stats
+        else None
+    )
+    if include_advanced_box and game_id is None:
+        raise ValueError("Advanced box enrichment requires an exact game ID")
+    box = (
+        advanced_box_score(game_id=game_id)
+        if include_advanced_box and game_id is not None
         else None
     )
     advanced = (
@@ -349,6 +379,8 @@ def team_games(
     return normalize_team_games(
         summaries,
         statistics=statistics,
+        advanced_box=box,
+        advanced_box_game_id=game_id,
         advanced=advanced,
         havoc=havoc,
         ppa=ppa,
@@ -401,6 +433,8 @@ def _perspective(summary: GameSummary, *, home: bool) -> TeamGame:
         ),
         team_stats_coverage=TeamStatsCoverage.not_requested,
         team_stats=None,
+        advanced_box_coverage=TeamStatsCoverage.not_requested,
+        advanced_box=None,
         advanced_stats_coverage=TeamStatsCoverage.not_requested,
         advanced_offense=None,
         advanced_defense=None,
@@ -452,6 +486,48 @@ def _attach_team_stats(
             )
         )
     return enriched
+
+
+def _attach_advanced_box(
+    rows: list[TeamGame],
+    responses: list[AdvancedBoxScore],
+    *,
+    requested_game_id: int | None,
+) -> list[TeamGame]:
+    """Attach one exact-game nested box score after context validation.
+
+    :param rows: Complete base team-game perspectives.
+    :param responses: One validated advanced box score.
+    :param requested_game_id: Exact game ID used for retrieval.
+    :return: The unchanged base universe with the full box score attached.
+    :raises ValueError: If count, identity, or score evidence conflicts.
+    """
+    if requested_game_id is None or len(responses) != 1:
+        raise ValueError("Advanced box enrichment requires exactly one response")
+    if len(rows) != 2 or {row.game_id for row in rows} != {requested_game_id}:
+        raise ValueError("Advanced box enrichment requires one two-perspective game")
+    box = responses[0]
+    home = next((row for row in rows if row.home_away == "home"), None)
+    away = next((row for row in rows if row.home_away == "away"), None)
+    if home is None or away is None:
+        raise ValueError("Advanced box enrichment lacks both game perspectives")
+    info = box.game_info
+    if (
+        _normalize_team_name(info.home_team) != _normalize_team_name(home.team)
+        or _normalize_team_name(info.away_team) != _normalize_team_name(away.team)
+        or (home.points is not None and info.home_points != home.points)
+        or (away.points is not None and info.away_points != away.points)
+    ):
+        raise ValueError("Advanced box score conflicts with the selected game")
+    return [
+        row.model_copy(
+            update={
+                "advanced_box_coverage": TeamStatsCoverage.present,
+                "advanced_box": box,
+            }
+        )
+        for row in rows
+    ]
 
 
 def _normalize_team_name(value: str) -> str:

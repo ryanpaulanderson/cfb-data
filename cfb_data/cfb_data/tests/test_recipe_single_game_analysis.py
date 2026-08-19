@@ -7,6 +7,7 @@ from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Literal
 
+import pandas as pd
 import pytest
 from aiohttp import web
 from cfb_data.analytics import (
@@ -97,6 +98,43 @@ async def test_workflow_binds_game_context_into_fixed_source_partitions(
         parameter for node in plan.nodes for parameter in node.deferred_parameters
     }
     assert deferred == {"year", "week", "team"}
+
+
+@pytest.mark.asyncio
+async def test_workflow_exposes_exact_game_advanced_box_enrichment(
+    api_server: ServerFactory,
+    advanced_box_response: dict[str, object],
+    game_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Compose the scalar advanced-box source through team_games."""
+
+    async def handler(request: web.Request) -> web.Response:
+        if request.path == "/games":
+            return web.json_response([game_response])
+        if request.path == "/game/box/advanced":
+            return web.json_response(advanced_box_response)
+        return web.json_response([])
+
+    game_id = _required_game_value(game_response, "id")
+    assert isinstance(game_id, int)
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "single-game-workflow-key",
+            base_url=base_url,
+            retry_policy=RetryPolicy(max_attempts=1),
+            analytics=AnalyticsConfig(root=tmp_path / "analytics"),
+        ) as client:
+            outputs: WorkflowOutputs[object] = await single_game_analysis(
+                client,
+                game_id=game_id,
+                include_advanced_box=True,
+            )
+
+    team_frame = outputs["team_games"]
+    assert isinstance(team_frame, pd.DataFrame)
+    assert team_frame["advanced_box_coverage"].tolist() == ["present", "present"]
+    assert team_frame.loc[0, "advanced_box"]["game_info"]["home_team"] == "Alabama"
 
 
 @pytest.mark.asyncio

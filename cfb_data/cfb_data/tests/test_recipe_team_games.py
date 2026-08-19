@@ -215,6 +215,7 @@ async def test_base_recipe_produces_exactly_two_conservative_perspectives(
 @pytest.mark.asyncio
 async def test_requested_enrichments_preserve_universe_and_four_way_parity(
     api_server: ServerFactory,
+    advanced_box_response: dict[str, object],
     game_response: dict[str, object],
     tmp_path: Path,
 ) -> None:
@@ -225,6 +226,7 @@ async def test_requested_enrichments_preserve_universe_and_four_way_parity(
     payloads: dict[str, object] = {
         "/games": [game_response],
         "/games/teams": stats_payload,
+        "/game/box/advanced": advanced_box_response,
         "/stats/game/advanced": _advanced_payload(int(game_response["id"])),
         "/stats/game/havoc": _havoc_payload(int(game_response["id"])),
         "/ppa/games": _ppa_payload(int(game_response["id"])),
@@ -256,7 +258,9 @@ async def test_requested_enrichments_preserve_universe_and_four_way_parity(
                     client,
                     year=2024,
                     team="Alabama",
+                    game_id=int(game_response["id"]),
                     include_team_stats=True,
+                    include_advanced_box=True,
                     include_advanced_stats=True,
                     include_havoc=True,
                     include_ppa=True,
@@ -278,6 +282,10 @@ async def test_requested_enrichments_preserve_universe_and_four_way_parity(
                 TeamStatsCoverage.present,
                 TeamStatsCoverage.not_requested,
             ]
+            assert restored["advanced_box_coverage"].tolist() == [
+                TeamStatsCoverage.present,
+                TeamStatsCoverage.present,
+            ]
             assert restored["havoc_coverage"].tolist() == [
                 TeamStatsCoverage.present,
                 TeamStatsCoverage.not_requested,
@@ -291,6 +299,9 @@ async def test_requested_enrichments_preserve_universe_and_four_way_parity(
                 "turnovers",
             ]
             assert restored.loc[0, "advanced_offense"]["plays"] == 62
+            assert (
+                restored.loc[0, "advanced_box"]["game_info"]["home_team"] == "Alabama"
+            )
             assert restored.loc[0, "havoc_defense"]["total_havoc_events"] == 9
             assert restored.loc[0, "ppa_offense"]["overall"] == 0.2
 
@@ -412,4 +423,18 @@ async def test_game_ppa_requires_explicit_year_during_pure_planning() -> None:
             client,
             game_id=401628347,
             include_ppa=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_advanced_box_requires_exact_game_during_pure_planning() -> None:
+    """Reject unbounded advanced-box fan-out before operational I/O."""
+    client = CFBDClient("team-games-key")
+
+    with pytest.raises(CFBDRecipeCompilationError, match="builder failed"):
+        await team_games.plan(
+            client,
+            year=2024,
+            team="Alabama",
+            include_advanced_box=True,
         )
