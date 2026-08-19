@@ -2,32 +2,22 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import TypeVar, overload
-
-from pydantic import BaseModel, TypeAdapter
+from typing import overload
 
 from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
-from cfb_data._requests import _resolve_request
+from cfb_data.adjusted_metrics._operations import (
+    KICKER_PAAR_METRICS,
+    PLAYER_PASSING_METRICS,
+    PLAYER_RUSHING_METRICS,
+    TEAM_SEASON_METRICS,
+)
 from cfb_data.adjusted_metrics.models.pydantic.requests import (
     AdjustedPlayerPassingRequest,
     AdjustedPlayerRushingRequest,
     AdjustedTeamMetricsRequest,
     KickerPAARRequest,
 )
-from cfb_data.adjusted_metrics.models.pydantic.responses import (
-    AdjustedTeamMetrics,
-    KickerPAAR,
-    PlayerWeightedEPA,
-)
-
-_RequestT = TypeVar("_RequestT", bound=BaseModel)
-_RowT = TypeVar("_RowT", bound=BaseModel)
-
-_ADJUSTED_TEAM_ROWS = TypeAdapter(list[AdjustedTeamMetrics])
-_PLAYER_WEIGHTED_EPA_ROWS = TypeAdapter(list[PlayerWeightedEPA])
-_KICKER_PAAR_ROWS = TypeAdapter(list[KickerPAAR])
 
 
 class AdjustedMetricsResource[FrameT]:
@@ -67,13 +57,11 @@ class AdjustedMetricsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/wepa/team/season",
-            request_type=AdjustedTeamMetricsRequest,
+        return await TEAM_SEASON_METRICS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_ADJUSTED_TEAM_ROWS,
-            row_model=AdjustedTeamMetrics,
         )
 
     @overload
@@ -107,13 +95,11 @@ class AdjustedMetricsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/wepa/players/passing",
-            request_type=AdjustedPlayerPassingRequest,
+        return await PLAYER_PASSING_METRICS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_PLAYER_WEIGHTED_EPA_ROWS,
-            row_model=PlayerWeightedEPA,
         )
 
     @overload
@@ -147,13 +133,11 @@ class AdjustedMetricsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/wepa/players/rushing",
-            request_type=AdjustedPlayerRushingRequest,
+        return await PLAYER_RUSHING_METRICS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_PLAYER_WEIGHTED_EPA_ROWS,
-            row_model=PlayerWeightedEPA,
         )
 
     @overload
@@ -181,39 +165,11 @@ class AdjustedMetricsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/wepa/players/kicking",
-            request_type=KickerPAARRequest,
+        return await KICKER_PAAR_METRICS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_KICKER_PAAR_ROWS,
-            row_model=KickerPAAR,
-        )
-
-    async def _fetch_many(
-        self,
-        *,
-        endpoint: str,
-        request_type: type[_RequestT],
-        request: _RequestT | None,
-        filters: Mapping[str, object],
-        response_adapter: TypeAdapter[list[_RowT]],
-        row_model: type[_RowT],
-    ) -> FrameT:
-        """Resolve, validate, fetch, and tabularize one list endpoint."""
-        validated = _resolve_request(
-            endpoint=endpoint,
-            request_type=request_type,
-            request=request,
-            filters=filters,
-        )
-        rows = await self._executor.fetch_many(
-            endpoint=endpoint,
-            request=validated,
-            response_adapter=response_adapter,
-        )
-        return self._dataframe_adapter.from_models(
-            endpoint=endpoint, row_model=row_model, models=rows
         )
 
 
