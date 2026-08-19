@@ -19,6 +19,7 @@ from .errors import (
     CFBDRecipeUsageError,
     CFBDRunError,
 )
+from .operations import require_one, value
 from .types import RecipeRef, SourceContext, ValueRef, WorkflowOutputs
 
 __all__ = [
@@ -41,4 +42,6 @@ __all__ = [
     "source",
     "step",
     "workflow",
+    "require_one",
+    "value",
 ]

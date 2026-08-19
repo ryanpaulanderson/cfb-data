@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal
 from enum import Enum
-from types import MappingProxyType
-from typing import Protocol, cast
+from types import MappingProxyType, UnionType
+from typing import Protocol, cast, get_args, get_origin
 
 from pydantic import BaseModel
 
@@ -267,6 +267,19 @@ def _is_reference(value: object) -> bool:
     if isinstance(value, (list, tuple)):
         return any(_is_reference(item) for item in value)
     return False
+
+
+def _validate_reference_type(value: object, annotation: object) -> None:
+    """Validate scalar reference compatibility without evaluating its value."""
+    if not isinstance(value, _ValueRef):
+        return
+    accepted = (
+        get_args(annotation) if get_origin(annotation) is UnionType else (annotation,)
+    )
+    if value.expected_type not in accepted:
+        raise CFBDRecipeCompilationError(
+            "Bound scalar type is incompatible with the source parameter"
+        )
 
 
 def _validate_workflow_outputs(value: object) -> dict[str, _NodeRef]:

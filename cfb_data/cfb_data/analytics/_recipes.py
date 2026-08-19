@@ -119,7 +119,7 @@ class _Recipe[**P, R]:
     def _validated_graph_parameters(
         self, args: tuple[object, ...], kwargs: Mapping[str, object]
     ) -> _ValidatedParameters:
-        from ._compiler import _is_reference
+        from ._compiler import _is_reference, _validate_reference_type
 
         return _bind_graph_parameters(
             self._function,
@@ -127,6 +127,7 @@ class _Recipe[**P, R]:
             args,
             kwargs,
             is_reference=_is_reference,
+            validate_reference=_validate_reference_type,
         )
 
     def _call_builder(self, parameters: Mapping[str, object]) -> R:
@@ -142,6 +143,17 @@ class SourceRecipe[**P, R](_Recipe[P, R]):
         from ._graph_context import _call_in_build_context
 
         return _call_in_build_context(self, args, kwargs)
+
+    def bind(self, **parameters: object) -> RecipeRef[R]:
+        """Bind request parameters to literals or validated upstream scalars.
+
+        :param parameters: Complete request bindings by parameter name.
+        :return: Source reference in the active graph builder.
+        :raises CFBDRecipeUsageError: If no graph is being built.
+        """
+        from ._graph_context import _call_in_build_context
+
+        return _call_in_build_context(self, (), parameters)
 
 
 class StepRecipe[**P, R](_Recipe[P, R]):
@@ -253,6 +265,32 @@ def source[**Params, Result](
         source_cost=source_cost,
     )
     return _decorate(function, declaration, SourceRecipe)
+
+
+@overload
+def step[**Params, Result](
+    function: Callable[Params, Result],
+    *,
+    id: str | None = None,
+    revision: int | None = None,
+    output: type[object] | None = None,
+    deterministic: bool = True,
+    backends: frozenset[str] = _BACKENDS,
+    dask: bool = True,
+) -> StepRecipe[Params, Result]: ...
+
+
+@overload
+def step[**Params, Result](
+    function: None = None,
+    *,
+    id: str | None = None,
+    revision: int | None = None,
+    output: type[object] | None = None,
+    deterministic: bool = True,
+    backends: frozenset[str] = _BACKENDS,
+    dask: bool = True,
+) -> Callable[[Callable[Params, Result]], StepRecipe[Params, Result]]: ...
 
 
 def step[**Params, Result](

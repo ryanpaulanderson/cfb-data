@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 import math
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import get_type_hints
@@ -30,7 +30,8 @@ def _bind_graph_parameters(
     args: tuple[object, ...],
     kwargs: Mapping[str, object],
     *,
-    is_reference: object,
+    is_reference: Callable[[object], bool],
+    validate_reference: Callable[[object, object], None],
 ) -> _ValidatedParameters:
     """Bind graph arguments while deferring validation of typed references."""
     try:
@@ -42,13 +43,11 @@ def _bind_graph_parameters(
     provided = frozenset(bound.arguments)
     bound.apply_defaults()
     hints = get_type_hints(function, include_extras=True)
-    reference_predicate = is_reference
-    if not callable(reference_predicate):
-        raise TypeError("is_reference must be callable")
     validated: dict[str, object] = {}
     try:
         for name, value in bound.arguments.items():
-            if reference_predicate(value):
+            if is_reference(value):
+                validate_reference(value, hints[name])
                 validated[name] = value
                 continue
             adapter: TypeAdapter[object] = TypeAdapter(
