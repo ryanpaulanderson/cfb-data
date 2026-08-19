@@ -12,9 +12,10 @@ make docs
 make check
 ```
 
-`make install` creates `.venv` and installs `.[dev,polars,redis]` so the contributor
+`make install` creates `.venv` and installs `.[dev,polars,redis,yaml]` so the contributor
 environment exercises the canonical PyArrow layer, default pandas backend,
-optional Polars backend, and Redis integration client. `make check` is the
+optional Polars backend, Redis integration client, and hardened YAML boundary.
+`make check` is the
 shared local and CI contract:
 Ruff lint/format checks, strict mypy, a warning-free Sphinx HTML build, and the
 complete pytest suite. `make docs` writes the site to `docs/_build/html`. CI
@@ -39,6 +40,8 @@ and
 [`docs/architecture/0003-canonical-arrow-parquet.md`](docs/architecture/0003-canonical-arrow-parquet.md)
 and
 [`docs/architecture/0004-api-cache-identity-catalog.md`](docs/architecture/0004-api-cache-identity-catalog.md)
+and
+[`docs/architecture/0006-durable-analytics-datasets-workflows.md`](docs/architecture/0006-durable-analytics-datasets-workflows.md)
 before changing endpoint, validation, Arrow, DataFrame, Parquet, cache,
 identity, dataset, or workflow code.
 
@@ -53,10 +56,12 @@ identity, dataset, or workflow code.
 - pandas and Polars preserve their established public dtypes. Their native
   Parquet methods are not the cfb-data persistence contract; library-owned
   persistence must use the versioned internal codec.
-- Preserve nested source data. Flattening and exploding belong in a dataset or
-  feature layer with a declared row grain, not endpoint conversion.
-- Future datasets validate their final joined row model before conversion;
-  workflows orchestrate endpoints and datasets above that layer.
+- Preserve nested source data. Flattening and exploding belong in the dataset
+  layer with a declared row grain, not endpoint conversion.
+- Datasets validate their final joined row model and table contract before
+  conversion; workflows expose named outputs above that layer.
+- Redis remains the exact-response cache. Durable analytical recovery uses the
+  independent SQLite and immutable-artifact store defined by ADR 0006.
 
 Do not reintroduce raw/model/pandas client hierarchies, generic public path
 routing, Pandera schemas, or backend-specific endpoint methods.
@@ -95,6 +100,13 @@ records, TTL and stale behavior, cancellation, lease ownership and expiry,
 backend failure, redaction, exact quota call counts, multiprocess SQLite, and
 real Redis where relevant.
 
+`make test-live-analytics` is the separately gated durable analytics matrix. It
+uses the persistent `cfb-data:penn-state-atlas` Redis namespace without deleting
+it, reads the cumulative `.cfb-data-live/call-ledger.json`, reserves every retry
+before dispatch, and refuses to cross the repository's investigation limit. It
+records only aggregate counters and content digests in the ignored live-report
+directory.
+
 ## Static type checking
 
 Production modules run under mypy strict mode with the Pydantic plugin. The
@@ -109,9 +121,9 @@ Localize and explain any unavoidable third-party boundary.
 ## Dependencies and Git
 
 `pyproject.toml` is the only dependency and package-metadata source. pandas,
-PyArrow, and aiosqlite are core dependencies; Polars belongs only to the
-`polars` extra, Redis belongs only to the `redis` extra, and development tools
-and third-party typing stubs belong to `dev`.
+PyArrow, Narwhals, and aiosqlite are core dependencies; Polars belongs only to
+the `polars` extra, Redis only to the `redis` extra, PyYAML only to the `yaml`
+extra, and development tools and third-party typing stubs belong to `dev`.
 
 Use the branch names and detailed Conventional Commits defined in `AGENTS.md`.
 Do not commit directly to `main`, and do not merge unless the shared quality
