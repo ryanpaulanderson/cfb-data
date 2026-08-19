@@ -108,6 +108,13 @@ def program_history(
     season_type: SeasonType | None = None,
     classification: Classification | None = None,
     recruit_classification: RecruitClassification | None = None,
+    include_team_game_stats: bool = False,
+    include_advanced_game_stats: bool = False,
+    include_game_havoc: bool = False,
+    include_game_ppa: bool = False,
+    include_team_season_ppa: bool = False,
+    include_coach_tenure: bool = False,
+    exclude_garbage_time: bool | None = None,
 ) -> ProgramHistoryRefs:
     """Build bounded historical program products over an inclusive range.
 
@@ -117,6 +124,13 @@ def program_history(
     :param season_type: Optional game and ranking season phase.
     :param classification: Optional game and team-stat classification.
     :param recruit_classification: Optional recruit-type selector.
+    :param include_team_game_stats: Request conventional team-game statistics.
+    :param include_advanced_game_stats: Request advanced team-game statistics.
+    :param include_game_havoc: Request team-game havoc statistics.
+    :param include_game_ppa: Request team-game PPA metrics.
+    :param include_team_season_ppa: Request team-season PPA metrics.
+    :param include_coach_tenure: Request continuous coach-tenure context.
+    :param exclude_garbage_time: Optional source policy for supported metrics.
     :return: Typed references to six named historical outputs.
     :raises ValueError: If the range is reversed or exceeds the static bound.
     """
@@ -136,6 +150,11 @@ def program_history(
             team=team,
             season_type=season_type,
             classification=classification,
+            include_team_stats=include_team_game_stats,
+            include_advanced_stats=include_advanced_game_stats,
+            include_havoc=include_game_havoc,
+            include_ppa=include_game_ppa,
+            exclude_garbage_time=exclude_garbage_time,
         )
         for season in seasons
     )
@@ -144,6 +163,8 @@ def program_history(
             season=season,
             team=team,
             classification=classification,
+            exclude_garbage_time=exclude_garbage_time,
+            include_ppa=include_team_season_ppa,
         )
         for season in seasons
     )
@@ -171,6 +192,7 @@ def program_history(
             team=team,
             min_year=start_season,
             max_year=end_season,
+            include_tenure=include_coach_tenure,
         ),
         "poll_rankings": _concatenate_poll_rankings(rankings),
     }

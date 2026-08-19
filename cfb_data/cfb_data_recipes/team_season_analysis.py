@@ -41,6 +41,16 @@ def team_season_analysis(
     team: str,
     season_type: SeasonType | None = None,
     classification: Classification | None = None,
+    include_team_game_stats: bool = False,
+    include_advanced_game_stats: bool = False,
+    include_game_havoc: bool = False,
+    include_game_ppa: bool = False,
+    include_team_season_ppa: bool = False,
+    include_player_usage: bool = False,
+    include_player_ppa: bool = False,
+    include_player_success: bool = False,
+    include_coach_tenure: bool = False,
+    exclude_garbage_time: bool | None = None,
 ) -> TeamSeasonAnalysisRefs:
     """Build the core named products for one team season.
 
@@ -48,6 +58,16 @@ def team_season_analysis(
     :param team: Required team selector shared by every output.
     :param season_type: Optional game and player-stat season phase.
     :param classification: Optional roster and source classification.
+    :param include_team_game_stats: Request conventional team-game statistics.
+    :param include_advanced_game_stats: Request advanced team-game statistics.
+    :param include_game_havoc: Request team-game havoc statistics.
+    :param include_game_ppa: Request team-game PPA metrics.
+    :param include_team_season_ppa: Request team-season PPA metrics.
+    :param include_player_usage: Request player-season usage metrics.
+    :param include_player_ppa: Request player-season PPA metrics.
+    :param include_player_success: Request player success-rate metrics.
+    :param include_coach_tenure: Request continuous coach-tenure context.
+    :param exclude_garbage_time: Optional source policy for supported metrics.
     :return: Typed references to seven named dataset outputs.
     """
     return {
@@ -62,6 +82,11 @@ def team_season_analysis(
             team=team,
             season_type=season_type,
             classification=classification,
+            include_team_stats=include_team_game_stats,
+            include_advanced_stats=include_advanced_game_stats,
+            include_havoc=include_game_havoc,
+            include_ppa=include_game_ppa,
+            exclude_garbage_time=exclude_garbage_time,
         ),
         "player_game_stats": player_game_stats(
             year=season,
@@ -78,14 +103,24 @@ def team_season_analysis(
             season=season,
             team=team,
             classification=classification,
+            exclude_garbage_time=exclude_garbage_time,
+            include_ppa=include_team_season_ppa,
         ),
         "player_seasons": player_seasons(
             season=season,
             team=team,
             season_type=season_type,
             classification=classification,
+            exclude_garbage_time=exclude_garbage_time,
+            include_usage=include_player_usage,
+            include_ppa=include_player_ppa,
+            include_success=include_player_success,
         ),
-        "coach_seasons": coach_seasons(year=season, team=team),
+        "coach_seasons": coach_seasons(
+            year=season,
+            team=team,
+            include_tenure=include_coach_tenure,
+        ),
     }
 
 

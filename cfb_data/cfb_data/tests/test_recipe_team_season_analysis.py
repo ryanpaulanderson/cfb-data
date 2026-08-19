@@ -44,6 +44,17 @@ _SOURCES = {
     "/stats/player/season",
     "/coaches/seasons",
 }
+_OPTIONAL_SOURCES = {
+    "/games/teams",
+    "/stats/game/advanced",
+    "/stats/game/havoc",
+    "/ppa/games",
+    "/ppa/teams",
+    "/player/usage",
+    "/ppa/players/season",
+    "/stats/player/success",
+    "/coaches/tenures",
+}
 
 
 def _frame_length(value: object) -> int:
@@ -81,6 +92,47 @@ async def test_workflow_returns_named_outputs_and_deduplicates_sources(
     assert tuple(outputs) == _OUTPUTS
     assert all(_frame_length(frame) == 0 for frame in outputs.values())
     assert calls == {path: 1 for path in _SOURCES}
+
+
+@pytest.mark.asyncio
+async def test_workflow_composes_all_dataset_enrichment_options(
+    api_server: ServerFactory,
+    tmp_path: Path,
+) -> None:
+    """Route explicit workflow options through ordinary dataset recipes."""
+    expected_sources = _SOURCES | _OPTIONAL_SOURCES
+    calls: dict[str, int] = {path: 0 for path in expected_sources}
+
+    async def handler(request: web.Request) -> web.Response:
+        calls[request.path] += 1
+        return web.json_response([])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "team-season-workflow-key",
+            base_url=base_url,
+            retry_policy=RetryPolicy(max_attempts=1),
+            analytics=AnalyticsConfig(root=tmp_path / "analytics"),
+        ) as client:
+            outputs: WorkflowOutputs[object] = await team_season_analysis(
+                client,
+                season=2024,
+                team="Penn State",
+                include_team_game_stats=True,
+                include_advanced_game_stats=True,
+                include_game_havoc=True,
+                include_game_ppa=True,
+                include_team_season_ppa=True,
+                include_player_usage=True,
+                include_player_ppa=True,
+                include_player_success=True,
+                include_coach_tenure=True,
+                exclude_garbage_time=True,
+            )
+
+    assert tuple(outputs) == _OUTPUTS
+    assert all(_frame_length(frame) == 0 for frame in outputs.values())
+    assert calls == {path: 1 for path in expected_sources}
 
 
 @pytest.mark.asyncio

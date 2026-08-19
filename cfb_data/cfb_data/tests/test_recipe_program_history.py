@@ -119,6 +119,41 @@ async def test_workflow_rejects_unbounded_or_reversed_ranges() -> None:
 
 
 @pytest.mark.asyncio
+async def test_history_enrichments_expand_only_the_static_plan() -> None:
+    """Expose dataset options without operational work during planning."""
+    client = CFBDClient("program-history-key")
+
+    base = await program_history.plan(
+        client,
+        team="Penn State",
+        start_season=2024,
+        end_season=2024,
+    )
+    enriched = await program_history.plan(
+        client,
+        team="Penn State",
+        start_season=2024,
+        end_season=2024,
+        include_team_game_stats=True,
+        include_advanced_game_stats=True,
+        include_game_havoc=True,
+        include_game_ppa=True,
+        include_team_season_ppa=True,
+        include_coach_tenure=True,
+        exclude_garbage_time=True,
+    )
+
+    node_ids = "\n".join(node.node_id for node in enriched.nodes)
+    assert enriched.worst_case_http_attempts > base.worst_case_http_attempts
+    assert "cfbd.games.team_stats" in node_ids
+    assert "cfbd.stats.advanced_game" in node_ids
+    assert "cfbd.stats.game_havoc" in node_ids
+    assert "cfbd.metrics.team_game_ppa" in node_ids
+    assert "cfbd.metrics.team_season_ppa" in node_ids
+    assert "cfbd.coaches.tenures" in node_ids
+
+
+@pytest.mark.asyncio
 async def test_workflow_has_four_way_artifact_and_graph_parity(
     api_server: ServerFactory,
     tmp_path: Path,
