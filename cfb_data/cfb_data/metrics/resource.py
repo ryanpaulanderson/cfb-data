@@ -11,6 +11,7 @@ from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
 from cfb_data._requests import _resolve_request
 from cfb_data.enums import Classification, SeasonType
+from cfb_data.metrics._operations import PLAY_WIN_PROBABILITIES
 from cfb_data.metrics.models.pydantic.requests import (
     PlayerGamePPARequest,
     PlayerSeasonPPARequest,
@@ -24,7 +25,6 @@ from cfb_data.metrics.models.pydantic.responses import (
     FieldGoalExpectedPoints,
     PlayerGamePredictedPointsAdded,
     PlayerSeasonPredictedPointsAdded,
-    PlayWinProbability,
     PredictedPointsValue,
     PregameWinProbability,
     TeamGamePredictedPointsAdded,
@@ -51,7 +51,6 @@ _TEAM_SEASON_PPA_ROWS = TypeAdapter(list[TeamSeasonPredictedPointsAdded])
 _TEAM_GAME_PPA_ROWS = TypeAdapter(list[TeamGamePredictedPointsAdded])
 _PLAYER_GAME_PPA_ROWS = TypeAdapter(list[PlayerGamePredictedPointsAdded])
 _PLAYER_SEASON_PPA_ROWS = TypeAdapter(list[PlayerSeasonPredictedPointsAdded])
-_WIN_PROBABILITY_ROWS = TypeAdapter(list[PlayWinProbability])
 _PREGAME_WIN_PROBABILITY_ROWS = TypeAdapter(list[PregameWinProbability])
 _FIELD_GOAL_EP_ROWS = TypeAdapter(list[FieldGoalExpectedPoints])
 
@@ -275,13 +274,11 @@ class MetricsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/metrics/wp",
-            request_type=WinProbabilityRequest,
+        return await PLAY_WIN_PROBABILITIES.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_WIN_PROBABILITY_ROWS,
-            row_model=PlayWinProbability,
         )
 
     @overload
