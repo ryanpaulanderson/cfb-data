@@ -34,7 +34,7 @@ class TeamSeasonAnalysisRefs(TypedDict):
     coach_seasons: list[CoachSeason]
 
 
-@workflow(id="cfbd.team_season_analysis", revision=2)
+@workflow(id="cfbd.team_season_analysis", revision=3)
 def team_season_analysis(
     *,
     season: int,
@@ -49,9 +49,23 @@ def team_season_analysis(
     include_game_havoc: bool = False,
     include_game_ppa: bool = False,
     include_team_season_ppa: bool = False,
+    include_team_talent: bool = False,
+    include_team_ats: bool = False,
+    include_returning_production: bool = False,
+    include_core_rating: bool = False,
+    include_sp_rating: bool = False,
+    include_srs_rating: bool = False,
+    include_elo_rating: bool = False,
+    team_elo_week: int | None = None,
+    team_elo_season_type: SeasonType | None = None,
+    include_fpi_rating: bool = False,
+    include_adjusted_team_metrics: bool = False,
     include_player_usage: bool = False,
     include_player_ppa: bool = False,
     include_player_success: bool = False,
+    include_passing_wepa: bool = False,
+    include_rushing_wepa: bool = False,
+    include_kicker_paar: bool = False,
     include_coach_tenure: bool = False,
     exclude_garbage_time: bool | None = None,
 ) -> TeamSeasonAnalysisRefs:
@@ -69,9 +83,23 @@ def team_season_analysis(
     :param include_game_havoc: Request team-game havoc statistics.
     :param include_game_ppa: Request team-game PPA metrics.
     :param include_team_season_ppa: Request team-season PPA metrics.
+    :param include_team_talent: Request team-talent composites.
+    :param include_team_ats: Request team against-the-spread records.
+    :param include_returning_production: Request returning-production metrics.
+    :param include_core_rating: Request the team CORE rating.
+    :param include_sp_rating: Request the team SP+ rating.
+    :param include_srs_rating: Request the team SRS result.
+    :param include_elo_rating: Request the team Elo result.
+    :param team_elo_week: Optional week cutoff for requested team Elo.
+    :param team_elo_season_type: Optional season phase for requested team Elo.
+    :param include_fpi_rating: Request the team FPI result.
+    :param include_adjusted_team_metrics: Request adjusted team metrics.
     :param include_player_usage: Request player-season usage metrics.
     :param include_player_ppa: Request player-season PPA metrics.
     :param include_player_success: Request player success-rate metrics.
+    :param include_passing_wepa: Request adjusted player passing EPA.
+    :param include_rushing_wepa: Request adjusted player rushing EPA.
+    :param include_kicker_paar: Request kicker points above replacement.
     :param include_coach_tenure: Request continuous coach-tenure context.
     :param exclude_garbage_time: Optional source policy for supported metrics.
     :return: Typed references to seven named dataset outputs.
@@ -114,6 +142,17 @@ def team_season_analysis(
             classification=classification,
             exclude_garbage_time=exclude_garbage_time,
             include_ppa=include_team_season_ppa,
+            include_talent=include_team_talent,
+            include_ats=include_team_ats,
+            include_returning_production=include_returning_production,
+            include_core_rating=include_core_rating,
+            include_sp_rating=include_sp_rating,
+            include_srs_rating=include_srs_rating,
+            include_elo_rating=include_elo_rating,
+            elo_week=team_elo_week,
+            elo_season_type=team_elo_season_type,
+            include_fpi_rating=include_fpi_rating,
+            include_adjusted_metrics=include_adjusted_team_metrics,
         ),
         "player_seasons": player_seasons(
             season=season,
@@ -124,6 +163,9 @@ def team_season_analysis(
             include_usage=include_player_usage,
             include_ppa=include_player_ppa,
             include_success=include_player_success,
+            include_passing_wepa=include_passing_wepa,
+            include_rushing_wepa=include_rushing_wepa,
+            include_kicker_paar=include_kicker_paar,
         ),
         "coach_seasons": coach_seasons(
             year=season,

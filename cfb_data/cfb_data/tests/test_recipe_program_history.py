@@ -141,6 +141,15 @@ async def test_history_enrichments_expand_only_the_static_plan() -> None:
         include_game_havoc=True,
         include_game_ppa=True,
         include_team_season_ppa=True,
+        include_team_talent=True,
+        include_team_ats=True,
+        include_returning_production=True,
+        include_core_rating=True,
+        include_sp_rating=True,
+        include_srs_rating=True,
+        include_elo_rating=True,
+        include_fpi_rating=True,
+        include_adjusted_team_metrics=True,
         include_coach_tenure=True,
         exclude_garbage_time=True,
     )
@@ -154,6 +163,15 @@ async def test_history_enrichments_expand_only_the_static_plan() -> None:
     assert "cfbd.stats.game_havoc" in node_ids
     assert "cfbd.metrics.team_game_ppa" in node_ids
     assert "cfbd.metrics.team_season_ppa" in node_ids
+    assert "cfbd.teams.talent" in node_ids
+    assert "cfbd.teams.ats" in node_ids
+    assert "cfbd.players.returning_production" in node_ids
+    assert "cfbd.ratings.core" in node_ids
+    assert "cfbd.ratings.sp" in node_ids
+    assert "cfbd.ratings.srs" in node_ids
+    assert "cfbd.ratings.elo" in node_ids
+    assert "cfbd.ratings.fpi" in node_ids
+    assert "cfbd.adjusted_metrics.team_season" in node_ids
     assert "cfbd.coaches.tenures" in node_ids
 
 

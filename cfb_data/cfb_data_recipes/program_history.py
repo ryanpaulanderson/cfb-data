@@ -104,7 +104,7 @@ def _concatenate_poll_rankings(
     return _concatenate(groups)
 
 
-@workflow(id="cfbd.program_history", revision=2)
+@workflow(id="cfbd.program_history", revision=3)
 def program_history(
     *,
     team: str,
@@ -121,6 +121,17 @@ def program_history(
     include_game_havoc: bool = False,
     include_game_ppa: bool = False,
     include_team_season_ppa: bool = False,
+    include_team_talent: bool = False,
+    include_team_ats: bool = False,
+    include_returning_production: bool = False,
+    include_core_rating: bool = False,
+    include_sp_rating: bool = False,
+    include_srs_rating: bool = False,
+    include_elo_rating: bool = False,
+    team_elo_week: int | None = None,
+    team_elo_season_type: SeasonType | None = None,
+    include_fpi_rating: bool = False,
+    include_adjusted_team_metrics: bool = False,
     include_coach_tenure: bool = False,
     exclude_garbage_time: bool | None = None,
 ) -> ProgramHistoryRefs:
@@ -140,6 +151,17 @@ def program_history(
     :param include_game_havoc: Request team-game havoc statistics.
     :param include_game_ppa: Request team-game PPA metrics.
     :param include_team_season_ppa: Request team-season PPA metrics.
+    :param include_team_talent: Request team-talent composites.
+    :param include_team_ats: Request team against-the-spread records.
+    :param include_returning_production: Request returning-production metrics.
+    :param include_core_rating: Request the team CORE rating.
+    :param include_sp_rating: Request the team SP+ rating.
+    :param include_srs_rating: Request the team SRS result.
+    :param include_elo_rating: Request the team Elo result.
+    :param team_elo_week: Optional week cutoff for requested team Elo.
+    :param team_elo_season_type: Optional season phase for requested team Elo.
+    :param include_fpi_rating: Request the team FPI result.
+    :param include_adjusted_team_metrics: Request adjusted team metrics.
     :param include_coach_tenure: Request continuous coach-tenure context.
     :param exclude_garbage_time: Optional source policy for supported metrics.
     :return: Typed references to six named historical outputs.
@@ -179,6 +201,17 @@ def program_history(
             classification=classification,
             exclude_garbage_time=exclude_garbage_time,
             include_ppa=include_team_season_ppa,
+            include_talent=include_team_talent,
+            include_ats=include_team_ats,
+            include_returning_production=include_returning_production,
+            include_core_rating=include_core_rating,
+            include_sp_rating=include_sp_rating,
+            include_srs_rating=include_srs_rating,
+            include_elo_rating=include_elo_rating,
+            elo_week=team_elo_week,
+            elo_season_type=team_elo_season_type,
+            include_fpi_rating=include_fpi_rating,
+            include_adjusted_metrics=include_adjusted_team_metrics,
         )
         for season in seasons
     )
