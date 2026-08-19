@@ -8,22 +8,13 @@ of silently choosing a name match.
 
 from __future__ import annotations
 
-from enum import StrEnum
-
 from cfb_data.analytics import RecipeRef, dataset, step
 from cfb_data.enums import Classification
+from cfb_data.teams.identity import TeamIdentityIndex, TeamIdentityStatus
 from cfb_data.teams.models.pydantic.responses import RosterPlayer, Team
 from cfb_data.teams.sources import roster as roster_source
 from cfb_data.teams.sources import teams as teams_source
 from pydantic import BaseModel, ConfigDict, Field
-
-
-class TeamIdentityStatus(StrEnum):
-    """Classify season-scoped team identity evidence."""
-
-    resolved = "resolved"
-    unresolved = "unresolved"
-    ambiguous = "ambiguous"
 
 
 class RosterMembership(BaseModel):
@@ -123,7 +114,7 @@ def normalize_roster(
     :param teams: Validated teams carrying historical school and alias evidence.
     :return: Memberships with deterministic identity outcomes and ordering.
     """
-    identity_index = _team_identity_index(teams)
+    identity_index = TeamIdentityIndex(teams)
     rows = [_normalize_player(season, player, identity_index) for player in players]
     return sorted(
         rows,
@@ -160,42 +151,18 @@ def rosters(
     )
 
 
-def _normalize_identity_text(value: str) -> str:
-    return " ".join(value.split()).casefold()
-
-
-def _team_identity_index(teams: list[Team]) -> dict[str, tuple[int, ...]]:
-    mutable: dict[str, set[int]] = {}
-    for team in teams:
-        names = [team.school, *(team.alternate_names or [])]
-        for name in names:
-            normalized = _normalize_identity_text(name)
-            if normalized:
-                mutable.setdefault(normalized, set()).add(team.id)
-    return {name: tuple(sorted(ids)) for name, ids in mutable.items()}
-
-
 def _normalize_player(
     season: int,
     player: RosterPlayer,
-    identity_index: dict[str, tuple[int, ...]],
+    identity_index: TeamIdentityIndex,
 ) -> RosterMembership:
-    candidate_ids = identity_index.get(_normalize_identity_text(player.team), ())
-    if len(candidate_ids) == 1:
-        identity_status = TeamIdentityStatus.resolved
-        team_id = candidate_ids[0]
-    elif candidate_ids:
-        identity_status = TeamIdentityStatus.ambiguous
-        team_id = None
-    else:
-        identity_status = TeamIdentityStatus.unresolved
-        team_id = None
+    evidence = identity_index.resolve(player.team)
     return RosterMembership(
         season=season,
         source_team=player.team,
-        team_id=team_id,
-        team_identity_status=identity_status,
-        team_identity_candidate_ids=list(candidate_ids),
+        team_id=evidence.team_id,
+        team_identity_status=evidence.status,
+        team_identity_candidate_ids=list(evidence.candidate_ids),
         athlete_id=player.id,
         first_name=player.first_name,
         last_name=player.last_name,
