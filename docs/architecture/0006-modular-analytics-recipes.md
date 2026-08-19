@@ -1,8 +1,9 @@
 # ADR 0006: Build analytics from modular callable recipes
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-08-18
-- Applies from: Acceptance of the modular analytics foundation
+- Accepted: 2026-08-19
+- Applies from: The modular analytics vertical slice
 
 ## Context
 
@@ -33,10 +34,11 @@ substantial analytics platform. Dependencies and frameworks are selected by
 whether they preserve the product's correctness, extensibility, and parity
 contracts rather than by whether they are small.
 
-This record replaces the rejected ADR 0006 design. While its status is
-``Proposed``, the recipe API, first-party modules, Dask executor, and durable
-analytics runtime described below are planned contracts, not current supported
-behavior.
+This record replaces the rejected ADR 0006 design. It remained ``Proposed``
+while the authoring, discovery, coordinator, artifact, and Dask vertical slice
+was built. The acceptance evidence below approves these architectural
+boundaries; it does not claim that every planned recipe, YAML support, or
+release-hardening gate is complete.
 
 ## Decision
 
@@ -605,6 +607,36 @@ observation. Generic pickle remains excluded.
   and nested recipe authoring, no-I/O planning, async pooled sources, local/Dask
   parity, safe artifacts, and first-party/user discovery through black-box
   tests.
+
+## Acceptance evidence
+
+The decision was accepted on August 19, 2026 after the vertical slice proved:
+
+- Direct eager calls and advanced durable runs through the same callable
+  recipe engine, with artifact references remaining usable after client close.
+- Nested dataset composition in ``team_games`` and game-context identity
+  composition in ``player_game_stats``, with no central recipe index or
+  privileged first-party path.
+- Pure state-independent planning, transactional installed-provider discovery,
+  and a separately built external provider using the public extension surface.
+- Independent pooled source overlap, retry-inclusive attempt reservation,
+  cancellation cleanup, immutable artifact publication, child recovery, and
+  freshness-safe source behavior.
+- Equal canonical content for ``game_summaries``, ``team_games``, and
+  ``player_game_stats`` across pandas/local, Polars/local, pandas/Dask, and
+  Polars/Dask, with sources and persistence remaining coordinator-owned.
+- Managed Dask worker execution, transfer limits, worker cancellation, lazy
+  zero-work behavior, and deterministic provider cleanup.
+
+The repository-wide ``make check`` contract passed with 518 deterministic
+tests and 21 correctly gated Redis/live tests. The separately gated Redis suite
+passed all 19 tests against the preserved local container using isolated test
+prefixes. No live API request was made for architecture acceptance.
+
+Acceptance fixes the modular recipe and topology-neutral executor direction.
+The implementation plan remains in progress until all twelve datasets, three
+workflows, Python/YAML parity, packaging matrices, operational documentation,
+and bounded live validation are complete.
 
 ## Alternatives considered
 

@@ -772,11 +772,12 @@ evidence.
 
 ## Delivery and commit sequence
 
-The approved architecture review authorizes a vertical-slice implementation
-while ADR 0006 remains Proposed. The ADR becomes Accepted only after its stated
-authoring, discovery, pooled-source, artifact, and local/Dask parity evidence
-passes. Each stage is a coherent reviewable change with its own relevant
-checks; implementation must not be reassembled into one large commit.
+The approved architecture review authorized a vertical-slice implementation
+while ADR 0006 remained Proposed. ADR 0006 was accepted on August 19, 2026
+after its stated authoring, discovery, pooled-source, artifact, and local/Dask
+parity evidence passed. The remaining stages stay in progress. Each stage is a
+coherent reviewable change with its own relevant checks; implementation must
+not be reassembled into one large commit.
 
 1. **Authoring and discovery**
    - Add decorators, typed wrappers, graph references, transactional discovery,
