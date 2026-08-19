@@ -129,6 +129,42 @@ async def test_recipe_has_four_way_canonical_parity(
 
 
 @pytest.mark.asyncio
+async def test_recipe_filters_one_game_from_the_containing_partition(
+    api_server: ServerFactory,
+    drive_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Retain an explicitly selected game without claiming endpoint support."""
+    selected = copy.deepcopy(drive_response)
+    excluded = copy.deepcopy(drive_response)
+    excluded["id"] = "different-game-drive"
+    excluded["gameId"] = 999999999
+    game_id = selected["gameId"]
+    assert isinstance(game_id, int)
+
+    async def handler(request: web.Request) -> web.Response:
+        assert request.query == {"year": "2024", "week": "1", "team": "Alabama"}
+        return web.json_response([excluded, selected])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "drives-key",
+            base_url=base_url,
+            retry_policy=RetryPolicy(max_attempts=1),
+            analytics=AnalyticsConfig(root=tmp_path / "analytics"),
+        ) as client:
+            frame: pd.DataFrame = await drives(
+                client,
+                year=2024,
+                week=1,
+                team="Alabama",
+                game_id=game_id,
+            )
+
+    assert frame["game_id"].tolist() == [game_id]
+
+
+@pytest.mark.asyncio
 async def test_duplicate_drive_keys_fail_instead_of_deduplicating(
     api_server: ServerFactory,
     drive_response: dict[str, object],

@@ -116,13 +116,18 @@ class DriveRow(BaseModel):
     output=DriveRow,
     deterministic=True,
 )
-def normalize_drives(rows: list[Drive]) -> list[DriveRow]:
+def normalize_drives(rows: list[Drive], game_id: int | None) -> list[DriveRow]:
     """Normalize validated drives and compute only direct arithmetic.
 
     :param rows: Validated source drives in upstream order.
+    :param game_id: Optional exact game retained from the containing partition.
     :return: Drive rows in deterministic game and source-sequence order.
     """
-    normalized = [_normalize_drive(row) for row in rows]
+    normalized = [
+        _normalize_drive(row)
+        for row in rows
+        if game_id is None or row.game_id == game_id
+    ]
     return sorted(
         normalized,
         key=lambda row: (
@@ -155,6 +160,7 @@ def drives(
     offense_conference: str | None = None,
     defense_conference: str | None = None,
     classification: Classification | None = None,
+    game_id: int | None = None,
 ) -> RecipeRef[list[DriveRow]]:
     """Build game-scoped drive rows from the registered Drives source.
 
@@ -168,6 +174,7 @@ def drives(
     :param offense_conference: Optional offensive-conference selector.
     :param defense_conference: Optional defensive-conference selector.
     :param classification: Optional classification selector.
+    :param game_id: Optional exact game retained from the containing partition.
     :return: A reference to the validated drives dataset.
     """
     return normalize_drives(
@@ -182,7 +189,8 @@ def drives(
             offense_conference=offense_conference,
             defense_conference=defense_conference,
             classification=classification,
-        )
+        ),
+        game_id,
     )
 
 
