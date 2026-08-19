@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, overload
-
-from pydantic import TypeAdapter
+from typing import TYPE_CHECKING, Literal, cast, overload
 
 from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
@@ -12,6 +10,9 @@ from cfb_data._requests import _resolve_request
 from cfb_data.enums import RankingPoll, SeasonType
 from cfb_data.rankings.models.pydantic.requests import RankingsRequest
 from cfb_data.rankings.models.pydantic.responses import PollWeek
+
+if TYPE_CHECKING:
+    from cfb_data.analytics._sources import EndpointOperation
 
 type _SeasonTypeArgument = (
     SeasonType
@@ -25,8 +26,6 @@ type _SeasonTypeArgument = (
     ]
 )
 type _RankingPollArgument = RankingPoll | Literal["cfp"]
-
-_POLL_WEEK_ROWS = TypeAdapter(list[PollWeek])
 
 
 class RankingsResource[FrameT]:
@@ -69,21 +68,27 @@ class RankingsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        endpoint = "/rankings"
+        source = _rankings_source()
+        endpoint = source.endpoint
         validated = _resolve_request(
             endpoint=endpoint,
-            request_type=RankingsRequest,
+            request_type=source.request_model,
             request=request,
             filters=filters,
         )
-        rows = await self._executor.fetch_many(
-            endpoint=endpoint,
-            request=validated,
-            response_adapter=_POLL_WEEK_ROWS,
-        )
+        rows = await source.fetch(self._executor, validated)
         return self._dataframe_adapter.from_models(
-            endpoint=endpoint, row_model=PollWeek, models=rows
+            endpoint=endpoint, row_model=source.output.row_model, models=rows
         )
+
+
+def _rankings_source() -> EndpointOperation[RankingsRequest, PollWeek]:
+    from cfb_data.analytics._sources import EndpointOperation, endpoint_operation
+
+    return cast(
+        EndpointOperation[RankingsRequest, PollWeek],
+        endpoint_operation("cfbd.rankings.list"),
+    )
 
 
 __all__ = ["RankingsResource"]

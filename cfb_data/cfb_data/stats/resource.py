@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Literal, TypeVar, overload
+from typing import TYPE_CHECKING, Literal, TypeVar, cast, overload
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
@@ -32,6 +32,9 @@ from cfb_data.stats.models.pydantic.responses import (
     _StatCategoryValue,
 )
 
+if TYPE_CHECKING:
+    from cfb_data.analytics._sources import EndpointOperation
+
 _RequestT = TypeVar("_RequestT", bound=BaseModel)
 _RowT = TypeVar("_RowT", bound=BaseModel)
 type _ClassificationArgument = Classification | Literal["fbs", "fcs", "ii", "iii"]
@@ -47,12 +50,9 @@ type _SeasonTypeArgument = (
     ]
 )
 
-_PLAYER_STAT_ROWS = TypeAdapter(list[PlayerStat])
 _PLAYER_SEASON_SUCCESS_ROWS = TypeAdapter(list[PlayerSeasonSuccessRate])
 _PLAYER_GAME_SUCCESS_ROWS = TypeAdapter(list[PlayerGameSuccessRate])
-_TEAM_STAT_ROWS = TypeAdapter(list[TeamStat])
 _CATEGORY_VALUES = TypeAdapter(list[_StatCategoryValue])
-_ADVANCED_SEASON_ROWS = TypeAdapter(list[AdvancedSeasonStat])
 _ADVANCED_GAME_ROWS = TypeAdapter(list[AdvancedGameStat])
 _GAME_HAVOC_ROWS = TypeAdapter(list[GameHavocStats])
 
@@ -107,13 +107,14 @@ class StatsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
+        source = _player_season_source()
         return await self._fetch_many(
-            endpoint="/stats/player/season",
-            request_type=PlayerSeasonStatsRequest,
+            endpoint=source.endpoint,
+            request_type=source.request_model,
             request=request,
             filters=filters,
-            response_adapter=_PLAYER_STAT_ROWS,
-            row_model=PlayerStat,
+            response_adapter=source.response_adapter,
+            row_model=source.output.row_model,
         )
 
     @overload
@@ -230,13 +231,14 @@ class StatsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
+        source = _team_season_source()
         return await self._fetch_many(
-            endpoint="/stats/season",
-            request_type=TeamSeasonStatsRequest,
+            endpoint=source.endpoint,
+            request_type=source.request_model,
             request=request,
             filters=filters,
-            response_adapter=_TEAM_STAT_ROWS,
-            row_model=TeamStat,
+            response_adapter=source.response_adapter,
+            row_model=source.output.row_model,
         )
 
     async def categories(self) -> FrameT:
@@ -287,13 +289,14 @@ class StatsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
+        source = _advanced_season_source()
         return await self._fetch_many(
-            endpoint="/stats/season/advanced",
-            request_type=AdvancedSeasonStatsRequest,
+            endpoint=source.endpoint,
+            request_type=source.request_model,
             request=request,
             filters=filters,
-            response_adapter=_ADVANCED_SEASON_ROWS,
-            row_model=AdvancedSeasonStat,
+            response_adapter=source.response_adapter,
+            row_model=source.output.row_model,
         )
 
     @overload
@@ -396,6 +399,35 @@ class StatsResource[FrameT]:
             row_model=row_model,
             models=rows,
         )
+
+
+def _player_season_source() -> EndpointOperation[PlayerSeasonStatsRequest, PlayerStat]:
+    from cfb_data.analytics._sources import EndpointOperation, endpoint_operation
+
+    return cast(
+        EndpointOperation[PlayerSeasonStatsRequest, PlayerStat],
+        endpoint_operation("cfbd.stats.player_season"),
+    )
+
+
+def _team_season_source() -> EndpointOperation[TeamSeasonStatsRequest, TeamStat]:
+    from cfb_data.analytics._sources import EndpointOperation, endpoint_operation
+
+    return cast(
+        EndpointOperation[TeamSeasonStatsRequest, TeamStat],
+        endpoint_operation("cfbd.stats.team_season"),
+    )
+
+
+def _advanced_season_source() -> EndpointOperation[
+    AdvancedSeasonStatsRequest, AdvancedSeasonStat
+]:
+    from cfb_data.analytics._sources import EndpointOperation, endpoint_operation
+
+    return cast(
+        EndpointOperation[AdvancedSeasonStatsRequest, AdvancedSeasonStat],
+        endpoint_operation("cfbd.stats.team_season_advanced"),
+    )
 
 
 __all__ = ["StatsResource"]

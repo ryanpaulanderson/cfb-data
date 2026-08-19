@@ -22,6 +22,7 @@ dependencies = [
     "aiohttp>=3.13,<4",
     "aiosqlite>=0.22,<1",
     "jinja2>=3.1,<4",
+    "narwhals>=2.24,<3",
     "pandas>=3.0,<4",
     "pydantic>=2.12,<3",
     "pyarrow>=25,<26",
@@ -33,6 +34,9 @@ polars = [
 ]
 redis = [
     "redis>=7.1,<9",
+]
+yaml = [
+    "PyYAML>=6.0.3,<7",
 ]
 dev = [
     "build>=1.5,<2",
@@ -46,6 +50,7 @@ dev = [
     "ruff>=0.15.22,<0.17",
     "sphinx>=9.1,<10",
     "twine>=7,<8",
+    "types-PyYAML>=6.0.12.20260724,<7",
 ]
 
 [project.urls]
@@ -121,4 +126,5 @@ testpaths = ["cfb_data/cfb_data/tests"]
 markers = [
     "redis: requires an explicitly configured disposable Redis integration service",
     "live_api: requires CFBD_API_KEY and makes bounded calls to the real API",
+    "live_analytics: requires CFBD_API_KEY and runs quota-ledgered Redis analytics acceptance",
 ]

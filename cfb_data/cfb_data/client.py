@@ -23,6 +23,12 @@ from cfb_data._transport import (
     _validate_timeout,
 )
 from cfb_data.adjusted_metrics.resource import AdjustedMetricsResource
+from cfb_data.analytics._catalog import BUILTIN_CATALOG, BUILTIN_TRANSFORMS
+from cfb_data.analytics._engine import _AnalyticsEngine
+from cfb_data.analytics.artifacts import LocalArtifactStore
+from cfb_data.analytics.contracts import AnalyticsConfig
+from cfb_data.analytics.datasets import DatasetsResource
+from cfb_data.analytics.workflows import WorkflowsResource
 from cfb_data.betting.resource import BettingResource
 from cfb_data.cache._backend import CacheBackend
 from cfb_data.cache._coordinator import CacheCoordinator, CacheModeScope
@@ -83,6 +89,7 @@ class CFBDClient[FrameT]:
         cache: CacheConfig | None = None,
         cache_policy: CachePolicyConfig | None = None,
         observer: RetrievalObserver | None = None,
+        analytics: AnalyticsConfig | None = None,
     ) -> None: ...
 
     @overload
@@ -97,6 +104,7 @@ class CFBDClient[FrameT]:
         cache: CacheConfig | None = None,
         cache_policy: CachePolicyConfig | None = None,
         observer: RetrievalObserver | None = None,
+        analytics: AnalyticsConfig | None = None,
     ) -> None: ...
 
     @overload
@@ -111,6 +119,7 @@ class CFBDClient[FrameT]:
         cache: CacheConfig | None = None,
         cache_policy: CachePolicyConfig | None = None,
         observer: RetrievalObserver | None = None,
+        analytics: AnalyticsConfig | None = None,
     ) -> None: ...
 
     def __init__(
@@ -124,6 +133,7 @@ class CFBDClient[FrameT]:
         cache: CacheConfig | None = None,
         cache_policy: CachePolicyConfig | None = None,
         observer: RetrievalObserver | None = None,
+        analytics: AnalyticsConfig | None = None,
     ) -> None:
         """Initialize a one-shot client without opening its HTTP session.
 
@@ -135,6 +145,7 @@ class CFBDClient[FrameT]:
         :param cache: Optional SQLite or Redis cache and catalog backend.
         :param cache_policy: Optional immutable profile TTL overrides.
         :param observer: Optional synchronous retrieval-event observer.
+        :param analytics: Optional dataset/workflow configuration, or lazy defaults.
         :raises CFBDConfigurationError: If client configuration is invalid.
         """
         if dataframe_backend not in {"pandas", "polars"}:
@@ -144,11 +155,13 @@ class CFBDClient[FrameT]:
 
         resolved_api_key = _resolve_api_key(api_key)
         event_dispatcher = _EventDispatcher(observer)
+        validated_base_url = _validate_base_url(base_url)
+        selected_retry_policy = retry_policy or RetryPolicy()
         transport = _HTTPTransport(
             api_key=resolved_api_key,
-            base_url=_validate_base_url(base_url),
+            base_url=validated_base_url,
             timeout_seconds=_validate_timeout(timeout_seconds),
-            retry_policy=retry_policy or RetryPolicy(),
+            retry_policy=selected_retry_policy,
             event_dispatcher=event_dispatcher,
         )
         cache_backend, cache_timeout = _cache_backend(cache)
@@ -193,6 +206,33 @@ class CFBDClient[FrameT]:
         self._adjusted_metrics = AdjustedMetricsResource(executor, adapter)
         self._info = InfoResource(executor)
         self._identities = IdentitiesResource(executor, cache_coordinator)
+        analytics_config = analytics or AnalyticsConfig()
+        analytics_catalog = BUILTIN_CATALOG.extended(
+            tuple(analytics_config.catalog.values())
+        )
+        analytics_transforms = BUILTIN_TRANSFORMS.extended(
+            tuple(analytics_config.transforms.values())
+        )
+        analytics_engine = _AnalyticsEngine(
+            executor=executor,
+            adapter=adapter,
+            dataframe_backend=dataframe_backend,
+            cache_coordinator=cache_coordinator,
+            source_scope=(
+                f"{validated_base_url}|{credential_scope_digest(resolved_api_key)}"
+            ),
+            store=LocalArtifactStore(analytics_config.path),
+            catalog=analytics_catalog,
+            transforms=analytics_transforms,
+            policy=analytics_config.policy,
+            observer=analytics_config.observer,
+            max_attempts_per_request=selected_retry_policy.max_attempts,
+        )
+        self._analytics_engine = analytics_engine
+        self._datasets = DatasetsResource(analytics_engine)
+        self._workflows = WorkflowsResource(
+            analytics_engine, self._datasets, analytics_config.policy
+        )
 
     @property
     def games(self) -> GamesResource[FrameT]:
@@ -346,6 +386,22 @@ class CFBDClient[FrameT]:
         """
         return self._identities
 
+    @property
+    def datasets(self) -> DatasetsResource[FrameT]:
+        """Return curated datasets and advanced analytics execution controls.
+
+        :return: Lazily persisted dataset namespace bound to this client.
+        """
+        return self._datasets
+
+    @property
+    def workflows(self) -> WorkflowsResource[FrameT]:
+        """Return curated multi-output analytical workflows.
+
+        :return: Workflow namespace using the same validated dataset engine.
+        """
+        return self._workflows
+
     async def cleanup_cache(self) -> int:
         """Delete expired response records without pruning catalog facts.
 
@@ -379,9 +435,12 @@ class CFBDClient[FrameT]:
         traceback: TracebackType | None,
     ) -> None:
         try:
-            await self._cache_coordinator.close()
+            await self._analytics_engine.close()
         finally:
-            await self._transport.close()
+            try:
+                await self._cache_coordinator.close()
+            finally:
+                await self._transport.close()
 
 
 def _cache_backend(cache: CacheConfig | None) -> tuple[CacheBackend, float]:

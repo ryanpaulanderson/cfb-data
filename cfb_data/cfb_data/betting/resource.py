@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, overload
-
-from pydantic import TypeAdapter
+from typing import TYPE_CHECKING, Literal, cast, overload
 
 from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
@@ -12,6 +10,9 @@ from cfb_data._requests import _resolve_request
 from cfb_data.betting.models.pydantic.requests import BettingLinesRequest
 from cfb_data.betting.models.pydantic.responses import BettingGame
 from cfb_data.enums import SeasonType
+
+if TYPE_CHECKING:
+    from cfb_data.analytics._sources import EndpointOperation
 
 type _SeasonTypeArgument = (
     SeasonType
@@ -24,8 +25,6 @@ type _SeasonTypeArgument = (
         "spring_postseason",
     ]
 )
-
-_BETTING_GAME_ROWS = TypeAdapter(list[BettingGame])
 
 
 class BettingResource[FrameT]:
@@ -71,21 +70,27 @@ class BettingResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        endpoint = "/lines"
+        source = _betting_source()
+        endpoint = source.endpoint
         validated = _resolve_request(
             endpoint=endpoint,
-            request_type=BettingLinesRequest,
+            request_type=source.request_model,
             request=request,
             filters=filters,
         )
-        rows = await self._executor.fetch_many(
-            endpoint=endpoint,
-            request=validated,
-            response_adapter=_BETTING_GAME_ROWS,
-        )
+        rows = await source.fetch(self._executor, validated)
         return self._dataframe_adapter.from_models(
-            endpoint=endpoint, row_model=BettingGame, models=rows
+            endpoint=endpoint, row_model=source.output.row_model, models=rows
         )
+
+
+def _betting_source() -> EndpointOperation[BettingLinesRequest, BettingGame]:
+    from cfb_data.analytics._sources import EndpointOperation, endpoint_operation
+
+    return cast(
+        EndpointOperation[BettingLinesRequest, BettingGame],
+        endpoint_operation("cfbd.betting.lines"),
+    )
 
 
 __all__ = ["BettingResource"]

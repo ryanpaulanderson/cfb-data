@@ -6,6 +6,7 @@ import ast
 from pathlib import Path
 
 import pandas as pd
+from cfb_data.analytics._sources import ENDPOINT_OPERATIONS
 from cfb_data.tests._live_manifest import LIVE_ENDPOINT_CASES
 from cfb_data.tests.test_live_api_all import _filters, _Seeds, _update_seeds
 
@@ -13,8 +14,8 @@ _PACKAGE_ROOT = Path(__file__).parents[1]
 
 
 def test_live_manifest_contains_each_public_rest_route_once() -> None:
-    """Fail when a resource route is missing from or duplicated in the manifest."""
-    implemented: set[str] = set()
+    """Fail when a registered public route is missing or duplicated."""
+    implemented = {operation.endpoint for operation in ENDPOINT_OPERATIONS.values()}
     for path in _PACKAGE_ROOT.glob("*/resource.py"):
         tree = ast.parse(path.read_text())
         implemented.update(

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import builtins
-from typing import Literal, TypeVar, overload
+from typing import TYPE_CHECKING, Literal, TypeVar, cast, overload
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -40,6 +40,9 @@ from cfb_data.games.models.pydantic.responses import (
     TeamRecords,
 )
 
+if TYPE_CHECKING:
+    from cfb_data.analytics._sources import EndpointOperation
+
 _RequestT = TypeVar("_RequestT", bound=BaseModel)
 _RowT = TypeVar("_RowT", bound=BaseModel)
 type _SeasonTypeArgument = (
@@ -60,14 +63,10 @@ type _RoundArgument = (
     PlayoffRound | Literal["first_round", "quarterfinal", "semifinal", "championship"]
 )
 
-_GAME_ROWS = TypeAdapter(list[Game])
-_RECORD_ROWS = TypeAdapter(list[TeamRecords])
 _CALENDAR_ROWS = TypeAdapter(list[CalendarWeek])
 _SCOREBOARD_ROWS = TypeAdapter(list[ScoreboardGame])
 _MEDIA_ROWS = TypeAdapter(list[GameMedia])
 _WEATHER_ROWS = TypeAdapter(list[GameWeather])
-_PLAYER_STAT_ROWS = TypeAdapter(list[PlayerGameStats])
-_TEAM_STAT_ROWS = TypeAdapter(list[TeamGameStats])
 _ADVANCED_BOX = TypeAdapter(AdvancedBoxScore)
 
 
@@ -119,21 +118,18 @@ class GamesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        endpoint = "/games"
+        source = _games_source()
+        endpoint = source.endpoint
         validated = _resolve_request(
             endpoint=endpoint,
-            request_type=GamesRequest,
+            request_type=source.request_model,
             request=request,
             filters=filters,
         )
-        rows = await self._executor.fetch_many(
-            endpoint=endpoint,
-            request=validated,
-            response_adapter=_GAME_ROWS,
-        )
+        rows = await source.fetch(self._executor, validated)
         return self._dataframe_adapter.from_models(
             endpoint=endpoint,
-            row_model=Game,
+            row_model=source.output.row_model,
             models=rows,
         )
 
@@ -165,13 +161,14 @@ class GamesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
+        source = _records_source()
         return await self._fetch_frame(
-            endpoint="/records",
-            request_type=RecordsRequest,
+            endpoint=source.endpoint,
+            request_type=source.request_model,
             request=request,
             filters=filters,
-            response_adapter=_RECORD_ROWS,
-            row_model=TeamRecords,
+            response_adapter=source.response_adapter,
+            row_model=source.output.row_model,
         )
 
     @overload
@@ -364,13 +361,14 @@ class GamesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
+        source = _player_stats_source()
         return await self._fetch_frame(
-            endpoint="/games/players",
-            request_type=PlayerGameStatsRequest,
+            endpoint=source.endpoint,
+            request_type=source.request_model,
             request=request,
             filters=filters,
-            response_adapter=_PLAYER_STAT_ROWS,
-            row_model=PlayerGameStats,
+            response_adapter=source.response_adapter,
+            row_model=source.output.row_model,
         )
 
     @overload
@@ -405,13 +403,14 @@ class GamesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
+        source = _team_stats_source()
         return await self._fetch_frame(
-            endpoint="/games/teams",
-            request_type=TeamGameStatsRequest,
+            endpoint=source.endpoint,
+            request_type=source.request_model,
             request=request,
             filters=filters,
-            response_adapter=_TEAM_STAT_ROWS,
-            row_model=TeamGameStats,
+            response_adapter=source.response_adapter,
+            row_model=source.output.row_model,
         )
 
     @overload
@@ -484,3 +483,40 @@ class GamesResource[FrameT]:
             row_model=row_model,
             models=rows,
         )
+
+
+def _games_source() -> EndpointOperation[GamesRequest, Game]:
+    from cfb_data.analytics._sources import EndpointOperation, endpoint_operation
+
+    return cast(
+        EndpointOperation[GamesRequest, Game], endpoint_operation("cfbd.games.list")
+    )
+
+
+def _records_source() -> EndpointOperation[RecordsRequest, TeamRecords]:
+    from cfb_data.analytics._sources import EndpointOperation, endpoint_operation
+
+    return cast(
+        EndpointOperation[RecordsRequest, TeamRecords],
+        endpoint_operation("cfbd.games.records"),
+    )
+
+
+def _player_stats_source() -> EndpointOperation[
+    PlayerGameStatsRequest, PlayerGameStats
+]:
+    from cfb_data.analytics._sources import EndpointOperation, endpoint_operation
+
+    return cast(
+        EndpointOperation[PlayerGameStatsRequest, PlayerGameStats],
+        endpoint_operation("cfbd.games.player_stats"),
+    )
+
+
+def _team_stats_source() -> EndpointOperation[TeamGameStatsRequest, TeamGameStats]:
+    from cfb_data.analytics._sources import EndpointOperation, endpoint_operation
+
+    return cast(
+        EndpointOperation[TeamGameStatsRequest, TeamGameStats],
+        endpoint_operation("cfbd.games.team_stats"),
+    )

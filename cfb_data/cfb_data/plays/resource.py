@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, overload
+from typing import TYPE_CHECKING, Literal, cast, overload
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
@@ -23,6 +23,9 @@ from cfb_data.plays.models.pydantic.responses import (
     PlayType,
 )
 
+if TYPE_CHECKING:
+    from cfb_data.analytics._sources import EndpointOperation
+
 type _SeasonTypeArgument = (
     SeasonType
     | Literal[
@@ -36,7 +39,6 @@ type _SeasonTypeArgument = (
 )
 type _ClassificationArgument = Classification | Literal["fbs", "fcs", "ii", "iii"]
 
-_PLAY_ROWS = TypeAdapter(list[Play])
 _PLAY_TYPE_ROWS = TypeAdapter(list[PlayType])
 _PLAY_STAT_ROWS = TypeAdapter(list[PlayStat])
 _PLAY_STAT_TYPE_ROWS = TypeAdapter(list[PlayStatType])
@@ -100,21 +102,18 @@ class PlaysResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        endpoint = "/plays"
+        source = _plays_source()
+        endpoint = source.endpoint
         validated = _resolve_request(
             endpoint=endpoint,
-            request_type=PlaysRequest,
+            request_type=source.request_model,
             request=request,
             filters=filters,
         )
-        rows = await self._executor.fetch_many(
-            endpoint=endpoint,
-            request=validated,
-            response_adapter=_PLAY_ROWS,
-        )
+        rows = await source.fetch(self._executor, validated)
         return self._dataframe_adapter.from_models(
             endpoint=endpoint,
-            row_model=Play,
+            row_model=source.output.row_model,
             models=rows,
         )
 
@@ -247,3 +246,11 @@ class PlaysResource[FrameT]:
             request=validated,
             response_adapter=_LIVE_GAME,
         )
+
+
+def _plays_source() -> EndpointOperation[PlaysRequest, Play]:
+    from cfb_data.analytics._sources import EndpointOperation, endpoint_operation
+
+    return cast(
+        EndpointOperation[PlaysRequest, Play], endpoint_operation("cfbd.plays.list")
+    )
