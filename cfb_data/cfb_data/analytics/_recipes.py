@@ -10,7 +10,12 @@ from typing import ParamSpec, Self, TypeVar, cast, overload
 from pydantic import BaseModel
 
 from ._declarations import _RecipeDeclaration, _validate_row_type
-from ._parameters import _validate_builder_signature, _validate_call_parameters
+from ._parameters import (
+    _bind_graph_parameters,
+    _validate_builder_signature,
+    _validate_call_parameters,
+    _ValidatedParameters,
+)
 from ._registration import _publish_candidate
 from .errors import CFBDRecipeConfigurationError, CFBDRecipeUsageError
 from .types import RecipeRef
@@ -105,6 +110,24 @@ class _Recipe[**P, R]:
         return _validate_call_parameters(
             self._function, self._signature, args, kwargs
         ).values
+
+    def _validated_parameters(
+        self, args: tuple[object, ...], kwargs: Mapping[str, object]
+    ) -> _ValidatedParameters:
+        return _validate_call_parameters(self._function, self._signature, args, kwargs)
+
+    def _validated_graph_parameters(
+        self, args: tuple[object, ...], kwargs: Mapping[str, object]
+    ) -> _ValidatedParameters:
+        from ._compiler import _is_reference
+
+        return _bind_graph_parameters(
+            self._function,
+            self._signature,
+            args,
+            kwargs,
+            is_reference=_is_reference,
+        )
 
     def _call_builder(self, parameters: Mapping[str, object]) -> R:
         callable_function = cast(Callable[..., R], self._function)

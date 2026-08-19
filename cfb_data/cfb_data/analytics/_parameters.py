@@ -24,6 +24,44 @@ class _ValidatedParameters:
     provided: frozenset[str]
 
 
+def _bind_graph_parameters(
+    function: object,
+    signature: inspect.Signature,
+    args: tuple[object, ...],
+    kwargs: Mapping[str, object],
+    *,
+    is_reference: object,
+) -> _ValidatedParameters:
+    """Bind graph arguments while deferring validation of typed references."""
+    try:
+        bound = signature.bind(*args, **kwargs)
+    except TypeError as exc:
+        raise CFBDRecipeParameterError(
+            "Recipe parameters do not match its signature"
+        ) from exc
+    provided = frozenset(bound.arguments)
+    bound.apply_defaults()
+    hints = get_type_hints(function, include_extras=True)
+    reference_predicate = is_reference
+    if not callable(reference_predicate):
+        raise TypeError("is_reference must be callable")
+    validated: dict[str, object] = {}
+    try:
+        for name, value in bound.arguments.items():
+            if reference_predicate(value):
+                validated[name] = value
+                continue
+            adapter: TypeAdapter[object] = TypeAdapter(
+                hints[name], config=ConfigDict(strict=True)
+            )
+            validated[name] = _require_finite(
+                adapter.validate_python(value, strict=True)
+            )
+    except (KeyError, ValidationError, TypeError) as exc:
+        raise CFBDRecipeParameterError("Recipe parameter validation failed") from exc
+    return _ValidatedParameters(MappingProxyType(validated), provided)
+
+
 def _validate_builder_signature(function: object, *, kind: str) -> inspect.Signature:
     """Validate a decorated builder or operation signature."""
     if not callable(function):
