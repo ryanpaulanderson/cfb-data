@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cfb-data-test-recipes"
+version = "1.0.0"
+requires-python = ">=3.12"
+dependencies = ["cfb-data>=0.8"]
+
+[project.entry-points."cfb_data.recipes"]
+external = "external_cfb_recipes"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
