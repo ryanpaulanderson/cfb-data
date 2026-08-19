@@ -2,9 +2,10 @@
 
 ``team_games`` composes the public ``game_summaries`` recipe into exactly two
 base rows per selected game, keyed by ``(game_id, team_id)``. Conventional
-``/games/teams`` statistics are an explicit enrichment. Requested statistics
-must match every base perspective by game and stable team ID; they may enrich
-the rows but can never define or change the base row universe.
+``/games/teams`` statistics, advanced box metrics, havoc, and game PPA are
+explicit enrichments. Requested statistics are resolved only within the
+validated game context; they may enrich rows but can never define or change
+the base row universe.
 """
 
 from __future__ import annotations
@@ -16,6 +17,19 @@ from cfb_data.analytics import RecipeRef, dataset, step
 from cfb_data.enums import Classification, PlayoffCompetition, PlayoffRound, SeasonType
 from cfb_data.games.models.pydantic.responses import TeamGameStat, TeamGameStats
 from cfb_data.games.sources import team_game_stats
+from cfb_data.metrics.models.pydantic.responses import (
+    TeamGamePPAUnit,
+    TeamGamePredictedPointsAdded,
+)
+from cfb_data.metrics.sources import team_game_ppa
+from cfb_data.stats.models.pydantic.responses import (
+    AdvancedGameDefense,
+    AdvancedGameOffense,
+    AdvancedGameStat,
+    GameHavocStats,
+    GameHavocUnit,
+)
+from cfb_data.stats.sources import advanced_game_stats, game_havoc_stats
 from pydantic import BaseModel, ConfigDict, Field
 
 from cfb_data_recipes.game_summaries import (
@@ -34,7 +48,7 @@ class TeamGameResult(StrEnum):
 
 
 class TeamStatsCoverage(StrEnum):
-    """Describe whether conventional team statistics were requested and found."""
+    """Describe whether a team-game enrichment was requested and found."""
 
     not_requested = "not_requested"
     empty = "empty"
@@ -132,6 +146,39 @@ class TeamGame(BaseModel):
         default=None,
         description="Source-ordered conventional statistics when requested.",
     )
+    advanced_stats_coverage: TeamStatsCoverage = Field(
+        description="Explicit advanced-stat enrichment availability."
+    )
+    advanced_offense: AdvancedGameOffense | None = Field(
+        default=None,
+        description="Source advanced offense metrics when requested.",
+    )
+    advanced_defense: AdvancedGameDefense | None = Field(
+        default=None,
+        description="Source advanced defense metrics when requested.",
+    )
+    havoc_coverage: TeamStatsCoverage = Field(
+        description="Explicit havoc enrichment availability."
+    )
+    havoc_offense: GameHavocUnit | None = Field(
+        default=None,
+        description="Source offensive havoc metrics when requested.",
+    )
+    havoc_defense: GameHavocUnit | None = Field(
+        default=None,
+        description="Source defensive havoc metrics when requested.",
+    )
+    ppa_coverage: TeamStatsCoverage = Field(
+        description="Explicit game-PPA enrichment availability."
+    )
+    ppa_offense: TeamGamePPAUnit | None = Field(
+        default=None,
+        description="Source offensive predicted-points-added metrics.",
+    )
+    ppa_defense: TeamGamePPAUnit | None = Field(
+        default=None,
+        description="Source defensive predicted-points-added metrics.",
+    )
 
 
 @step(
@@ -144,13 +191,21 @@ def normalize_team_games(
     summaries: list[GameSummary],
     *,
     statistics: list[TeamGameStats] | None,
+    advanced: list[AdvancedGameStat] | None,
+    havoc: list[GameHavocStats] | None,
+    ppa: list[TeamGamePredictedPointsAdded] | None,
+    requested_team: str | None,
 ) -> list[TeamGame]:
-    """Expand games and attach complete ID-matched conventional statistics.
+    """Expand games and attach complete game-context enrichments.
 
     :param summaries: Validated base game summaries.
     :param statistics: Requested team-stat responses, or ``None`` when omitted.
+    :param advanced: Requested advanced-stat rows, or ``None`` when omitted.
+    :param havoc: Requested havoc rows, or ``None`` when omitted.
+    :param ppa: Requested game-PPA rows, or ``None`` when omitted.
+    :param requested_team: Optional team selector defining required perspectives.
     :return: Exactly two deterministic perspective rows per game.
-    :raises ValueError: If requested enrichment is duplicated or incomplete.
+    :raises ValueError: If requested enrichment is duplicated or inconsistent.
     """
     rows = [
         perspective
@@ -162,6 +217,12 @@ def normalize_team_games(
     ]
     if statistics is not None:
         rows = _attach_team_stats(rows, statistics)
+    if advanced is not None:
+        rows = _attach_advanced_stats(rows, advanced, requested_team=requested_team)
+    if havoc is not None:
+        rows = _attach_havoc(rows, havoc, requested_team=requested_team)
+    if ppa is not None:
+        rows = _attach_ppa(rows, ppa, requested_team=requested_team)
     return sorted(
         rows,
         key=lambda row: (
@@ -197,6 +258,10 @@ def team_games(
     competition: PlayoffCompetition | None = None,
     round: PlayoffRound | None = None,
     include_team_stats: bool = False,
+    include_advanced_stats: bool = False,
+    include_havoc: bool = False,
+    include_ppa: bool = False,
+    exclude_garbage_time: bool | None = None,
 ) -> RecipeRef[list[TeamGame]]:
     """Build two team-perspective rows per selected game.
 
@@ -212,7 +277,12 @@ def team_games(
     :param competition: Optional playoff competition.
     :param round: Optional playoff round.
     :param include_team_stats: Request conventional nested team statistics.
+    :param include_advanced_stats: Request advanced team-game statistics.
+    :param include_havoc: Request team-game havoc statistics.
+    :param include_ppa: Request team-game predicted-points-added metrics.
+    :param exclude_garbage_time: Optional source policy for advanced stats and PPA.
     :return: A reference to the validated team-game dataset.
+    :raises ValueError: If game PPA is requested without a season year.
     """
     summaries = game_summaries(
         year=year,
@@ -240,7 +310,50 @@ def team_games(
         if include_team_stats
         else None
     )
-    return normalize_team_games(summaries, statistics=statistics)
+    advanced = (
+        advanced_game_stats(
+            year=year,
+            team=team,
+            week=week,
+            exclude_garbage_time=exclude_garbage_time,
+            season_type=season_type,
+        )
+        if include_advanced_stats
+        else None
+    )
+    havoc = (
+        game_havoc_stats(
+            year=year,
+            team=team,
+            week=week,
+            season_type=season_type,
+        )
+        if include_havoc
+        else None
+    )
+    if include_ppa and year is None:
+        raise ValueError("Game PPA enrichment requires an explicit season year")
+    ppa = (
+        team_game_ppa(
+            year=year,
+            week=week,
+            season_type=season_type,
+            team=team,
+            conference=conference,
+            exclude_garbage_time=exclude_garbage_time,
+            classification=classification,
+        )
+        if include_ppa and year is not None
+        else None
+    )
+    return normalize_team_games(
+        summaries,
+        statistics=statistics,
+        advanced=advanced,
+        havoc=havoc,
+        ppa=ppa,
+        requested_team=team,
+    )
 
 
 def _perspective(summary: GameSummary, *, home: bool) -> TeamGame:
@@ -288,6 +401,15 @@ def _perspective(summary: GameSummary, *, home: bool) -> TeamGame:
         ),
         team_stats_coverage=TeamStatsCoverage.not_requested,
         team_stats=None,
+        advanced_stats_coverage=TeamStatsCoverage.not_requested,
+        advanced_offense=None,
+        advanced_defense=None,
+        havoc_coverage=TeamStatsCoverage.not_requested,
+        havoc_offense=None,
+        havoc_defense=None,
+        ppa_coverage=TeamStatsCoverage.not_requested,
+        ppa_offense=None,
+        ppa_defense=None,
     )
 
 
@@ -326,6 +448,258 @@ def _attach_team_stats(
                         TeamStatsCoverage.present if stats else TeamStatsCoverage.empty
                     ),
                     "team_stats": stats,
+                }
+            )
+        )
+    return enriched
+
+
+def _normalize_team_name(value: str) -> str:
+    """Return the deterministic comparison form for a source team name.
+
+    :param value: Source-provided or analyst-provided team name.
+    :return: Whitespace-normalized, case-insensitive comparison text.
+    """
+    return " ".join(value.split()).casefold()
+
+
+def _required_enrichment_keys(
+    rows: list[TeamGame],
+    *,
+    requested_team: str | None,
+) -> set[tuple[int, str]]:
+    """Return game-scoped team keys that a requested enrichment must cover.
+
+    :param rows: Complete base team-game perspectives.
+    :param requested_team: Optional analyst team selector.
+    :return: Required game/name keys within the base universe.
+    :raises ValueError: If a team selector cannot be resolved in every game.
+    """
+    if requested_team is None:
+        return {(row.game_id, _normalize_team_name(row.team)) for row in rows}
+
+    requested_name = _normalize_team_name(requested_team)
+    required = {
+        (row.game_id, requested_name)
+        for row in rows
+        if _normalize_team_name(row.team) == requested_name
+    }
+    game_ids = {row.game_id for row in rows}
+    if {game_id for game_id, _ in required} != game_ids:
+        raise ValueError(
+            "Requested team enrichment cannot be resolved within every game"
+        )
+    return required
+
+
+def _validate_named_enrichment(
+    row: TeamGame,
+    *,
+    season: int,
+    week: int,
+    season_type: SeasonType,
+    opponent: str,
+    label: str,
+) -> None:
+    """Validate one name-keyed source row against its base game perspective.
+
+    :param row: Base team-game perspective matched within one game.
+    :param season: Enrichment season.
+    :param week: Enrichment week.
+    :param season_type: Enrichment season phase.
+    :param opponent: Enrichment opponent name.
+    :param label: Safe enrichment label for validation errors.
+    :raises ValueError: If source identity conflicts with the base game.
+    """
+    if (
+        season != row.season
+        or week != row.week
+        or season_type != row.season_type
+        or _normalize_team_name(opponent) != _normalize_team_name(row.opponent)
+    ):
+        raise ValueError(f"{label} conflicts with the selected game context")
+
+
+def _attach_advanced_stats(
+    rows: list[TeamGame],
+    responses: list[AdvancedGameStat],
+    *,
+    requested_team: str | None,
+) -> list[TeamGame]:
+    """Attach advanced metrics using game-scoped team names.
+
+    :param rows: Complete base team-game perspectives.
+    :param responses: Validated advanced-stat source rows.
+    :param requested_team: Optional analyst team selector.
+    :return: The unchanged base universe with advanced metrics attached.
+    :raises ValueError: If source rows are duplicated, conflicting, or partial.
+    """
+    required = _required_enrichment_keys(rows, requested_team=requested_team)
+    base = {(row.game_id, _normalize_team_name(row.team)): row for row in rows}
+    indexed: dict[tuple[int, str], AdvancedGameStat] = {}
+    for response in responses:
+        key = (response.game_id, _normalize_team_name(response.team))
+        if key in indexed:
+            raise ValueError("Advanced statistics contain a duplicate game/team key")
+        row = base.get(key)
+        if row is None:
+            raise ValueError("Advanced statistics fall outside the base row universe")
+        _validate_named_enrichment(
+            row,
+            season=response.season,
+            week=response.week,
+            season_type=response.season_type,
+            opponent=response.opponent,
+            label="Advanced statistics",
+        )
+        indexed[key] = response
+    if responses and not required.issubset(indexed):
+        raise ValueError("Requested advanced statistics are incomplete")
+    enriched: list[TeamGame] = []
+    for row in rows:
+        key = (row.game_id, _normalize_team_name(row.team))
+        match = indexed.get(key)
+        enriched.append(
+            row.model_copy(
+                update={
+                    "advanced_stats_coverage": (
+                        TeamStatsCoverage.present
+                        if match is not None
+                        else (
+                            TeamStatsCoverage.empty
+                            if key in required
+                            else TeamStatsCoverage.not_requested
+                        )
+                    ),
+                    "advanced_offense": match.offense if match is not None else None,
+                    "advanced_defense": match.defense if match is not None else None,
+                }
+            )
+        )
+    return enriched
+
+
+def _attach_havoc(
+    rows: list[TeamGame],
+    responses: list[GameHavocStats],
+    *,
+    requested_team: str | None,
+) -> list[TeamGame]:
+    """Attach havoc metrics using game-scoped team names.
+
+    :param rows: Complete base team-game perspectives.
+    :param responses: Validated havoc source rows.
+    :param requested_team: Optional analyst team selector.
+    :return: The unchanged base universe with havoc metrics attached.
+    :raises ValueError: If source rows are duplicated, conflicting, or partial.
+    """
+    required = _required_enrichment_keys(rows, requested_team=requested_team)
+    base = {(row.game_id, _normalize_team_name(row.team)): row for row in rows}
+    indexed: dict[tuple[int, str], GameHavocStats] = {}
+    for response in responses:
+        key = (response.game_id, _normalize_team_name(response.team))
+        if key in indexed:
+            raise ValueError("Havoc statistics contain a duplicate game/team key")
+        row = base.get(key)
+        if row is None:
+            raise ValueError("Havoc statistics fall outside the base row universe")
+        _validate_named_enrichment(
+            row,
+            season=response.season,
+            week=response.week,
+            season_type=response.season_type,
+            opponent=response.opponent,
+            label="Havoc statistics",
+        )
+        if row.conference is not None and response.conference != row.conference:
+            raise ValueError("Havoc statistics conflict with the team conference")
+        if (
+            row.opponent_conference is not None
+            and response.opponent_conference != row.opponent_conference
+        ):
+            raise ValueError("Havoc statistics conflict with the opponent conference")
+        indexed[key] = response
+    if responses and not required.issubset(indexed):
+        raise ValueError("Requested havoc statistics are incomplete")
+    enriched: list[TeamGame] = []
+    for row in rows:
+        key = (row.game_id, _normalize_team_name(row.team))
+        match = indexed.get(key)
+        enriched.append(
+            row.model_copy(
+                update={
+                    "havoc_coverage": (
+                        TeamStatsCoverage.present
+                        if match is not None
+                        else (
+                            TeamStatsCoverage.empty
+                            if key in required
+                            else TeamStatsCoverage.not_requested
+                        )
+                    ),
+                    "havoc_offense": match.offense if match is not None else None,
+                    "havoc_defense": match.defense if match is not None else None,
+                }
+            )
+        )
+    return enriched
+
+
+def _attach_ppa(
+    rows: list[TeamGame],
+    responses: list[TeamGamePredictedPointsAdded],
+    *,
+    requested_team: str | None,
+) -> list[TeamGame]:
+    """Attach game PPA using game-scoped team names.
+
+    :param rows: Complete base team-game perspectives.
+    :param responses: Validated game-PPA source rows.
+    :param requested_team: Optional analyst team selector.
+    :return: The unchanged base universe with PPA metrics attached.
+    :raises ValueError: If source rows are duplicated, conflicting, or partial.
+    """
+    required = _required_enrichment_keys(rows, requested_team=requested_team)
+    base = {(row.game_id, _normalize_team_name(row.team)): row for row in rows}
+    indexed: dict[tuple[int, str], TeamGamePredictedPointsAdded] = {}
+    for response in responses:
+        key = (response.game_id, _normalize_team_name(response.team))
+        if key in indexed:
+            raise ValueError("Game PPA contains a duplicate game/team key")
+        row = base.get(key)
+        if row is None:
+            raise ValueError("Game PPA falls outside the base row universe")
+        _validate_named_enrichment(
+            row,
+            season=response.season,
+            week=response.week,
+            season_type=response.season_type,
+            opponent=response.opponent,
+            label="Game PPA",
+        )
+        if row.conference is not None and response.conference != row.conference:
+            raise ValueError("Game PPA conflicts with the team conference")
+        indexed[key] = response
+    if responses and not required.issubset(indexed):
+        raise ValueError("Requested game PPA is incomplete")
+    enriched: list[TeamGame] = []
+    for row in rows:
+        key = (row.game_id, _normalize_team_name(row.team))
+        match = indexed.get(key)
+        enriched.append(
+            row.model_copy(
+                update={
+                    "ppa_coverage": (
+                        TeamStatsCoverage.present
+                        if match is not None
+                        else (
+                            TeamStatsCoverage.empty
+                            if key in required
+                            else TeamStatsCoverage.not_requested
+                        )
+                    ),
+                    "ppa_offense": match.offense if match is not None else None,
+                    "ppa_defense": match.defense if match is not None else None,
                 }
             )
         )
