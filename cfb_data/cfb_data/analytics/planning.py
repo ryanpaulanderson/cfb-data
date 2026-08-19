@@ -105,6 +105,7 @@ class RecipePlan:
     recipe_id: str
     revision: int | None
     kind: Literal["dataset", "workflow"]
+    graph_fingerprint: str
     fingerprint: str
     parameter_fingerprint: str
     nodes: tuple[RecipePlanNode, ...]
@@ -182,6 +183,7 @@ def _plan_recipe(
         recipe_id=recipe.id or graph.root_id,
         revision=recipe.revision,
         kind=cast(Literal["dataset", "workflow"], graph.root_kind),
+        graph_fingerprint=graph.graph_fingerprint,
         fingerprint=plan_fingerprint,
         parameter_fingerprint=graph.parameter_fingerprint,
         nodes=tuple(nodes),

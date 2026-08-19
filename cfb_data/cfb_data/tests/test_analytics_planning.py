@@ -52,6 +52,7 @@ async def test_plan_is_state_independent_and_creates_no_files(tmp_path: Path) ->
 
     assert isinstance(plan, RecipePlan)
     assert plan.recipe_id == "tests.planned_games"
+    assert plan.graph_fingerprint
     assert plan.outputs == ("value",)
     assert [node.kind for node in plan.nodes] == ["source", "dataset"]
     assert plan.worst_case_http_attempts == 2
