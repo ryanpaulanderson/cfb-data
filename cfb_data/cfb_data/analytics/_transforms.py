@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import time
 import types
 from collections.abc import Mapping, Sequence
@@ -29,6 +28,7 @@ from ._checkpoints import (
     _UpstreamArtifactIdentity,
 )
 from ._compiler import _digest
+from ._compute import _TransformExecutorSession
 from ._execution import _NodeResult, _resolve_arguments
 from ._graph import _CompiledNode, _ValueRef
 from ._observability import _AnalyticsDispatcher
@@ -46,45 +46,13 @@ from .observability import AnalyticsEvent, AnalyticsEventType, AnalyticsOutcome
 type _Backend = Literal["pandas", "polars"]
 
 
-class _LocalTransformProvider:
-    """Run synchronous trusted transforms off-loop with bounded admission."""
-
-    def __init__(self, *, concurrency: int) -> None:
-        """Initialize a local compute provider."""
-        if concurrency < 1:
-            raise ValueError("Local compute concurrency must be positive")
-        self._semaphore = asyncio.Semaphore(concurrency)
-
-    async def execute(
-        self,
-        recipe: StepRecipe[..., object],
-        parameters: Mapping[str, object],
-    ) -> object:
-        """Execute one step while deterministically owning background work."""
-        if recipe._is_async:
-            result = recipe._execute_step(parameters)
-            if not inspect.isawaitable(result):
-                raise TypeError("Async step did not return an awaitable")
-            return await result
-        async with self._semaphore:
-            worker = asyncio.create_task(
-                asyncio.to_thread(recipe._execute_step, parameters),
-                name=f"cfb-data-local-transform:{recipe.id or recipe.__qualname__}",
-            )
-            try:
-                return await asyncio.shield(worker)
-            except asyncio.CancelledError:
-                await asyncio.gather(worker, return_exceptions=True)
-                raise
-
-
 class _TransformRunner:
     """Own local transform validation, checkpointing, and node evidence."""
 
     def __init__(
         self,
         *,
-        provider: _LocalTransformProvider,
+        provider: _TransformExecutorSession,
         database: _RunDatabase,
         object_store: _ArtifactObjectStore,
         run_id: str,
@@ -138,13 +106,18 @@ class _TransformRunner:
             raise CFBDRecipeCompilationError(
                 "Local transform runner accepts only steps and datasets"
             )
+        placement = self._placement(node)
         await asyncio.to_thread(
             self._database.transition_node,
             self._run_id,
             node.node_id,
             "ready",
         )
-        self._emit(AnalyticsEventType.step_ready, node.node_id)
+        self._emit(
+            AnalyticsEventType.step_ready,
+            node.node_id,
+            placement=placement,
+        )
         parameters = _resolve_arguments(
             node.arguments,
             results,
@@ -199,7 +172,11 @@ class _TransformRunner:
             node.node_id,
             "running",
         )
-        self._emit(AnalyticsEventType.step_started, node.node_id)
+        self._emit(
+            AnalyticsEventType.step_started,
+            node.node_id,
+            placement=placement,
+        )
         started = time.monotonic()
         try:
             raw = await self._compute(node, parameters)
@@ -225,13 +202,14 @@ class _TransformRunner:
                 output_name="value",
                 node_fingerprint=fingerprint,
                 artifact=artifact,
-                placement="local",
+                placement=placement,
             )
         except asyncio.CancelledError:
             await self._terminal(node.node_id, "cancelled", "cancelled")
             self._emit(
                 AnalyticsEventType.step_cancelled,
                 node.node_id,
+                placement=placement,
                 outcome=AnalyticsOutcome.cancelled,
                 duration=time.monotonic() - started,
             )
@@ -242,6 +220,7 @@ class _TransformRunner:
             self._emit(
                 AnalyticsEventType.step_failed,
                 node.node_id,
+                placement=placement,
                 outcome=AnalyticsOutcome.error,
                 failure_category=category,
                 duration=time.monotonic() - started,
@@ -250,6 +229,7 @@ class _TransformRunner:
         self._emit(
             AnalyticsEventType.step_completed,
             node.node_id,
+            placement=placement,
             outcome=AnalyticsOutcome.success,
             artifact=artifact.content_digest,
             row_count=len(rows),
@@ -329,12 +309,14 @@ class _TransformRunner:
             self._emit(
                 AnalyticsEventType.checkpoint_corrupt,
                 node.node_id,
+                placement=candidate.binding.placement,
                 outcome=AnalyticsOutcome.corrupt,
             )
             return None
         self._emit(
             AnalyticsEventType.step_reused,
             node.node_id,
+            placement=candidate.binding.placement,
             outcome=AnalyticsOutcome.reused,
             artifact=candidate.binding.content_digest,
             row_count=len(rows),
@@ -387,6 +369,7 @@ class _TransformRunner:
         event_type: AnalyticsEventType,
         node_id: str,
         *,
+        placement: Literal["coordinator", "local", "dask"],
         outcome: AnalyticsOutcome | None = None,
         artifact: str | None = None,
         row_count: int | None = None,
@@ -399,13 +382,20 @@ class _TransformRunner:
                 run_id=self._run_id,
                 node_id=node_id,
                 outcome=outcome,
-                placement="local",
+                placement=placement,
                 artifact_digest=artifact,
                 row_count=row_count,
                 failure_category=failure_category,
                 duration_seconds=duration,
             )
         )
+
+    def _placement(
+        self,
+        node: _CompiledNode,
+    ) -> Literal["coordinator", "local", "dask"]:
+        """Attribute pure compute without claiming dataset validation ran remotely."""
+        return self._provider.placement if node.kind == "step" else "coordinator"
 
 
 def _declared_row_model(node: _CompiledNode) -> type[BaseModel]:

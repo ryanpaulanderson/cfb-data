@@ -10,12 +10,10 @@ from pathlib import Path
 import pytest
 from cfb_data.analytics import RecipeRef, dataset, step, workflow
 from cfb_data.analytics._compiler import _compile_recipe
+from cfb_data.analytics._compute import _LocalTransformProvider
 from cfb_data.analytics._observability import _AnalyticsDispatcher
 from cfb_data.analytics._persistence import _ArtifactObjectStore, _RunDatabase
-from cfb_data.analytics._transforms import (
-    _LocalTransformProvider,
-    _TransformRunner,
-)
+from cfb_data.analytics._transforms import _TransformRunner
 from pydantic import BaseModel, ConfigDict
 
 
@@ -115,6 +113,11 @@ async def test_sync_step_runs_off_loop_and_dataset_validates_contract(
         ]
         assert execution_threads != [threading.get_ident()]
         assert len(database.bindings(run_id)) == 2
+        placements = {
+            binding.node_id: binding.placement for binding in database.bindings(run_id)
+        }
+        assert placements[step_node.node_id] == "local"
+        assert placements[dataset_node.node_id] == "coordinator"
     finally:
         database.close()
 
