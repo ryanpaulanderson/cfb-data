@@ -45,6 +45,13 @@ from .operations import (
     value,
 )
 from .planning import ExecutionPolicy, RecipeInspection, RecipePlan, RecipePlanNode
+from .tabular import (
+    PortableDType,
+    rename_columns,
+    select_columns,
+    sort_rows,
+    strict_cast_columns,
+)
 from .types import RecipeRef, SourceContext, ValueRef, WorkflowOutputs
 
 __all__ = [
@@ -89,8 +96,13 @@ __all__ = [
     "nested_value",
     "NestedTransformDiagnostics",
     "NestedTransformResult",
+    "PortableDType",
+    "rename_columns",
+    "select_columns",
     "source",
+    "sort_rows",
     "step",
+    "strict_cast_columns",
     "workflow",
     "require_one",
     "value",
