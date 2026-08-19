@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,11 @@ from cfb_data.analytics._compute import _LocalTransformProvider
 from cfb_data.analytics._observability import _AnalyticsDispatcher
 from cfb_data.analytics._persistence import _ArtifactObjectStore, _RunDatabase
 from cfb_data.analytics._transforms import _TransformRunner
+from cfb_data.analytics.observability import (
+    AnalyticsEvent,
+    AnalyticsEventType,
+    AnalyticsObserver,
+)
 from pydantic import BaseModel, ConfigDict
 
 
@@ -29,6 +35,18 @@ class _CleanRow(BaseModel):
 
     id: int
     label: str
+
+
+class _EventCollector:
+    """Collect redacted analytics events through the observer contract."""
+
+    def __init__(self) -> None:
+        """Initialize an empty event sequence."""
+        self.events: list[AnalyticsEvent] = []
+
+    def __call__(self, event: AnalyticsEvent) -> None:
+        """Append one immutable analytics event."""
+        self.events.append(event)
 
 
 def _run(database: _RunDatabase, *, parent_run_id: str | None = None) -> str:
@@ -52,6 +70,9 @@ def _runner(
     run_id: str,
     concurrency: int = 1,
     parent_run_id: str | None = None,
+    checkpoint_nodes: frozenset[str] | None = None,
+    observer: AnalyticsObserver | None = None,
+    lease_ttl: timedelta = timedelta(seconds=30),
 ) -> _TransformRunner:
     return _TransformRunner(
         provider=_LocalTransformProvider(concurrency=concurrency),
@@ -63,8 +84,11 @@ def _runner(
         source_behavior=(
             "preserve_snapshot" if parent_run_id is not None else "normal_freshness"
         ),
+        checkpoint_nodes=checkpoint_nodes,
         backend="pandas",
-        dispatcher=_AnalyticsDispatcher(None),
+        dispatcher=_AnalyticsDispatcher(observer),
+        lease_ttl=lease_ttl,
+        lease_poll_seconds=0.005,
     )
 
 
@@ -302,7 +326,12 @@ async def test_cancelled_transform_awaits_started_thread_work(tmp_path: Path) ->
     try:
         run_id = _run(database)
         task = asyncio.create_task(
-            _runner(database, store, run_id=run_id).run_batch((node,), {})
+            _runner(
+                database,
+                store,
+                run_id=run_id,
+                lease_ttl=timedelta(seconds=0.2),
+            ).run_batch((node,), {})
         )
         await asyncio.sleep(0.01)
         task.cancel()
@@ -313,6 +342,22 @@ async def test_cancelled_transform_awaits_started_thread_work(tmp_path: Path) ->
         assert worker_finished.is_set()
         assert database.node_state(run_id, node.node_id) == "cancelled"
         assert database.bindings(run_id) == ()
+
+        observer = _EventCollector()
+        second_run = _run(database)
+        result = await _runner(
+            database,
+            store,
+            run_id=second_run,
+            observer=observer,
+            lease_ttl=timedelta(seconds=0.2),
+        ).run_batch((node,), {})
+
+        assert result[node.node_id].value == [_CleanRow(id=1, label="done")]
+        assert all(
+            event.event_type is not AnalyticsEventType.resource_wait
+            for event in observer.events
+        )
     finally:
         database.close()
 
@@ -357,5 +402,163 @@ async def test_deterministic_transform_reuses_global_checkpoint(
         assert executions == 1
         assert database.node_state(second_run, graph.nodes[0].node_id) == "reused"
         assert database.node_state(second_run, graph.nodes[1].node_id) == "reused"
+    finally:
+        database.close()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_runners_compute_one_checkpoint_eligible_node(
+    tmp_path: Path,
+) -> None:
+    """Reuse the winner across independent database connections and runners."""
+    executions = 0
+    lock = threading.Lock()
+
+    @step(id="tests.cross_process_rows", revision=1, output=_CleanRow)
+    def reusable() -> list[_CleanRow]:
+        nonlocal executions
+        with lock:
+            executions += 1
+        time.sleep(0.05)
+        return [_CleanRow(id=1, label="stable")]
+
+    @dataset(
+        id="tests.cross_process_dataset",
+        revision=1,
+        row=_CleanRow,
+        grain="one row",
+        keys=("id",),
+    )
+    def cross_process_dataset() -> RecipeRef[list[_CleanRow]]:
+        return reusable()
+
+    node = _compile_recipe(cross_process_dataset, (), {}).nodes[0]
+    root = tmp_path / "analytics"
+    first_database = _RunDatabase(root / "runs.sqlite3")
+    second_database = _RunDatabase(root / "runs.sqlite3")
+    observer = _EventCollector()
+    try:
+        first_run = _run(first_database)
+        second_run = _run(second_database)
+        first_result, second_result = await asyncio.gather(
+            _runner(
+                first_database,
+                _ArtifactObjectStore(root),
+                run_id=first_run,
+                observer=observer,
+            ).run_batch((node,), {}),
+            _runner(
+                second_database,
+                _ArtifactObjectStore(root),
+                run_id=second_run,
+                observer=observer,
+            ).run_batch((node,), {}),
+        )
+
+        assert executions == 1
+        assert first_result[node.node_id].value == second_result[node.node_id].value
+        assert {
+            first_database.node_state(first_run, node.node_id),
+            second_database.node_state(second_run, node.node_id),
+        } == {"completed", "reused"}
+        assert (
+            sum(
+                event.event_type is AnalyticsEventType.resource_wait
+                for event in observer.events
+            )
+            == 1
+        )
+    finally:
+        first_database.close()
+        second_database.close()
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_off_allows_independent_concurrent_compute(
+    tmp_path: Path,
+) -> None:
+    """Avoid lease coordination when policy makes a boundary non-reusable."""
+    executions = 0
+    lock = threading.Lock()
+
+    @step(id="tests.non_checkpointed_rows", revision=1, output=_CleanRow)
+    def independent() -> list[_CleanRow]:
+        nonlocal executions
+        with lock:
+            executions += 1
+        time.sleep(0.03)
+        return [_CleanRow(id=1, label="independent")]
+
+    @dataset(
+        id="tests.non_checkpointed_dataset",
+        revision=1,
+        row=_CleanRow,
+        grain="one row",
+        keys=("id",),
+    )
+    def non_checkpointed_dataset() -> RecipeRef[list[_CleanRow]]:
+        return independent()
+
+    node = _compile_recipe(non_checkpointed_dataset, (), {}).nodes[0]
+    root = tmp_path / "analytics"
+    first_database = _RunDatabase(root / "runs.sqlite3")
+    second_database = _RunDatabase(root / "runs.sqlite3")
+    try:
+        first_run = _run(first_database)
+        second_run = _run(second_database)
+        await asyncio.gather(
+            _runner(
+                first_database,
+                _ArtifactObjectStore(root),
+                run_id=first_run,
+                checkpoint_nodes=frozenset(),
+            ).run_batch((node,), {}),
+            _runner(
+                second_database,
+                _ArtifactObjectStore(root),
+                run_id=second_run,
+                checkpoint_nodes=frozenset(),
+            ).run_batch((node,), {}),
+        )
+
+        assert executions == 2
+    finally:
+        first_database.close()
+        second_database.close()
+
+
+@pytest.mark.asyncio
+async def test_long_transform_renews_its_publication_lease(tmp_path: Path) -> None:
+    """Keep ownership alive while synchronous work runs off the event loop."""
+
+    @step(id="tests.renewed_rows", revision=1, output=_CleanRow)
+    def slow() -> list[_CleanRow]:
+        time.sleep(0.7)
+        return [_CleanRow(id=1, label="renewed")]
+
+    @dataset(
+        id="tests.renewed_dataset",
+        revision=1,
+        row=_CleanRow,
+        grain="one row",
+        keys=("id",),
+    )
+    def renewed_dataset() -> RecipeRef[list[_CleanRow]]:
+        return slow()
+
+    node = _compile_recipe(renewed_dataset, (), {}).nodes[0]
+    root = tmp_path / "analytics"
+    database = _RunDatabase(root / "runs.sqlite3")
+    try:
+        run_id = _run(database)
+        result = await _runner(
+            database,
+            _ArtifactObjectStore(root),
+            run_id=run_id,
+            lease_ttl=timedelta(seconds=0.3),
+        ).run_batch((node,), {})
+
+        assert result[node.node_id].value == [_CleanRow(id=1, label="renewed")]
+        assert database.node_state(run_id, node.node_id) == "completed"
     finally:
         database.close()

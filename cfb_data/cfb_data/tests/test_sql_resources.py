@@ -125,6 +125,7 @@ def test_packaged_analytics_sql_is_organized_by_persistence_domain() -> None:
         "attempts",
         "checkpoints",
         "config",
+        "leases",
         "migrations",
         "nodes",
         "runs",
@@ -133,4 +134,6 @@ def test_packaged_analytics_sql_is_organized_by_persistence_domain() -> None:
     assert sql_directory.joinpath(
         "migrations", "004_attempt_reservations.sql"
     ).is_file()
+    assert sql_directory.joinpath("migrations", "006_node_leases.sql").is_file()
+    assert sql_directory.joinpath("leases", "acquire_node_lease.sql").is_file()
     assert sql_directory.joinpath("nodes", "insert_binding.sql").is_file()

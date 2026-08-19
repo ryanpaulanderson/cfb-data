@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 import time
 import types
 from collections.abc import Mapping, Sequence
-from typing import Literal, TypeVar, cast, get_args, get_origin, get_type_hints
+from dataclasses import dataclass
+from datetime import timedelta
+from typing import Final, Literal, TypeVar, cast, get_args, get_origin, get_type_hints
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
@@ -41,10 +44,25 @@ from ._persistence import (
     _StoredArtifact,
 )
 from ._recipes import StepRecipe
-from .errors import CFBDArtifactCorruptionError, CFBDRecipeCompilationError
+from .errors import (
+    CFBDArtifactCorruptionError,
+    CFBDPersistenceError,
+    CFBDRecipeCompilationError,
+)
 from .observability import AnalyticsEvent, AnalyticsEventType, AnalyticsOutcome
 
 type _Backend = Literal["pandas", "polars"]
+
+_DEFAULT_LEASE_TTL: Final = timedelta(seconds=30)
+_DEFAULT_LEASE_POLL_SECONDS: Final = 0.05
+
+
+@dataclass(frozen=True, slots=True)
+class _NodeLease:
+    """Identify one run's token-owned deterministic transform lease."""
+
+    key: str
+    owner_token: str
 
 
 class _TransformRunner:
@@ -63,8 +81,14 @@ class _TransformRunner:
         checkpoint_nodes: frozenset[str] | None = None,
         backend: _Backend,
         dispatcher: _AnalyticsDispatcher,
+        lease_ttl: timedelta = _DEFAULT_LEASE_TTL,
+        lease_poll_seconds: float = _DEFAULT_LEASE_POLL_SECONDS,
     ) -> None:
         """Initialize one run-scoped local transformation runner."""
+        if lease_ttl.total_seconds() <= 0:
+            raise ValueError("Transform lease TTL must be positive")
+        if lease_poll_seconds <= 0:
+            raise ValueError("Transform lease polling interval must be positive")
         self._provider = provider
         self._database = database
         self._object_store = object_store
@@ -75,6 +99,8 @@ class _TransformRunner:
         self._checkpoint_nodes = checkpoint_nodes
         self._backend = backend
         self._dispatcher = dispatcher
+        self._lease_ttl = lease_ttl
+        self._lease_poll_seconds = lease_poll_seconds
 
     async def run_batch(
         self,
@@ -148,114 +174,126 @@ class _TransformRunner:
             source_behavior=self._source_behavior,
             checkpoint_eligible=self._checkpoint_eligible(node),
         )
-        if fingerprint is not None:
-            candidate = await asyncio.to_thread(
-                self._database.find_checkpoint,
-                node_fingerprint=fingerprint,
-                output_name="value",
+        reused = await self._load_compatible_checkpoint(
+            node,
+            row_model=row_model,
+            control_adapter=control_adapter,
+            output_identity=output_identity,
+            fingerprint=fingerprint,
+            scope=scope,
+        )
+        if reused is not None:
+            return node.node_id, reused
+
+        lease: _NodeLease | None = None
+        if (
+            fingerprint is not None
+            and node.declaration.deterministic
+            and self._checkpoint_eligible(node)
+            and scope in {"global", "parent_then_global"}
+        ):
+            reused, lease = await self._reuse_or_acquire_lease(
+                node,
+                row_model=row_model,
+                control_adapter=control_adapter,
+                output_identity=output_identity,
+                fingerprint=fingerprint,
                 scope=scope,
-                parent_run_id=self._parent_run_id,
-                credential_scope=self._credential_scope,
+                placement=placement,
             )
-            if candidate is not None:
-                reused = (
-                    await self._load_table_candidate(
-                        node,
+            if reused is not None:
+                return node.node_id, reused
+
+        renewal: asyncio.Task[None] | None = None
+        try:
+            await asyncio.to_thread(
+                self._database.transition_node,
+                self._run_id,
+                node.node_id,
+                "running",
+            )
+            self._emit(
+                AnalyticsEventType.step_started,
+                node.node_id,
+                placement=placement,
+            )
+            if lease is not None:
+                renewal = asyncio.create_task(
+                    self._renew_lease(lease),
+                    name=f"cfb-data-node-lease:{node.node_id}",
+                )
+            started = time.monotonic()
+            try:
+                raw = await self._compute(node, parameters)
+                await self._require_live_renewal(renewal)
+                value: object
+                if row_model is not None:
+                    rows, artifact, fingerprint = await asyncio.to_thread(
+                        self._validate_store_and_bind_table,
+                        raw,
                         row_model,
                         output_identity,
-                        fingerprint,
-                        candidate,
-                    )
-                    if row_model is not None
-                    else await self._load_control_candidate(
                         node,
+                        fingerprint,
+                        placement,
+                        self._checkpoint_eligible(node),
+                        lease,
+                    )
+                    value = rows
+                    row_count: int | None = len(rows)
+                else:
+                    control_value, artifact, fingerprint = await asyncio.to_thread(
+                        self._validate_store_and_bind_control,
+                        raw,
                         _require_control_adapter(control_adapter),
                         output_identity,
+                        node,
                         fingerprint,
-                        candidate,
+                        placement,
+                        self._checkpoint_eligible(node),
+                        lease,
                     )
+                    value = control_value
+                    row_count = None
+            except asyncio.CancelledError:
+                await self._terminal(node.node_id, "cancelled", "cancelled")
+                self._emit(
+                    AnalyticsEventType.step_cancelled,
+                    node.node_id,
+                    placement=placement,
+                    outcome=AnalyticsOutcome.cancelled,
+                    duration=time.monotonic() - started,
                 )
-                if reused is not None:
-                    return node.node_id, reused
-
-        await asyncio.to_thread(
-            self._database.transition_node,
-            self._run_id,
-            node.node_id,
-            "running",
-        )
-        self._emit(
-            AnalyticsEventType.step_started,
-            node.node_id,
-            placement=placement,
-        )
-        started = time.monotonic()
-        try:
-            raw = await self._compute(node, parameters)
-            value: object
-            if row_model is not None:
-                rows, artifact, fingerprint = await asyncio.to_thread(
-                    self._validate_store_and_bind_table,
-                    raw,
-                    row_model,
-                    output_identity,
-                    node,
-                    fingerprint,
-                    placement,
-                    self._checkpoint_eligible(node),
+                raise
+            except Exception as exc:
+                category = _failure_category(exc)
+                await self._terminal(node.node_id, "failed", category)
+                self._emit(
+                    AnalyticsEventType.step_failed,
+                    node.node_id,
+                    placement=placement,
+                    outcome=AnalyticsOutcome.error,
+                    failure_category=category,
+                    duration=time.monotonic() - started,
                 )
-                value = rows
-                row_count: int | None = len(rows)
-            else:
-                control_value, artifact, fingerprint = await asyncio.to_thread(
-                    self._validate_store_and_bind_control,
-                    raw,
-                    _require_control_adapter(control_adapter),
-                    output_identity,
-                    node,
-                    fingerprint,
-                    placement,
-                    self._checkpoint_eligible(node),
-                )
-                value = control_value
-                row_count = None
-        except asyncio.CancelledError:
-            await self._terminal(node.node_id, "cancelled", "cancelled")
+                raise
             self._emit(
-                AnalyticsEventType.step_cancelled,
+                AnalyticsEventType.step_completed,
                 node.node_id,
                 placement=placement,
-                outcome=AnalyticsOutcome.cancelled,
+                outcome=AnalyticsOutcome.success,
+                artifact=artifact.content_digest,
+                row_count=row_count,
                 duration=time.monotonic() - started,
             )
-            raise
-        except Exception as exc:
-            category = _failure_category(exc)
-            await self._terminal(node.node_id, "failed", category)
-            self._emit(
-                AnalyticsEventType.step_failed,
-                node.node_id,
-                placement=placement,
-                outcome=AnalyticsOutcome.error,
-                failure_category=category,
-                duration=time.monotonic() - started,
+            return node.node_id, _NodeResult(
+                value=value,
+                artifact=artifact,
+                node_fingerprint=fingerprint,
+                row_model=row_model,
             )
-            raise
-        self._emit(
-            AnalyticsEventType.step_completed,
-            node.node_id,
-            placement=placement,
-            outcome=AnalyticsOutcome.success,
-            artifact=artifact.content_digest,
-            row_count=row_count,
-            duration=time.monotonic() - started,
-        )
-        return node.node_id, _NodeResult(
-            value=value,
-            artifact=artifact,
-            node_fingerprint=fingerprint,
-            row_model=row_model,
-        )
+        finally:
+            await self._close_lease(node, lease, renewal, placement=placement)
 
     async def _compute(
         self,
@@ -276,6 +314,7 @@ class _TransformRunner:
         fingerprint: str | None,
         placement: Literal["coordinator", "local", "dask"],
         checkpoint_eligible: bool,
+        lease: _NodeLease | None,
     ) -> tuple[list[BaseModel], _StoredArtifact, str]:
         try:
             rows = _row_list_adapter(row_model).validate_python(raw)
@@ -311,6 +350,8 @@ class _TransformRunner:
                 object_store=self._object_store,
                 placement=placement,
                 checkpoint_eligible=checkpoint_eligible,
+                lease_key=None if lease is None else lease.key,
+                lease_owner_token=None if lease is None else lease.owner_token,
             )
         return rows, artifact, resolved_fingerprint
 
@@ -323,6 +364,7 @@ class _TransformRunner:
         fingerprint: str | None,
         placement: Literal["coordinator", "local", "dask"],
         checkpoint_eligible: bool,
+        lease: _NodeLease | None,
     ) -> tuple[object, _StoredArtifact, str]:
         """Validate, publish, and bind one bounded modeled-JSON control value."""
         try:
@@ -352,8 +394,176 @@ class _TransformRunner:
                 object_store=self._object_store,
                 placement=placement,
                 checkpoint_eligible=checkpoint_eligible,
+                lease_key=None if lease is None else lease.key,
+                lease_owner_token=None if lease is None else lease.owner_token,
             )
         return value, artifact, resolved_fingerprint
+
+    async def _load_compatible_checkpoint(
+        self,
+        node: _CompiledNode,
+        *,
+        row_model: type[BaseModel] | None,
+        control_adapter: TypeAdapter[object] | None,
+        output_identity: _AnalyticsTableIdentity,
+        fingerprint: str | None,
+        scope: Literal["none", "parent", "parent_then_global", "global"],
+    ) -> _NodeResult | None:
+        """Load and bind one compatible validated checkpoint when present."""
+        if fingerprint is None:
+            return None
+        candidate = await asyncio.to_thread(
+            self._database.find_checkpoint,
+            node_fingerprint=fingerprint,
+            output_name="value",
+            scope=scope,
+            parent_run_id=self._parent_run_id,
+            credential_scope=self._credential_scope,
+        )
+        if candidate is None:
+            return None
+        if row_model is not None:
+            return await self._load_table_candidate(
+                node,
+                row_model,
+                output_identity,
+                fingerprint,
+                candidate,
+            )
+        return await self._load_control_candidate(
+            node,
+            _require_control_adapter(control_adapter),
+            output_identity,
+            fingerprint,
+            candidate,
+        )
+
+    async def _reuse_or_acquire_lease(
+        self,
+        node: _CompiledNode,
+        *,
+        row_model: type[BaseModel] | None,
+        control_adapter: TypeAdapter[object] | None,
+        output_identity: _AnalyticsTableIdentity,
+        fingerprint: str,
+        scope: Literal["global", "parent_then_global"],
+        placement: Literal["coordinator", "local", "dask"],
+    ) -> tuple[_NodeResult | None, _NodeLease | None]:
+        """Reuse a winner's checkpoint or acquire exclusive compute ownership."""
+        lease = _NodeLease(
+            key=_digest(
+                {
+                    "credential_scope": self._credential_scope,
+                    "node_fingerprint": fingerprint,
+                    "output_name": "value",
+                }
+            ),
+            owner_token=secrets.token_hex(32),
+        )
+        waited = False
+        while True:
+            acquired = await asyncio.to_thread(
+                self._database.acquire_node_lease,
+                lease_key=lease.key,
+                owner_token=lease.owner_token,
+                run_id=self._run_id,
+                node_id=node.node_id,
+                ttl=self._lease_ttl,
+            )
+            if acquired:
+                reused = await self._load_compatible_checkpoint(
+                    node,
+                    row_model=row_model,
+                    control_adapter=control_adapter,
+                    output_identity=output_identity,
+                    fingerprint=fingerprint,
+                    scope=scope,
+                )
+                if reused is not None:
+                    await self._close_lease(
+                        node,
+                        lease,
+                        None,
+                        placement=placement,
+                    )
+                    return reused, None
+                return None, lease
+            if not waited:
+                self._emit(
+                    AnalyticsEventType.resource_wait,
+                    node.node_id,
+                    placement=placement,
+                )
+                waited = True
+            await asyncio.sleep(self._lease_poll_seconds)
+            reused = await self._load_compatible_checkpoint(
+                node,
+                row_model=row_model,
+                control_adapter=control_adapter,
+                output_identity=output_identity,
+                fingerprint=fingerprint,
+                scope=scope,
+            )
+            if reused is not None:
+                return reused, None
+
+    async def _renew_lease(self, lease: _NodeLease) -> None:
+        """Renew one lease until cancelled or fail closed when ownership is lost."""
+        interval = self._lease_ttl.total_seconds() / 3
+        while True:
+            await asyncio.sleep(interval)
+            renewed = await asyncio.to_thread(
+                self._database.renew_node_lease,
+                lease_key=lease.key,
+                owner_token=lease.owner_token,
+                ttl=self._lease_ttl,
+            )
+            if not renewed:
+                raise CFBDPersistenceError(category="node_lease_lost")
+
+    @staticmethod
+    async def _require_live_renewal(renewal: asyncio.Task[None] | None) -> None:
+        """Propagate a completed renewal failure before artifact validation."""
+        if renewal is not None and renewal.done():
+            await renewal
+
+    async def _close_lease(
+        self,
+        node: _CompiledNode,
+        lease: _NodeLease | None,
+        renewal: asyncio.Task[None] | None,
+        *,
+        placement: Literal["coordinator", "local", "dask"],
+    ) -> None:
+        """Stop renewal and release ownership without masking primary failures."""
+        if renewal is not None:
+            renewal.cancel()
+            outcomes = await asyncio.gather(renewal, return_exceptions=True)
+            for outcome in outcomes:
+                if isinstance(outcome, Exception):
+                    self._emit(
+                        AnalyticsEventType.checkpoint_rejected,
+                        node.node_id,
+                        placement=placement,
+                        outcome=AnalyticsOutcome.error,
+                        failure_category=_failure_category(outcome),
+                    )
+        if lease is None:
+            return
+        try:
+            await asyncio.to_thread(
+                self._database.release_node_lease,
+                lease_key=lease.key,
+                owner_token=lease.owner_token,
+            )
+        except Exception as exc:
+            self._emit(
+                AnalyticsEventType.checkpoint_rejected,
+                node.node_id,
+                placement=placement,
+                outcome=AnalyticsOutcome.error,
+                failure_category=_failure_category(exc),
+            )
 
     def _resolved_fingerprint(
         self,
