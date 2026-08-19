@@ -15,6 +15,7 @@ from cfb_data.cache._models import ResponsePeek, ResponsePeekStatus
 from cfb_data.client import DataFrameBackend
 
 from ._compiler import _CompilableRecipe, _compile_recipe, _digest
+from ._contracts import _table_row_model
 from ._graph import _CompiledGraph, _ValueRef
 from .errors import CFBDRecipeCompilationError
 
@@ -145,6 +146,7 @@ def _plan_recipe(
             selected.executor == "dask"
             and node.kind == "step"
             and node.declaration.dask_eligible
+            and _table_row_model(node, required=False) is not None
         ):
             placement = "dask"
         if node.kind == "source":

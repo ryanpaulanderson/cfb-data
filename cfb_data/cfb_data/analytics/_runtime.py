@@ -22,6 +22,7 @@ from ._checkpoints import (
 )
 from ._compiler import _CompilableRecipe
 from ._compute import _LocalTransformProvider, _TransformExecutorSession
+from ._contracts import _table_row_model
 from ._dask import _DaskTransformProvider
 from ._execution import _NodeResult
 from ._graph import _CompiledGraph, _CompiledNode
@@ -296,6 +297,7 @@ async def _execute_graph(
                 if dask_runner is not None
                 and node.kind == "step"
                 and node.declaration.dask_eligible
+                and _table_row_model(node, required=False) is not None
             )
             local_nodes = tuple(
                 node

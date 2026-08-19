@@ -6,7 +6,7 @@ import asyncio
 import time
 import types
 from collections.abc import Mapping, Sequence
-from typing import Literal, cast
+from typing import Literal, TypeVar, cast, get_args, get_origin, get_type_hints
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
@@ -19,7 +19,7 @@ from cfb_data._tabular import (
     _logical_schema_digest,
 )
 
-from ._artifacts import _TableArtifactCodec
+from ._artifacts import _json_schema_digest, _JsonArtifactCodec, _TableArtifactCodec
 from ._checkpoints import (
     _checkpoint_scope,
     _node_fingerprint,
@@ -29,6 +29,7 @@ from ._checkpoints import (
 )
 from ._compiler import _digest
 from ._compute import _TransformExecutorSession
+from ._contracts import _table_row_model
 from ._execution import _NodeResult, _resolve_arguments
 from ._graph import _CompiledNode, _ValueRef
 from ._observability import _AnalyticsDispatcher
@@ -123,15 +124,13 @@ class _TransformRunner:
             results,
             allow_node_values=True,
         )
-        row_model = _declared_row_model(node)
+        row_model = _table_row_model(node, required=False)
         output_identity = _output_identity(node)
-        output_contract = _OutputContractIdentity(
-            name="value",
-            output_id=output_identity.output_id,
-            revision=output_identity.revision,
-            schema_digest=_logical_schema_digest(_logical_schema(row_model)),
-            codec_id=_TableArtifactCodec.codec_id,
-            codec_version=_TableArtifactCodec.codec_version,
+        control_adapter = _control_adapter(node, results) if row_model is None else None
+        output_contract = _output_contract(
+            output_identity,
+            row_model=row_model,
+            control_adapter=control_adapter,
         )
         upstream = _upstream_identities(node, results)
         fingerprint = _node_fingerprint(
@@ -156,12 +155,22 @@ class _TransformRunner:
                 credential_scope=self._credential_scope,
             )
             if candidate is not None:
-                reused = await self._load_candidate(
-                    node,
-                    row_model,
-                    output_identity,
-                    fingerprint,
-                    candidate,
+                reused = (
+                    await self._load_table_candidate(
+                        node,
+                        row_model,
+                        output_identity,
+                        fingerprint,
+                        candidate,
+                    )
+                    if row_model is not None
+                    else await self._load_control_candidate(
+                        node,
+                        _require_control_adapter(control_adapter),
+                        output_identity,
+                        fingerprint,
+                        candidate,
+                    )
                 )
                 if reused is not None:
                     return node.node_id, reused
@@ -180,13 +189,26 @@ class _TransformRunner:
         started = time.monotonic()
         try:
             raw = await self._compute(node, parameters)
-            rows, artifact = await asyncio.to_thread(
-                self._validate_and_store,
-                raw,
-                row_model,
-                output_identity,
-                node,
-            )
+            value: object
+            if row_model is not None:
+                rows, artifact = await asyncio.to_thread(
+                    self._validate_and_store_table,
+                    raw,
+                    row_model,
+                    output_identity,
+                    node,
+                )
+                value = rows
+                row_count: int | None = len(rows)
+            else:
+                control_value, artifact = await asyncio.to_thread(
+                    self._validate_and_store_control,
+                    raw,
+                    _require_control_adapter(control_adapter),
+                    output_identity,
+                )
+                value = control_value
+                row_count = None
             if fingerprint is None:
                 fingerprint = _digest(
                     {
@@ -232,11 +254,11 @@ class _TransformRunner:
             placement=placement,
             outcome=AnalyticsOutcome.success,
             artifact=artifact.content_digest,
-            row_count=len(rows),
+            row_count=row_count,
             duration=time.monotonic() - started,
         )
         return node.node_id, _NodeResult(
-            value=rows,
+            value=value,
             artifact=artifact,
             node_fingerprint=fingerprint,
             row_model=row_model,
@@ -252,7 +274,7 @@ class _TransformRunner:
         recipe = cast(StepRecipe[..., object], node.recipe)
         return await self._provider.execute(recipe, parameters)
 
-    def _validate_and_store(
+    def _validate_and_store_table(
         self,
         raw: object,
         row_model: type[BaseModel],
@@ -282,7 +304,30 @@ class _TransformRunner:
             artifact = self._object_store.publish(staged)
         return rows, artifact
 
-    async def _load_candidate(
+    def _validate_and_store_control(
+        self,
+        raw: object,
+        adapter: TypeAdapter[object],
+        identity: _AnalyticsTableIdentity,
+    ) -> tuple[object, _StoredArtifact]:
+        """Validate and publish one bounded modeled-JSON control value."""
+        try:
+            value = adapter.validate_python(raw, strict=True)
+        except ValidationError as exc:
+            raise CFBDRecipeCompilationError(
+                "Transform output violates its declared control contract"
+            ) from exc
+        with self._object_store.staging_directory() as directory:
+            staged = _JsonArtifactCodec().stage(
+                directory=directory,
+                value=value,
+                adapter=adapter,
+                identity=identity,
+            )
+            artifact = self._object_store.publish(staged)
+        return value, artifact
+
+    async def _load_table_candidate(
         self,
         node: _CompiledNode,
         row_model: type[BaseModel],
@@ -329,6 +374,58 @@ class _TransformRunner:
             ),
             node_fingerprint=fingerprint,
             row_model=row_model,
+        )
+
+    async def _load_control_candidate(
+        self,
+        node: _CompiledNode,
+        adapter: TypeAdapter[object],
+        identity: _AnalyticsTableIdentity,
+        fingerprint: str,
+        candidate: _CheckpointCandidate,
+    ) -> _NodeResult | None:
+        """Load and bind one validated modeled-JSON checkpoint."""
+        try:
+            value = await asyncio.to_thread(
+                _JsonArtifactCodec().load,
+                directory=self._object_store.directory(
+                    candidate.binding.content_digest
+                ),
+                manifest=candidate.manifest,
+                adapter=adapter,
+                identity=identity,
+            )
+            await asyncio.to_thread(
+                self._database.bind_reused_node,
+                run_id=self._run_id,
+                node_id=node.node_id,
+                output_name="value",
+                node_fingerprint=fingerprint,
+                candidate=candidate,
+            )
+        except CFBDArtifactCorruptionError:
+            self._emit(
+                AnalyticsEventType.checkpoint_corrupt,
+                node.node_id,
+                placement=candidate.binding.placement,
+                outcome=AnalyticsOutcome.corrupt,
+            )
+            return None
+        self._emit(
+            AnalyticsEventType.step_reused,
+            node.node_id,
+            placement=candidate.binding.placement,
+            outcome=AnalyticsOutcome.reused,
+            artifact=candidate.binding.content_digest,
+        )
+        return _NodeResult(
+            value=value,
+            artifact=_StoredArtifact(
+                content_digest=candidate.binding.content_digest,
+                manifest=candidate.manifest,
+            ),
+            node_fingerprint=fingerprint,
+            row_model=None,
         )
 
     def _load_rows(
@@ -398,15 +495,6 @@ class _TransformRunner:
         return self._provider.placement if node.kind == "step" else "coordinator"
 
 
-def _declared_row_model(node: _CompiledNode) -> type[BaseModel]:
-    output_type = node.declaration.output_type
-    if not isinstance(output_type, type) or not issubclass(output_type, BaseModel):
-        raise CFBDRecipeCompilationError(
-            "Table steps and datasets require a declared Pydantic row model"
-        )
-    return output_type
-
-
 def _output_identity(node: _CompiledNode) -> _AnalyticsTableIdentity:
     recipe_id = node.declaration.recipe_id
     revision = node.declaration.revision
@@ -416,6 +504,95 @@ def _output_identity(node: _CompiledNode) -> _AnalyticsTableIdentity:
             revision=1,
         )
     return _AnalyticsTableIdentity(output_id=recipe_id, revision=revision)
+
+
+def _output_contract(
+    identity: _AnalyticsTableIdentity,
+    *,
+    row_model: type[BaseModel] | None,
+    control_adapter: TypeAdapter[object] | None,
+) -> _OutputContractIdentity:
+    """Describe one table or modeled-JSON compatibility boundary."""
+    if row_model is not None:
+        return _OutputContractIdentity(
+            name="value",
+            output_id=identity.output_id,
+            revision=identity.revision,
+            schema_digest=_logical_schema_digest(_logical_schema(row_model)),
+            codec_id=_TableArtifactCodec.codec_id,
+            codec_version=_TableArtifactCodec.codec_version,
+        )
+    adapter = _require_control_adapter(control_adapter)
+    return _OutputContractIdentity(
+        name="value",
+        output_id=identity.output_id,
+        revision=identity.revision,
+        schema_digest=_json_schema_digest(adapter),
+        codec_id=_JsonArtifactCodec.codec_id,
+        codec_version=_JsonArtifactCodec.codec_version,
+    )
+
+
+def _control_adapter(
+    node: _CompiledNode,
+    results: Mapping[str, _NodeResult],
+) -> TypeAdapter[object]:
+    """Resolve a concrete modeled-JSON contract for a non-tabular step."""
+    if node.kind != "step" or not isinstance(node.recipe, StepRecipe):
+        raise CFBDRecipeCompilationError(
+            "Only steps may produce modeled-JSON control values"
+        )
+    hints = get_type_hints(node.recipe._function, include_extras=True)
+    return_type = hints["return"]
+    declared = node.declaration.output_type
+    if declared is not None:
+        if return_type is not declared:
+            raise CFBDRecipeCompilationError(
+                "Control step return annotation and declared output differ"
+            )
+        return cast(TypeAdapter[object], TypeAdapter(declared))
+    if isinstance(return_type, TypeVar):
+        return _resolve_typevar_control(node, results, hints, return_type)
+    try:
+        return cast(TypeAdapter[object], TypeAdapter(return_type))
+    except TypeError as exc:
+        raise CFBDRecipeCompilationError(
+            "Control step requires a concrete Pydantic-compatible return contract"
+        ) from exc
+
+
+def _resolve_typevar_control(
+    node: _CompiledNode,
+    results: Mapping[str, _NodeResult],
+    hints: Mapping[str, object],
+    return_type: TypeVar,
+) -> TypeAdapter[object]:
+    """Resolve a generic control output from one matching table input."""
+    for name, annotation in hints.items():
+        arguments = get_args(annotation)
+        if (
+            name == "return"
+            or get_origin(annotation) is not list
+            or len(arguments) != 1
+            or arguments[0] is not return_type
+        ):
+            continue
+        argument = node.arguments.get(name)
+        node_id = getattr(argument.value, "node_id", None) if argument else None
+        upstream = results.get(node_id) if isinstance(node_id, str) else None
+        if upstream is not None and upstream.row_model is not None:
+            return cast(TypeAdapter[object], TypeAdapter(upstream.row_model))
+    raise CFBDRecipeCompilationError(
+        "Generic control step output cannot be resolved from its table input"
+    )
+
+
+def _require_control_adapter(
+    adapter: TypeAdapter[object] | None,
+) -> TypeAdapter[object]:
+    if adapter is None:
+        raise CFBDRecipeCompilationError("Control output contract is unavailable")
+    return adapter
 
 
 def _upstream_identities(

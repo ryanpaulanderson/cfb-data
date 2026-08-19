@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 import pytest
-from cfb_data.analytics import RecipeRef, dataset, step, workflow
+from cfb_data.analytics import RecipeRef, dataset, require_one, step, workflow
 from cfb_data.analytics._compiler import _compile_recipe
 from cfb_data.analytics._compute import _LocalTransformProvider
 from cfb_data.analytics._observability import _AnalyticsDispatcher
@@ -118,6 +118,74 @@ async def test_sync_step_runs_off_loop_and_dataset_validates_contract(
         }
         assert placements[step_node.node_id] == "local"
         assert placements[dataset_node.node_id] == "coordinator"
+    finally:
+        database.close()
+
+
+@pytest.mark.asyncio
+async def test_generic_control_step_uses_json_and_reuses_its_checkpoint(
+    tmp_path: Path,
+) -> None:
+    """Persist a typed scalar boundary without treating it as a table."""
+    source_calls = 0
+
+    @step(id="tests.control_source_rows", revision=1, output=_RawRow)
+    def source_rows() -> list[_RawRow]:
+        nonlocal source_calls
+        source_calls += 1
+        return [_RawRow(id=1, label="selected")]
+
+    @step(id="tests.wrap_selected_row", revision=1, output=_CleanRow)
+    def wrap_selected(row: _RawRow) -> list[_CleanRow]:
+        return [_CleanRow(id=row.id, label=row.label)]
+
+    @dataset(
+        id="tests.control_dataset",
+        revision=1,
+        row=_CleanRow,
+        grain="one selected row",
+        keys=("id",),
+    )
+    def control_dataset() -> RecipeRef[list[_CleanRow]]:
+        return wrap_selected(require_one(source_rows()))
+
+    graph = _compile_recipe(control_dataset, (), {})
+    source_node, control_node, wrap_node, dataset_node = graph.nodes
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+    database = _RunDatabase(root / "runs.sqlite3")
+    try:
+        first_run = _run(database)
+        first_runner = _runner(database, store, run_id=first_run)
+        source_result = await first_runner.run_batch((source_node,), {})
+        control_result = await first_runner.run_batch((control_node,), source_result)
+        wrapped_result = await first_runner.run_batch(
+            (wrap_node,),
+            {**source_result, **control_result},
+        )
+        await first_runner.run_batch(
+            (dataset_node,),
+            {**source_result, **control_result, **wrapped_result},
+        )
+
+        selected = control_result[control_node.node_id]
+        assert selected.value == _RawRow(id=1, label="selected")
+        assert selected.row_model is None
+        assert selected.artifact.manifest.body.kind == "json"
+
+        second_run = _run(database)
+        second_runner = _runner(database, store, run_id=second_run)
+        reused_source = await second_runner.run_batch((source_node,), {})
+        reused_control = await second_runner.run_batch((control_node,), reused_source)
+
+        assert reused_control[control_node.node_id].value == selected.value
+        bindings = {
+            binding.node_id: binding for binding in database.bindings(second_run)
+        }
+        assert bindings[control_node.node_id].content_digest == (
+            selected.artifact.content_digest
+        )
+        assert source_calls == 1
     finally:
         database.close()
 
