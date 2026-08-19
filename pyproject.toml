@@ -22,7 +22,9 @@ dependencies = [
     "aiohttp>=3.13,<4",
     "aiosqlite>=0.22,<1",
     "jinja2>=3.1,<4",
+    "narwhals>=2.24,<3",
     "pandas>=3.0,<4",
+    "platformdirs>=4.11,<5",
     "pydantic>=2.12,<3",
     "pyarrow>=25,<26",
 ]
@@ -33,6 +35,12 @@ polars = [
 ]
 redis = [
     "redis>=7.1,<9",
+]
+dask = [
+    "dask[distributed]>=2026.7.1,<2027",
+]
+yaml = [
+    "PyYAML>=6.0.3,<7",
 ]
 dev = [
     "build>=1.5,<2",
@@ -46,7 +54,11 @@ dev = [
     "ruff>=0.15.22,<0.17",
     "sphinx>=9.1,<10",
     "twine>=7,<8",
+    "types-PyYAML>=6.0.12.20260815,<6.1",
 ]
+
+[project.entry-points."cfb_data.recipes"]
+official = "cfb_data_recipes"
 
 [project.urls]
 Documentation = "https://ryanpaulanderson.github.io/cfb-data/"
@@ -63,6 +75,7 @@ namespaces = false
 
 [tool.setuptools.package-data]
 cfb_data = ["py.typed", "cache/sql/*.sql"]
+cfb_data_recipes = ["py.typed"]
 
 [tool.ruff]
 line-length = 88
@@ -101,7 +114,7 @@ docstring-code-format = true
 [tool.mypy]
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["cfb_data/cfb_data"]
+files = ["cfb_data/cfb_data", "cfb_data/cfb_data_recipes"]
 exclude = ["^cfb_data/cfb_data/tests/"]
 pretty = true
 show_error_codes = true

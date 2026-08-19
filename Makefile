@@ -25,7 +25,7 @@ help:
 install:
 	test -d $(VENV) || $(PYTHON) -m venv $(VENV)
 	$(VENV_PYTHON) -m pip install --upgrade pip
-	$(VENV_PYTHON) -m pip install --editable ".[dev,polars,redis]"
+	$(VENV_PYTHON) -m pip install --editable ".[dev,polars,redis,dask,yaml]"
 
 hooks:
 	$(PRE_COMMIT) install
