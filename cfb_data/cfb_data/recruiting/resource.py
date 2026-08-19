@@ -11,6 +11,7 @@ from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
 from cfb_data._requests import _resolve_request
 from cfb_data.enums import RecruitClassification
+from cfb_data.recruiting._operations import RECRUITING_PLAYERS, RECRUITING_TEAMS
 from cfb_data.recruiting.models.pydantic.requests import (
     RecruitingGroupsRequest,
     RecruitingPlayersRequest,
@@ -18,8 +19,6 @@ from cfb_data.recruiting.models.pydantic.requests import (
 )
 from cfb_data.recruiting.models.pydantic.responses import (
     AggregatedTeamRecruiting,
-    Recruit,
-    TeamRecruitingRanking,
 )
 
 _RequestT = TypeVar("_RequestT", bound=BaseModel)
@@ -28,8 +27,6 @@ type _RecruitClassificationArgument = (
     RecruitClassification | Literal["JUCO", "PrepSchool", "HighSchool"]
 )
 
-_RECRUIT_ROWS = TypeAdapter(list[Recruit])
-_TEAM_RANKING_ROWS = TypeAdapter(list[TeamRecruitingRanking])
 _GROUP_ROWS = TypeAdapter(list[AggregatedTeamRecruiting])
 
 
@@ -72,13 +69,11 @@ class RecruitingResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/recruiting/players",
-            request_type=RecruitingPlayersRequest,
+        return await RECRUITING_PLAYERS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_RECRUIT_ROWS,
-            row_model=Recruit,
         )
 
     @overload
@@ -105,13 +100,11 @@ class RecruitingResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/recruiting/teams",
-            request_type=RecruitingTeamsRequest,
+        return await RECRUITING_TEAMS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_TEAM_RANKING_ROWS,
-            row_model=TeamRecruitingRanking,
         )
 
     @overload
