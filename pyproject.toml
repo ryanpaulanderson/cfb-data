@@ -137,4 +137,5 @@ testpaths = ["cfb_data/cfb_data/tests"]
 markers = [
     "redis: requires an explicitly configured disposable Redis integration service",
     "live_api: requires CFBD_API_KEY and makes bounded calls to the real API",
+    "live_analytics: requires CFBD_API_KEY, persistent Redis, and a durable call ledger",
 ]
