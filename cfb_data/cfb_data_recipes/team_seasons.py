@@ -18,6 +18,8 @@ from cfb_data.metrics.models.pydantic.responses import TeamSeasonPredictedPoints
 from cfb_data.metrics.sources import team_season_ppa
 from cfb_data.stats.models.pydantic.responses import AdvancedSeasonStat, TeamStat
 from cfb_data.stats.sources import advanced_season_stats, team_season_stats
+from cfb_data.teams.models.pydantic.responses import TeamATS, TeamTalent
+from cfb_data.teams.sources import team_ats, team_talent
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -78,11 +80,25 @@ class TeamSeason(BaseModel):
         default=None,
         description="Source team-season PPA metrics when requested.",
     )
+    talent_coverage: TeamSeasonCoverage = Field(
+        description="Explicit team-talent enrichment availability."
+    )
+    talent: TeamTalent | None = Field(
+        default=None,
+        description="Source 247Sports team-talent composite when requested.",
+    )
+    ats_coverage: TeamSeasonCoverage = Field(
+        description="Explicit against-the-spread enrichment availability."
+    )
+    ats: TeamATS | None = Field(
+        default=None,
+        description="Source against-the-spread season record when requested.",
+    )
 
 
 @step(
     id="cfbd.team_seasons.compose",
-    revision=1,
+    revision=2,
     output=TeamSeason,
     deterministic=True,
 )
@@ -92,6 +108,8 @@ def compose_team_seasons(
     advanced: list[AdvancedSeasonStat],
     *,
     ppa: list[TeamSeasonPredictedPointsAdded] | None,
+    talent: list[TeamTalent] | None,
+    ats: list[TeamATS] | None,
 ) -> list[TeamSeason]:
     """Attach required season statistics to the records-defined universe.
 
@@ -99,6 +117,8 @@ def compose_team_seasons(
     :param statistics: Validated dynamic conventional statistics.
     :param advanced: Validated nested advanced season metrics.
     :param ppa: Requested team-season PPA rows, or ``None`` when omitted.
+    :param talent: Requested team-talent rows, or ``None`` when omitted.
+    :param ats: Requested against-the-spread rows, or ``None`` when omitted.
     :return: Complete team seasons in stable season/team-ID order.
     :raises ValueError: If identity, coverage, or statistic keys are ambiguous.
     """
@@ -158,6 +178,9 @@ def compose_team_seasons(
         if ppa_by_key and set(ppa_by_key) != set(record_keys):
             raise ValueError("Requested team-season PPA is incomplete")
 
+    talent_by_key = _index_talent(record_keys, talent)
+    ats_by_key = _index_ats(record_keys, ats)
+
     rows: list[TeamSeason] = []
     for key, record in record_keys.items():
         if not conventional[key]:
@@ -195,6 +218,10 @@ def compose_team_seasons(
                     )
                 ),
                 ppa=ppa_by_key.get(key) if ppa_by_key is not None else None,
+                talent_coverage=_coverage(talent_by_key, key),
+                talent=(talent_by_key.get(key) if talent_by_key is not None else None),
+                ats_coverage=_coverage(ats_by_key, key),
+                ats=ats_by_key.get(key) if ats_by_key is not None else None,
             )
         )
     return sorted(rows, key=lambda row: (row.season, row.team_id))
@@ -202,7 +229,7 @@ def compose_team_seasons(
 
 @dataset(
     id="cfbd.team_seasons",
-    revision=1,
+    revision=2,
     row=TeamSeason,
     grain="one team season established by the records source",
     keys=("season", "team_id"),
@@ -219,6 +246,8 @@ def team_seasons(
     end_week: int | None = None,
     exclude_garbage_time: bool | None = None,
     include_ppa: bool = False,
+    include_talent: bool = False,
+    include_ats: bool = False,
 ) -> RecipeRef[list[TeamSeason]]:
     """Build complete team-season records and core statistics.
 
@@ -230,6 +259,8 @@ def team_seasons(
     :param end_week: Optional inclusive statistics ending week.
     :param exclude_garbage_time: Optional advanced-statistics source policy.
     :param include_ppa: Request team-season predicted-points-added metrics.
+    :param include_talent: Request the season's team-talent composites.
+    :param include_ats: Request team against-the-spread records.
     :return: A reference to the validated team-seasons dataset.
     """
     return compose_team_seasons(
@@ -261,11 +292,103 @@ def team_seasons(
             if include_ppa
             else None
         ),
+        talent=team_talent(year=season) if include_talent else None,
+        ats=(
+            team_ats(year=season, team=team, conference=conference)
+            if include_ats
+            else None
+        ),
     )
 
 
 def _identity_text(value: str) -> str:
+    """Return the comparison identity used within one validated season.
+
+    :param value: Source-provided team name.
+    :return: Whitespace-normalized, case-insensitive text.
+    """
     return " ".join(value.split()).casefold()
+
+
+def _index_talent(
+    records: dict[tuple[int, str], TeamRecords],
+    talent: list[TeamTalent] | None,
+) -> dict[tuple[int, str], TeamTalent] | None:
+    """Index name-only talent inside the records-defined season universe.
+
+    The upstream talent route has no team selector or stable team ID. Rows
+    outside the requested records universe are therefore an explicit unmatched
+    right side of this enrichment join; they cannot add base rows.
+
+    :param records: Authoritative team-season records keyed within season.
+    :param talent: Requested source rows, or ``None`` when omitted.
+    :return: Matching talent by records identity, or ``None`` when omitted.
+    :raises ValueError: If matches are duplicated or non-empty coverage is partial.
+    """
+    if talent is None:
+        return None
+    indexed: dict[tuple[int, str], TeamTalent] = {}
+    for item in talent:
+        key = (item.year, _identity_text(item.team))
+        if key not in records:
+            continue
+        if key in indexed:
+            raise ValueError("Team talent contains duplicate team seasons")
+        indexed[key] = item
+    if talent and set(indexed) != set(records):
+        raise ValueError("Requested team talent is incomplete")
+    return indexed
+
+
+def _index_ats(
+    records: dict[tuple[int, str], TeamRecords],
+    ats: list[TeamATS] | None,
+) -> dict[tuple[int, str], TeamATS] | None:
+    """Index ATS by stable team ID before validating display identity.
+
+    :param records: Authoritative team-season records keyed within season.
+    :param ats: Requested source rows, or ``None`` when omitted.
+    :return: Matching ATS rows by records identity, or ``None`` when omitted.
+    :raises ValueError: If identity conflicts, duplicates, or coverage is partial.
+    """
+    if ats is None:
+        return None
+    records_by_id = {
+        (record.year, record.team_id): (key, record) for key, record in records.items()
+    }
+    indexed: dict[tuple[int, str], TeamATS] = {}
+    for item in ats:
+        match = records_by_id.get((item.year, item.team_id))
+        if match is None:
+            continue
+        key, record = match
+        if _identity_text(item.team) != _identity_text(record.team) or (
+            item.conference is not None and item.conference != record.conference
+        ):
+            raise ValueError("Team ATS conflicts with records identity")
+        if key in indexed:
+            raise ValueError("Team ATS contains duplicate team seasons")
+        indexed[key] = item
+    if ats and set(indexed) != set(records):
+        raise ValueError("Requested team ATS is incomplete")
+    return indexed
+
+
+def _coverage[ValueT](
+    values: dict[tuple[int, str], ValueT] | None,
+    key: tuple[int, str],
+) -> TeamSeasonCoverage:
+    """Return explicit optional-enrichment coverage for one base key.
+
+    :param values: Requested enrichment index, or ``None`` when omitted.
+    :param key: Current records-defined team-season key.
+    :return: Not-requested, present, or valid-empty coverage.
+    """
+    if values is None:
+        return TeamSeasonCoverage.not_requested
+    if key in values:
+        return TeamSeasonCoverage.present
+    return TeamSeasonCoverage.empty
 
 
 __all__ = [

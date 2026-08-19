@@ -149,6 +149,26 @@ def _ppa() -> dict[str, object]:
     }
 
 
+def _talent() -> dict[str, object]:
+    """Return one source-shaped team-talent enrichment row."""
+    return {"year": 2024, "team": "Michigan", "talent": 982.31}
+
+
+def _ats() -> dict[str, object]:
+    """Return one source-shaped against-the-spread enrichment row."""
+    return {
+        "year": 2024,
+        "teamId": 130,
+        "team": "Michigan",
+        "conference": "Big Ten",
+        "games": 15,
+        "atsWins": 9,
+        "atsLosses": 5,
+        "atsPushes": 1,
+        "avgCoverMargin": 3.2,
+    }
+
+
 @pytest.mark.asyncio
 async def test_recipe_uses_records_universe_and_preserves_ordered_statistics(
     api_server: ServerFactory,
@@ -188,6 +208,10 @@ async def test_recipe_uses_records_universe_and_preserves_ordered_statistics(
     assert frame.loc[0, "advanced"]["defense"]["passing_downs"]["total_ppa"] == 12.5
     assert frame.loc[0, "ppa_coverage"] == TeamSeasonCoverage.not_requested
     assert frame.loc[0, "ppa"] is None
+    assert frame.loc[0, "talent_coverage"] == TeamSeasonCoverage.not_requested
+    assert frame.loc[0, "talent"] is None
+    assert frame.loc[0, "ats_coverage"] == TeamSeasonCoverage.not_requested
+    assert frame.loc[0, "ats"] is None
 
 
 @pytest.mark.asyncio
@@ -203,6 +227,8 @@ async def test_recipe_has_four_way_canonical_parity(
         "/stats/season": 0,
         "/stats/season/advanced": 0,
         "/ppa/teams": 0,
+        "/talent": 0,
+        "/teams/ats": 0,
     }
 
     async def handler(request: web.Request) -> web.Response:
@@ -212,6 +238,8 @@ async def test_recipe_has_four_way_canonical_parity(
             "/stats/season": _statistics(),
             "/stats/season/advanced": [_advanced()],
             "/ppa/teams": [_ppa()],
+            "/talent": [_talent()],
+            "/teams/ats": [_ats()],
         }
         return web.json_response(payloads[request.path])
 
@@ -236,6 +264,8 @@ async def test_recipe_has_four_way_canonical_parity(
                     client,
                     season=2024,
                     include_ppa=True,
+                    include_talent=True,
+                    include_ats=True,
                     policy=ExecutionPolicy(executor=executor, dask_max_workers=1),
                 )
             digests.append(run.artifact.descriptor.content_digest)
@@ -243,12 +273,18 @@ async def test_recipe_has_four_way_canonical_parity(
             records.append(restored.to_dict(orient="records"))
             assert restored.loc[0, "ppa_coverage"] == TeamSeasonCoverage.present
             assert restored.loc[0, "ppa"]["offense"]["overall"] == 0.2
+            assert restored.loc[0, "talent_coverage"] == TeamSeasonCoverage.present
+            assert restored.loc[0, "talent"]["talent"] == 982.31
+            assert restored.loc[0, "ats_coverage"] == TeamSeasonCoverage.present
+            assert restored.loc[0, "ats"]["ats_wins"] == 9
 
     assert calls == {
         "/records": 4,
         "/stats/season": 4,
         "/stats/season/advanced": 4,
         "/ppa/teams": 4,
+        "/talent": 4,
+        "/teams/ats": 4,
     }
     assert len(set(digests)) == 1
     assert all(result == records[0] for result in records[1:])
@@ -279,7 +315,7 @@ async def test_required_statistical_coverage_fails_closed(
             with pytest.raises(CFBDRunError) as exc_info:
                 await team_seasons(client, season=2024)
 
-    assert exc_info.value.node_id.endswith("cfbd.team_seasons.compose@1")
+    assert exc_info.value.node_id.endswith("cfbd.team_seasons.compose@2")
     assert exc_info.value.category == "ValueError"
 
 
@@ -296,6 +332,8 @@ async def test_requested_empty_ppa_is_explicit_without_changing_universe(
             "/stats/season": _statistics(),
             "/stats/season/advanced": [_advanced()],
             "/ppa/teams": [],
+            "/talent": [],
+            "/teams/ats": [],
         }
         return web.json_response(payloads[request.path])
 
@@ -306,13 +344,19 @@ async def test_requested_empty_ppa_is_explicit_without_changing_universe(
             retry_policy=RetryPolicy(max_attempts=1),
             analytics=AnalyticsConfig(root=tmp_path / "analytics"),
         ) as client:
-            frame = await team_seasons(
+            frame: pd.DataFrame = await team_seasons(
                 client,
                 season=2024,
                 team="Michigan",
                 include_ppa=True,
+                include_talent=True,
+                include_ats=True,
             )
 
     assert len(frame) == 1
     assert frame.loc[0, "ppa_coverage"] == TeamSeasonCoverage.empty
     assert frame.loc[0, "ppa"] is None
+    assert frame.loc[0, "talent_coverage"] == TeamSeasonCoverage.empty
+    assert frame.loc[0, "talent"] is None
+    assert frame.loc[0, "ats_coverage"] == TeamSeasonCoverage.empty
+    assert frame.loc[0, "ats"] is None
