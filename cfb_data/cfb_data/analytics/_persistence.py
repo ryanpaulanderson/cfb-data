@@ -124,6 +124,14 @@ class _PrunePlan:
 
 
 @dataclass(frozen=True, slots=True)
+class _OrphanCleanupPlan:
+    """Bind unregistered immutable objects to validation evidence."""
+
+    candidates: tuple[_PruneCandidate, ...]
+    validation_digest: str
+
+
+@dataclass(frozen=True, slots=True)
 class _AttemptReservationRecord:
     """Expose safe durable evidence for one actual transport attempt."""
 
@@ -261,6 +269,47 @@ class _ArtifactObjectStore:
         except OSError as exc:
             raise CFBDPersistenceError(category="artifact_remove") from exc
 
+    def published_artifacts(self) -> tuple[_StoredArtifact, ...]:
+        """Return every validated published object in deterministic order."""
+        if not self._objects.exists():
+            return ()
+        artifacts: list[_StoredArtifact] = []
+        for bucket in sorted(self._objects.iterdir(), key=lambda path: path.name):
+            if bucket.name == "staging":
+                continue
+            if (
+                bucket.is_symlink()
+                or not bucket.is_dir()
+                or len(bucket.name) != 2
+                or any(character not in _DIGEST_CHARACTERS for character in bucket.name)
+            ):
+                raise CFBDArtifactCorruptionError(
+                    content_digest=None,
+                    category="object_layout",
+                )
+            for directory in sorted(bucket.iterdir(), key=lambda path: path.name):
+                if (
+                    directory.is_symlink()
+                    or not directory.is_dir()
+                    or len(directory.name) != 64
+                    or not directory.name.startswith(bucket.name)
+                    or any(
+                        character not in _DIGEST_CHARACTERS
+                        for character in directory.name
+                    )
+                ):
+                    raise CFBDArtifactCorruptionError(
+                        content_digest=None,
+                        category="object_layout",
+                    )
+                artifacts.append(
+                    _StoredArtifact(
+                        content_digest=directory.name,
+                        manifest=self.load_manifest(directory.name),
+                    )
+                )
+        return tuple(artifacts)
+
     def _object_path(self, content_digest: str) -> Path:
         if len(content_digest) != 64 or any(
             character not in _DIGEST_CHARACTERS for character in content_digest
@@ -337,6 +386,36 @@ class _RunDatabaseQueries:
         return _PrunePlan(
             candidates=candidates,
             validation_digest=_prune_validation_digest(candidates),
+        )
+
+    def registered_artifact_digests(self) -> frozenset[str]:
+        """Return all registered object identities without filesystem access."""
+        with self._lock:
+            rows = self._connection.execute(
+                self._sql.render("artifacts/select_registered_digests.sql")
+            ).fetchall()
+        return frozenset(str(row["content_digest"]) for row in rows)
+
+    def plan_orphan_cleanup(
+        self,
+        *,
+        object_store: _ArtifactObjectStore,
+    ) -> _OrphanCleanupPlan:
+        """Return validated published objects absent from the run database."""
+        registered = self.registered_artifact_digests()
+        candidates = tuple(
+            _PruneCandidate(
+                content_digest=artifact.content_digest,
+                size_bytes=sum(
+                    part.size_bytes for part in artifact.manifest.body.parts
+                ),
+            )
+            for artifact in object_store.published_artifacts()
+            if artifact.content_digest not in registered
+        )
+        return _OrphanCleanupPlan(
+            candidates=candidates,
+            validation_digest=_orphan_validation_digest(candidates),
         )
 
 
@@ -556,6 +635,42 @@ class _RunDatabase(_RunDatabaseQueries):
             outputs=((output_name, node_fingerprint, artifact, placement),),
         )[0]
 
+    def publish_completed_node(
+        self,
+        *,
+        run_id: str,
+        node_id: str,
+        output_name: str,
+        node_fingerprint: str,
+        staged: _StagedArtifact,
+        object_store: _ArtifactObjectStore,
+        placement: _Placement,
+    ) -> tuple[_StoredArtifact, _NodeArtifactBinding]:
+        """Publish content and commit its successful node binding atomically.
+
+        The database write reservation is acquired before filesystem publication.
+        A crash can leave an unregistered immutable object, but no concurrent
+        cleanup can mistake the publish-to-bind interval for an abandoned object.
+        """
+        committed_at = _as_utc(self._clock())
+        with self._transaction() as connection:
+            self._require_run(connection, run_id)
+            current = connection.execute(
+                self._sql.render("nodes/select_current_state.sql"),
+                (run_id, node_id),
+            ).fetchone()
+            if current is None or current["state"] != "running":
+                raise CFBDPersistenceError(category="node_transition")
+            artifact = object_store.publish(staged)
+            binding = self._bind_completed_outputs(
+                connection,
+                run_id=run_id,
+                node_id=node_id,
+                outputs=((output_name, node_fingerprint, artifact, placement),),
+                committed_at=committed_at,
+            )[0]
+        return artifact, binding
+
     def bind_completed_outputs(
         self,
         *,
@@ -564,64 +679,79 @@ class _RunDatabase(_RunDatabaseQueries):
         outputs: Sequence[tuple[str, str, _StoredArtifact, _Placement]],
     ) -> tuple[_NodeArtifactBinding, ...]:
         """Commit named artifact bindings and node success in one transaction."""
-        if not outputs:
-            raise ValueError("Completed nodes require at least one output")
-        names = tuple(output[0] for output in outputs)
-        if len(set(names)) != len(names):
-            raise ValueError("Completed node output names must be unique")
+        _validate_completed_outputs(outputs)
         committed_at = _as_utc(self._clock())
         with self._transaction() as connection:
             self._require_run(connection, run_id)
-            for output_name, node_fingerprint, artifact, placement in outputs:
-                manifest_payload = _canonical_json_bytes(
-                    artifact.manifest.model_dump(mode="json")
-                ).decode("utf-8")
-                self._require_artifact_not_retired(
-                    connection,
-                    artifact.content_digest,
-                )
-                row = connection.execute(
-                    self._sql.render("artifacts/select_manifest.sql"),
-                    (artifact.content_digest,),
-                ).fetchone()
-                if row is not None and row["manifest_json"] != manifest_payload:
-                    raise CFBDArtifactCorruptionError(
-                        content_digest=artifact.content_digest,
-                        category="database_collision",
-                    )
-                connection.execute(
-                    self._sql.render("artifacts/insert_object.sql"),
-                    (
-                        artifact.content_digest,
-                        artifact.manifest.body.kind,
-                        artifact.manifest.body.codec_id,
-                        artifact.manifest.body.codec_version,
-                        manifest_payload,
-                        committed_at.isoformat(),
-                    ),
-                )
-                connection.execute(
-                    self._sql.render("nodes/insert_binding.sql"),
-                    (
-                        run_id,
-                        node_id,
-                        output_name,
-                        node_fingerprint,
-                        artifact.content_digest,
-                        placement,
-                        committed_at.isoformat(),
-                    ),
-                )
             current = connection.execute(
                 self._sql.render("nodes/select_current_state.sql"),
                 (run_id, node_id),
             ).fetchone()
             if current is None or current["state"] != "running":
                 raise CFBDPersistenceError(category="node_transition")
-            connection.execute(
-                self._sql.render("nodes/insert_transition.sql"),
-                (run_id, node_id, "completed", committed_at.isoformat(), None),
+            return self._bind_completed_outputs(
+                connection,
+                run_id=run_id,
+                node_id=node_id,
+                outputs=outputs,
+                committed_at=committed_at,
             )
+
+    def _bind_completed_outputs(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        run_id: str,
+        node_id: str,
+        outputs: Sequence[tuple[str, str, _StoredArtifact, _Placement]],
+        committed_at: datetime,
+    ) -> tuple[_NodeArtifactBinding, ...]:
+        """Bind validated outputs and append success inside one owned transaction."""
+        _validate_completed_outputs(outputs)
+        for output_name, node_fingerprint, artifact, placement in outputs:
+            manifest_payload = _canonical_json_bytes(
+                artifact.manifest.model_dump(mode="json")
+            ).decode("utf-8")
+            self._require_artifact_not_retired(
+                connection,
+                artifact.content_digest,
+            )
+            row = connection.execute(
+                self._sql.render("artifacts/select_manifest.sql"),
+                (artifact.content_digest,),
+            ).fetchone()
+            if row is not None and row["manifest_json"] != manifest_payload:
+                raise CFBDArtifactCorruptionError(
+                    content_digest=artifact.content_digest,
+                    category="database_collision",
+                )
+            connection.execute(
+                self._sql.render("artifacts/insert_object.sql"),
+                (
+                    artifact.content_digest,
+                    artifact.manifest.body.kind,
+                    artifact.manifest.body.codec_id,
+                    artifact.manifest.body.codec_version,
+                    manifest_payload,
+                    committed_at.isoformat(),
+                ),
+            )
+            connection.execute(
+                self._sql.render("nodes/insert_binding.sql"),
+                (
+                    run_id,
+                    node_id,
+                    output_name,
+                    node_fingerprint,
+                    artifact.content_digest,
+                    placement,
+                    committed_at.isoformat(),
+                ),
+            )
+        connection.execute(
+            self._sql.render("nodes/insert_transition.sql"),
+            (run_id, node_id, "completed", committed_at.isoformat(), None),
+        )
         return tuple(
             _NodeArtifactBinding(
                 run_id=run_id,
@@ -776,6 +906,31 @@ class _RunDatabase(_RunDatabaseQueries):
                 )
             removed.append(candidate.content_digest)
         return tuple(removed)
+
+    def execute_orphan_cleanup(
+        self,
+        plan: _OrphanCleanupPlan,
+        *,
+        object_store: _ArtifactObjectStore,
+    ) -> tuple[str, ...]:
+        """Remove unchanged unregistered objects under the publication lock."""
+        if plan.validation_digest != _orphan_validation_digest(plan.candidates):
+            raise CFBDPersistenceError(category="orphan_plan")
+        with self._transaction() as connection:
+            current = self.plan_orphan_cleanup(object_store=object_store)
+            if current != plan:
+                raise CFBDPersistenceError(category="orphan_plan_stale")
+            registered = {
+                str(row["content_digest"])
+                for row in connection.execute(
+                    self._sql.render("artifacts/select_registered_digests.sql")
+                ).fetchall()
+            }
+            for candidate in plan.candidates:
+                if candidate.content_digest in registered:
+                    raise CFBDPersistenceError(category="orphan_plan_stale")
+                object_store.remove(candidate.content_digest)
+        return tuple(candidate.content_digest for candidate in plan.candidates)
 
     def find_checkpoint(
         self,
@@ -1169,6 +1324,17 @@ def _validate_pin_name(name: str) -> None:
         raise ValueError("Artifact pin names must be safe non-empty slugs")
 
 
+def _validate_completed_outputs(
+    outputs: Sequence[tuple[str, str, _StoredArtifact, _Placement]],
+) -> None:
+    """Require one or more uniquely named outputs before publication."""
+    if not outputs:
+        raise ValueError("Completed nodes require at least one output")
+    names = tuple(output[0] for output in outputs)
+    if len(set(names)) != len(names):
+        raise ValueError("Completed node output names must be unique")
+
+
 _SAFE_PIN_CHARACTERS: Final = frozenset(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
 )
@@ -1191,6 +1357,22 @@ def _prune_validation_digest(candidates: Sequence[_PruneCandidate]) -> str:
     return _digest(
         {
             "prune_plan": 1,
+            "candidates": [
+                {
+                    "content_digest": candidate.content_digest,
+                    "size_bytes": candidate.size_bytes,
+                }
+                for candidate in candidates
+            ],
+        }
+    )
+
+
+def _orphan_validation_digest(candidates: Sequence[_PruneCandidate]) -> str:
+    """Bind an orphan cleanup plan to ordered validated object evidence."""
+    return _digest(
+        {
+            "orphan_cleanup_plan": 1,
             "candidates": [
                 {
                     "content_digest": candidate.content_digest,

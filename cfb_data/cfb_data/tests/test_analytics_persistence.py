@@ -30,12 +30,14 @@ from cfb_data.analytics.errors import (
     CFBDPersistenceError,
 )
 from cfb_data.analytics.maintenance import (
+    clean_orphans,
     execute_artifact_prune,
     inspect_artifact,
     inspect_run,
     list_runs,
     pin_artifact,
     plan_artifact_prune,
+    plan_orphan_cleanup,
     retire_run,
     unpin_artifact,
 )
@@ -578,3 +580,100 @@ async def test_public_prune_plan_is_bound_to_its_configured_root(
         await execute_artifact_prune(plan, AnalyticsConfig(root=second_root))
 
     assert exc_info.value.category == "prune_plan_root"
+
+
+def test_atomic_publication_validates_node_before_exposing_content(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+    database = _RunDatabase(root / "runs.sqlite3", clock=lambda: _NOW)
+    try:
+        run = database.create_run(
+            recipe_id="cfbd.game_summaries",
+            recipe_revision=1,
+            recipe_kind="dataset",
+            parameter_fingerprint="a" * 64,
+            graph_fingerprint="b" * 64,
+            credential_scope="scope-a",
+        )
+        database.transition_node(run.run_id, "step", "ready")
+        with store.staging_directory() as directory:
+            staged = _TableArtifactCodec().stage(
+                directory=directory,
+                table=_table(),
+                row_model=_ArtifactRow,
+                identity=_IDENTITY,
+            )
+            with pytest.raises(CFBDPersistenceError) as exc_info:
+                database.publish_completed_node(
+                    run_id=run.run_id,
+                    node_id="step",
+                    output_name="value",
+                    node_fingerprint="c" * 64,
+                    staged=staged,
+                    object_store=store,
+                    placement="local",
+                )
+
+        assert exc_info.value.category == "node_transition"
+        assert store.published_artifacts() == ()
+    finally:
+        database.close()
+
+
+@pytest.mark.asyncio
+async def test_orphan_cleanup_removes_only_unchanged_unregistered_objects(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "analytics"
+    config = AnalyticsConfig(root=root)
+    store = _ArtifactObjectStore(root)
+    orphan = _publish(store)
+
+    plan = await plan_orphan_cleanup(config)
+
+    assert [candidate.content_digest for candidate in plan.candidates] == [
+        orphan.content_digest
+    ]
+    result = await clean_orphans(plan, config)
+    assert result.removed_digests == (orphan.content_digest,)
+    assert result.removed_bytes == plan.total_bytes
+    assert store.published_artifacts() == ()
+
+
+@pytest.mark.asyncio
+async def test_orphan_cleanup_rejects_object_registered_after_preview(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "analytics"
+    config = AnalyticsConfig(root=root)
+    store = _ArtifactObjectStore(root)
+    artifact = _publish(store)
+    database = _RunDatabase(root / "runs.sqlite3", clock=lambda: _NOW)
+    try:
+        plan = await plan_orphan_cleanup(config)
+        _run_with_artifact(database, artifact)
+    finally:
+        database.close()
+
+    with pytest.raises(CFBDPersistenceError) as exc_info:
+        await clean_orphans(plan, config)
+
+    assert exc_info.value.category == "orphan_plan_stale"
+    assert store.load_manifest(artifact.content_digest) == artifact.manifest
+
+
+@pytest.mark.asyncio
+async def test_orphan_preview_ignores_active_staging_directories(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+
+    with store.staging_directory() as directory:
+        (directory / "partial").write_bytes(b"partial")
+        plan = await plan_orphan_cleanup(AnalyticsConfig(root=root))
+
+        assert plan.candidates == ()
+        assert directory.exists()

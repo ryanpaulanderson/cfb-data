@@ -191,41 +191,29 @@ class _TransformRunner:
             raw = await self._compute(node, parameters)
             value: object
             if row_model is not None:
-                rows, artifact = await asyncio.to_thread(
-                    self._validate_and_store_table,
+                rows, artifact, fingerprint = await asyncio.to_thread(
+                    self._validate_store_and_bind_table,
                     raw,
                     row_model,
                     output_identity,
                     node,
+                    fingerprint,
+                    placement,
                 )
                 value = rows
                 row_count: int | None = len(rows)
             else:
-                control_value, artifact = await asyncio.to_thread(
-                    self._validate_and_store_control,
+                control_value, artifact, fingerprint = await asyncio.to_thread(
+                    self._validate_store_and_bind_control,
                     raw,
                     _require_control_adapter(control_adapter),
                     output_identity,
+                    node,
+                    fingerprint,
+                    placement,
                 )
                 value = control_value
                 row_count = None
-            if fingerprint is None:
-                fingerprint = _digest(
-                    {
-                        "originating_run": self._run_id,
-                        "node": node.node_id,
-                        "artifact": artifact.content_digest,
-                    }
-                )
-            await asyncio.to_thread(
-                self._database.bind_completed_node,
-                run_id=self._run_id,
-                node_id=node.node_id,
-                output_name="value",
-                node_fingerprint=fingerprint,
-                artifact=artifact,
-                placement=placement,
-            )
         except asyncio.CancelledError:
             await self._terminal(node.node_id, "cancelled", "cancelled")
             self._emit(
@@ -274,13 +262,15 @@ class _TransformRunner:
         recipe = cast(StepRecipe[..., object], node.recipe)
         return await self._provider.execute(recipe, parameters)
 
-    def _validate_and_store_table(
+    def _validate_store_and_bind_table(
         self,
         raw: object,
         row_model: type[BaseModel],
         identity: _AnalyticsTableIdentity,
         node: _CompiledNode,
-    ) -> tuple[list[BaseModel], _StoredArtifact]:
+        fingerprint: str | None,
+        placement: Literal["coordinator", "local", "dask"],
+    ) -> tuple[list[BaseModel], _StoredArtifact, str]:
         try:
             rows = _row_list_adapter(row_model).validate_python(raw)
         except ValidationError as exc:
@@ -301,16 +291,32 @@ class _TransformRunner:
                 row_model=row_model,
                 identity=identity,
             )
-            artifact = self._object_store.publish(staged)
-        return rows, artifact
+            resolved_fingerprint = self._resolved_fingerprint(
+                node,
+                fingerprint,
+                staged.manifest.content_digest,
+            )
+            artifact, _ = self._database.publish_completed_node(
+                run_id=self._run_id,
+                node_id=node.node_id,
+                output_name="value",
+                node_fingerprint=resolved_fingerprint,
+                staged=staged,
+                object_store=self._object_store,
+                placement=placement,
+            )
+        return rows, artifact, resolved_fingerprint
 
-    def _validate_and_store_control(
+    def _validate_store_and_bind_control(
         self,
         raw: object,
         adapter: TypeAdapter[object],
         identity: _AnalyticsTableIdentity,
-    ) -> tuple[object, _StoredArtifact]:
-        """Validate and publish one bounded modeled-JSON control value."""
+        node: _CompiledNode,
+        fingerprint: str | None,
+        placement: Literal["coordinator", "local", "dask"],
+    ) -> tuple[object, _StoredArtifact, str]:
+        """Validate, publish, and bind one bounded modeled-JSON control value."""
         try:
             value = adapter.validate_python(raw, strict=True)
         except ValidationError as exc:
@@ -324,8 +330,38 @@ class _TransformRunner:
                 adapter=adapter,
                 identity=identity,
             )
-            artifact = self._object_store.publish(staged)
-        return value, artifact
+            resolved_fingerprint = self._resolved_fingerprint(
+                node,
+                fingerprint,
+                staged.manifest.content_digest,
+            )
+            artifact, _ = self._database.publish_completed_node(
+                run_id=self._run_id,
+                node_id=node.node_id,
+                output_name="value",
+                node_fingerprint=resolved_fingerprint,
+                staged=staged,
+                object_store=self._object_store,
+                placement=placement,
+            )
+        return value, artifact, resolved_fingerprint
+
+    def _resolved_fingerprint(
+        self,
+        node: _CompiledNode,
+        fingerprint: str | None,
+        content_digest: str,
+    ) -> str:
+        """Bind nondeterministic steps to their originating run and content."""
+        if fingerprint is not None:
+            return fingerprint
+        return _digest(
+            {
+                "originating_run": self._run_id,
+                "node": node.node_id,
+                "artifact": content_digest,
+            }
+        )
 
     async def _load_table_candidate(
         self,

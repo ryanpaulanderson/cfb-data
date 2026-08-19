@@ -228,19 +228,12 @@ class _SourceRunner:
             value = await recipe._execute_source(context, parameters)
             rows = operation.response_adapter.validate_python(value)
             artifact = await asyncio.to_thread(
-                self._store_rows,
+                self._store_and_bind_rows,
                 rows,
                 operation.row_model,
                 identity,
-            )
-            await asyncio.to_thread(
-                self._database.bind_completed_node,
-                run_id=self._run_id,
-                node_id=node.node_id,
-                output_name="value",
-                node_fingerprint=fingerprint,
-                artifact=artifact,
-                placement="coordinator",
+                node.node_id,
+                fingerprint,
             )
         except asyncio.CancelledError:
             await asyncio.to_thread(
@@ -388,12 +381,15 @@ class _SourceRunner:
             row_model=operation.row_model,
         )
 
-    def _store_rows(
+    def _store_and_bind_rows(
         self,
         rows: Sequence[BaseModel],
         row_model: type[BaseModel],
         identity: _AnalyticsTableIdentity,
+        node_id: str,
+        fingerprint: str,
     ) -> _StoredArtifact:
+        """Stage, publish, and durably bind source rows under one reservation."""
         table: pa.Table = _analytics_arrow_table_from_models(
             row_model=row_model,
             models=rows,
@@ -406,7 +402,16 @@ class _SourceRunner:
                 row_model=row_model,
                 identity=identity,
             )
-            return self._object_store.publish(staged)
+            artifact, _ = self._database.publish_completed_node(
+                run_id=self._run_id,
+                node_id=node_id,
+                output_name="value",
+                node_fingerprint=fingerprint,
+                staged=staged,
+                object_store=self._object_store,
+                placement="coordinator",
+            )
+            return artifact
 
     def _load_rows(
         self,

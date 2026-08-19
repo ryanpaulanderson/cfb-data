@@ -12,6 +12,8 @@ from ._compiler import _digest
 from ._persistence import (
     _analytics_root,
     _ArtifactObjectStore,
+    _orphan_validation_digest,
+    _OrphanCleanupPlan,
     _prune_validation_digest,
     _PruneCandidate,
     _PrunePlan,
@@ -96,6 +98,32 @@ class PrunePlan:
 @dataclass(frozen=True, slots=True)
 class PruneResult:
     """Report content removed by execution of a validated prune plan."""
+
+    removed_digests: tuple[str, ...]
+    removed_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class OrphanCandidate:
+    """Describe one validated immutable object absent from run state."""
+
+    content_digest: str
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class OrphanCleanupPlan:
+    """Bind a read-only orphan preview to its store and object snapshot."""
+
+    candidates: tuple[OrphanCandidate, ...]
+    total_bytes: int
+    _validation_digest: str = field(repr=False)
+    _root_token: str = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class OrphanCleanupResult:
+    """Report validated unregistered objects removed from the store."""
 
     removed_digests: tuple[str, ...]
     removed_bytes: int
@@ -259,6 +287,41 @@ async def execute_artifact_prune(
     """
     return await asyncio.to_thread(
         _execute_artifact_prune_sync,
+        _config(config),
+        plan,
+    )
+
+
+async def plan_orphan_cleanup(
+    config: AnalyticsConfig | None = None,
+) -> OrphanCleanupPlan:
+    """Preview validated unregistered objects without mutating durable state.
+
+    Active staging directories are intentionally excluded because they are not
+    immutable objects and may belong to a live codec write.
+
+    :param config: Analytics storage configuration.
+    :return: Immutable candidate snapshot bound to this configured root.
+    :raises CFBDArtifactCorruptionError: If the published layout is invalid.
+    :raises CFBDPersistenceError: If existing run state is incompatible.
+    """
+    return await asyncio.to_thread(_plan_orphan_cleanup_sync, _config(config))
+
+
+async def clean_orphans(
+    plan: OrphanCleanupPlan,
+    config: AnalyticsConfig | None = None,
+) -> OrphanCleanupResult:
+    """Remove only unchanged validated objects absent from durable run state.
+
+    :param plan: Exact plan returned by :func:`plan_orphan_cleanup`.
+    :param config: Analytics storage configuration used to create the plan.
+    :return: Removed digests and total payload bytes.
+    :raises CFBDPersistenceError: If the plan is invalid, stale, or mismatched.
+    :raises CFBDArtifactCorruptionError: If candidate content is corrupt.
+    """
+    return await asyncio.to_thread(
+        _clean_orphans_sync,
         _config(config),
         plan,
     )
@@ -459,24 +522,106 @@ def _execute_artifact_prune_sync(
     )
 
 
+def _plan_orphan_cleanup_sync(config: AnalyticsConfig) -> OrphanCleanupPlan:
+    root = _analytics_root(config)
+    path = root / "runs.sqlite3"
+    store = _ArtifactObjectStore(root, create=False)
+    if path.is_file():
+        reader = _RunDatabaseReader(path)
+        try:
+            internal = reader.plan_orphan_cleanup(object_store=store)
+        finally:
+            reader.close()
+    else:
+        internal_candidates = tuple(
+            _PruneCandidate(
+                content_digest=artifact.content_digest,
+                size_bytes=sum(
+                    part.size_bytes for part in artifact.manifest.body.parts
+                ),
+            )
+            for artifact in store.published_artifacts()
+        )
+        internal = _OrphanCleanupPlan(
+            candidates=internal_candidates,
+            validation_digest=_orphan_validation_digest(internal_candidates),
+        )
+    public_candidates = tuple(
+        OrphanCandidate(
+            content_digest=candidate.content_digest,
+            size_bytes=candidate.size_bytes,
+        )
+        for candidate in internal.candidates
+    )
+    return OrphanCleanupPlan(
+        candidates=public_candidates,
+        total_bytes=sum(candidate.size_bytes for candidate in public_candidates),
+        _validation_digest=internal.validation_digest,
+        _root_token=_root_token(root),
+    )
+
+
+def _clean_orphans_sync(
+    config: AnalyticsConfig,
+    plan: OrphanCleanupPlan,
+) -> OrphanCleanupResult:
+    root = _analytics_root(config)
+    if plan._root_token != _root_token(root):
+        raise CFBDPersistenceError(category="orphan_plan_root")
+    if plan.total_bytes != sum(candidate.size_bytes for candidate in plan.candidates):
+        raise CFBDPersistenceError(category="orphan_plan")
+    internal = _OrphanCleanupPlan(
+        candidates=tuple(
+            _PruneCandidate(
+                content_digest=candidate.content_digest,
+                size_bytes=candidate.size_bytes,
+            )
+            for candidate in plan.candidates
+        ),
+        validation_digest=plan._validation_digest,
+    )
+    if not internal.candidates:
+        return OrphanCleanupResult(removed_digests=(), removed_bytes=0)
+    database = _RunDatabase(root / "runs.sqlite3")
+    try:
+        removed = database.execute_orphan_cleanup(
+            internal,
+            object_store=_ArtifactObjectStore(root),
+        )
+    finally:
+        database.close()
+    size_by_digest = {
+        candidate.content_digest: candidate.size_bytes for candidate in plan.candidates
+    }
+    return OrphanCleanupResult(
+        removed_digests=removed,
+        removed_bytes=sum(size_by_digest[digest] for digest in removed),
+    )
+
+
 def _root_token(root: Path) -> str:
     return _digest({"analytics_root": str(root.expanduser().resolve())})
 
 
 __all__ = [
     "ArtifactInspection",
+    "OrphanCandidate",
+    "OrphanCleanupPlan",
+    "OrphanCleanupResult",
     "PruneCandidate",
     "PrunePlan",
     "PruneResult",
     "RunArtifactSummary",
     "RunInspection",
     "RunSummary",
+    "clean_orphans",
     "execute_artifact_prune",
     "inspect_artifact",
     "inspect_run",
     "list_runs",
     "pin_artifact",
     "plan_artifact_prune",
+    "plan_orphan_cleanup",
     "retain_run",
     "retire_run",
     "unpin_artifact",
