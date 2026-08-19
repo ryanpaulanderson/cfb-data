@@ -11,6 +11,7 @@ from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
 from cfb_data._requests import _resolve_request
 from cfb_data.enums import Classification, SeasonType
+from cfb_data.stats._operations import ADVANCED_SEASON_STATS, TEAM_SEASON_STATS
 from cfb_data.stats.models.pydantic.requests import (
     AdvancedGameStatsRequest,
     AdvancedSeasonStatsRequest,
@@ -22,13 +23,11 @@ from cfb_data.stats.models.pydantic.requests import (
 )
 from cfb_data.stats.models.pydantic.responses import (
     AdvancedGameStat,
-    AdvancedSeasonStat,
     GameHavocStats,
     PlayerGameSuccessRate,
     PlayerSeasonSuccessRate,
     PlayerStat,
     StatCategory,
-    TeamStat,
     _StatCategoryValue,
 )
 
@@ -50,9 +49,7 @@ type _SeasonTypeArgument = (
 _PLAYER_STAT_ROWS = TypeAdapter(list[PlayerStat])
 _PLAYER_SEASON_SUCCESS_ROWS = TypeAdapter(list[PlayerSeasonSuccessRate])
 _PLAYER_GAME_SUCCESS_ROWS = TypeAdapter(list[PlayerGameSuccessRate])
-_TEAM_STAT_ROWS = TypeAdapter(list[TeamStat])
 _CATEGORY_VALUES = TypeAdapter(list[_StatCategoryValue])
-_ADVANCED_SEASON_ROWS = TypeAdapter(list[AdvancedSeasonStat])
 _ADVANCED_GAME_ROWS = TypeAdapter(list[AdvancedGameStat])
 _GAME_HAVOC_ROWS = TypeAdapter(list[GameHavocStats])
 
@@ -230,13 +227,11 @@ class StatsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/stats/season",
-            request_type=TeamSeasonStatsRequest,
+        return await TEAM_SEASON_STATS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_TEAM_STAT_ROWS,
-            row_model=TeamStat,
         )
 
     async def categories(self) -> FrameT:
@@ -287,13 +282,11 @@ class StatsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/stats/season/advanced",
-            request_type=AdvancedSeasonStatsRequest,
+        return await ADVANCED_SEASON_STATS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_ADVANCED_SEASON_ROWS,
-            row_model=AdvancedSeasonStat,
         )
 
     @overload
