@@ -75,18 +75,24 @@ jobs:
           from cfb_data import CFBDClient, RetryPolicy
 
           assert pyarrow.__version__
-          has_polars = importlib.util.find_spec("polars") is not None
           expected = os.environ["INSTALLATION"]
-          assert has_polars is (expected in {"polars", "all"})
-          assert (importlib.util.find_spec("redis") is not None) is (
-              expected in {"redis", "all"}
-          )
-          assert (importlib.util.find_spec("yaml") is not None) is (
-              expected in {"yaml", "all"}
-          )
-          assert (importlib.util.find_spec("distributed") is not None) is (
-              expected in {"dask", "all"}
-          )
+          optional_modules = {
+              "polars": "polars",
+              "redis": "redis",
+              "yaml": "yaml",
+              "dask": "distributed",
+          }
+          present_modules = {
+              option: importlib.util.find_spec(module) is not None
+              for option, module in optional_modules.items()
+          }
+          if expected == "base":
+              assert not any(present_modules.values())
+          elif expected == "all":
+              assert all(present_modules.values())
+          else:
+              assert present_modules[expected]
+          has_polars = present_modules["polars"]
           providers = entry_points(group="cfb_data.recipes")
           assert any(
               item.name == "official" and item.value == "cfb_data_recipes"
