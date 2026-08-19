@@ -31,7 +31,7 @@ from ._compiler import _digest
 from ._compute import _TransformExecutorSession
 from ._contracts import _table_row_model
 from ._execution import _NodeResult, _resolve_arguments
-from ._graph import _CompiledNode, _ValueRef
+from ._graph import _CompiledNode, _NodeRef, _ValueRef
 from ._observability import _AnalyticsDispatcher
 from ._persistence import (
     _ArtifactObjectStore,
@@ -625,6 +625,12 @@ def _semantic_parameters(
                 "upstream_index": node.dependencies.index(node_id),
             }
             continue
+        if argument.kind == "structure":
+            semantic[name] = _structured_semantics(
+                argument.value,
+                node.dependencies,
+            )
+            continue
         scalar = cast(_ValueRef, argument.value)
         reference = scalar.path
         expected_type = scalar.expected_type
@@ -636,6 +642,31 @@ def _semantic_parameters(
             "type": f"{expected_type.__module__}:{expected_type.__qualname__}",
         }
     return semantic
+
+
+def _structured_semantics(
+    value: object,
+    dependencies: tuple[str, ...],
+) -> object:
+    """Represent structured references without hashing resolved row values."""
+    if isinstance(value, _NodeRef):
+        return {"upstream_index": dependencies.index(value.node_id)}
+    if isinstance(value, _ValueRef):
+        return {
+            "upstream_index": dependencies.index(value.node_id),
+            "path": value.path,
+            "type": f"{value.expected_type.__module__}:{value.expected_type.__qualname__}",
+        }
+    if isinstance(value, Mapping):
+        return {
+            key: _structured_semantics(item, dependencies)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_structured_semantics(item, dependencies) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_structured_semantics(item, dependencies) for item in value)
+    return value
 
 
 def _validate_dataset_quality(

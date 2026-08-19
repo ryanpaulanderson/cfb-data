@@ -175,6 +175,13 @@ class _GraphBuilder:
             if kind in {"source", "step"}:
                 arguments = _encode_arguments(validated.values)
                 if kind == "source":
+                    if any(
+                        argument.kind in {"node", "structure"}
+                        for argument in arguments.values()
+                    ):
+                        raise CFBDRecipeCompilationError(
+                            "Sources accept only literals or validated scalar bindings"
+                        )
                     _validate_literal_source_request(recipe, arguments)
                 node = _CompiledNode(
                     node_id=path,
@@ -286,6 +293,8 @@ def _encode_arguments(values: Mapping[str, object]) -> Mapping[str, _NodeArgumen
             encoded[name] = _NodeArgument("node", value)
         elif isinstance(value, _ValueRef):
             encoded[name] = _NodeArgument("value", value)
+        elif _is_reference(value):
+            encoded[name] = _NodeArgument("structure", value)
         else:
             encoded[name] = _NodeArgument("literal", value)
     return MappingProxyType(encoded)

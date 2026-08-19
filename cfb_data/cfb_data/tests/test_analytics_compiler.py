@@ -10,6 +10,7 @@ from cfb_data.analytics import (
     dataset,
     require_one,
     source,
+    step,
     value,
     workflow,
 )
@@ -103,6 +104,30 @@ def _single_game_dataset_composition(
         year=value(selected_game, path=("season",), expected_type=int),
         week=value(selected_game, path=("week",), expected_type=int),
     )
+
+
+@step(id="tests.concatenate_games", revision=1, output=_DatasetRow, dask=False)
+def _concatenate_games(
+    groups: tuple[list[_DatasetRow], ...],
+) -> list[_DatasetRow]:
+    """Concatenate a finite tuple of referenced dataset outputs."""
+    return [row for group in groups for row in group]
+
+
+@dataset(
+    id="tests.game_range",
+    revision=1,
+    row=_DatasetRow,
+    grain="one game",
+    keys=("game_id",),
+)
+def _game_range() -> RecipeRef[list[_DatasetRow]]:
+    """Expand a fixed plan-time pair of dataset calls."""
+    groups = (
+        _game_summaries.as_("season-2023")(year=2023),
+        _game_summaries.as_("season-2024")(year=2024),
+    )
+    return _concatenate_games(groups)
 
 
 def test_compilation_is_deterministic_and_topological() -> None:
@@ -243,6 +268,37 @@ def test_late_bound_scalars_compose_through_ordinary_datasets() -> None:
     source_node = graph.nodes[2]
     assert source_node.dependencies == (graph.nodes[1].node_id,)
     assert {argument.kind for argument in source_node.arguments.values()} == {"value"}
+
+
+def test_finite_structured_references_preserve_ordered_dependencies() -> None:
+    """Compile plan-time collections without introducing a dynamic graph."""
+    graph = _compile_recipe(_game_range, (), {})
+    concatenate = graph.nodes[-2]
+
+    assert concatenate.kind == "step"
+    assert tuple(concatenate.arguments) == ("groups",)
+    assert concatenate.arguments["groups"].kind == "structure"
+    assert len(concatenate.dependencies) == 2
+    assert concatenate.dependencies[0].endswith("season-2023")
+    assert concatenate.dependencies[1].endswith("season-2024")
+
+
+def test_sources_reject_structured_whole_output_bindings() -> None:
+    """Keep source parameters limited to literals and scalar references."""
+
+    @dataset(
+        id="tests.invalid_structured_source",
+        revision=1,
+        row=_PlayRow,
+        grain="one play",
+        keys=("play_id",),
+    )
+    def invalid_structured_source() -> RecipeRef[list[_PlayRow]]:
+        summaries = _game_summaries(year=2024)
+        return _plays.bind(year=[summaries], week=1)
+
+    with pytest.raises(CFBDRecipeCompilationError, match="only literals"):
+        _compile_recipe(invalid_structured_source, (), {})
 
 
 def test_late_bound_scalar_types_are_checked_during_compilation() -> None:

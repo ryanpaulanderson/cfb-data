@@ -8,7 +8,7 @@ from typing import cast
 
 from pydantic import BaseModel
 
-from ._graph import _NodeArgument, _ValueRef
+from ._graph import _NodeArgument, _NodeRef, _ValueRef
 from ._persistence import _StoredArtifact
 from .errors import CFBDRecipeCompilationError
 
@@ -47,6 +47,13 @@ def _resolve_arguments(
                 )
             parameters[name] = results[node_id].value
             continue
+        if argument.kind == "structure":
+            parameters[name] = _resolve_structure(
+                argument.value,
+                results,
+                allow_node_values=allow_node_values,
+            )
+            continue
         reference = cast(_ValueRef, argument.value)
         upstream = results.get(reference.node_id)
         if upstream is None:
@@ -55,6 +62,49 @@ def _resolve_arguments(
             )
         parameters[name] = _extract_scalar(upstream.value, reference)
     return parameters
+
+
+def _resolve_structure(
+    value: object,
+    results: Mapping[str, _NodeResult],
+    *,
+    allow_node_values: bool,
+) -> object:
+    """Resolve references within a finite list, tuple, or mapping."""
+    if isinstance(value, _NodeRef):
+        if not allow_node_values:
+            raise CFBDRecipeCompilationError(
+                "Source parameters cannot consume an entire upstream output"
+            )
+        upstream = results.get(value.node_id)
+        if upstream is None:
+            raise CFBDRecipeCompilationError(
+                "Structured upstream dependency is not ready"
+            )
+        return upstream.value
+    if isinstance(value, _ValueRef):
+        upstream = results.get(value.node_id)
+        if upstream is None:
+            raise CFBDRecipeCompilationError(
+                "Structured scalar dependency is not ready"
+            )
+        return _extract_scalar(upstream.value, value)
+    if isinstance(value, Mapping):
+        return {
+            key: _resolve_structure(item, results, allow_node_values=allow_node_values)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _resolve_structure(item, results, allow_node_values=allow_node_values)
+            for item in value
+        ]
+    if isinstance(value, tuple):
+        return tuple(
+            _resolve_structure(item, results, allow_node_values=allow_node_values)
+            for item in value
+        )
+    return value
 
 
 def _extract_scalar(value: object, reference: _ValueRef) -> object:

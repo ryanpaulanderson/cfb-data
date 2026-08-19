@@ -10,7 +10,7 @@ from typing import Literal
 from ._declarations import RecipeKind, _RecipeDeclaration
 from .errors import CFBDRecipeCompilationError, CFBDRecipeUsageError
 
-type _ArgumentKind = Literal["literal", "node", "value"]
+type _ArgumentKind = Literal["literal", "node", "value", "structure"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,18 +91,37 @@ def _node_dependencies(arguments: Mapping[str, _NodeArgument]) -> tuple[str, ...
     """Return unique dependencies in argument declaration order."""
     dependencies: list[str] = []
     for argument in arguments.values():
-        node_id: str | None = None
+        node_ids: tuple[str, ...]
         if argument.kind == "node":
             if not isinstance(argument.value, _NodeRef):
                 raise AssertionError("Node arguments must contain node references")
-            node_id = argument.value.node_id
+            node_ids = (argument.value.node_id,)
         elif argument.kind == "value":
             if not isinstance(argument.value, _ValueRef):
                 raise AssertionError("Value arguments must contain value references")
-            node_id = argument.value.node_id
-        if node_id is not None and node_id not in dependencies:
-            dependencies.append(node_id)
+            node_ids = (argument.value.node_id,)
+        elif argument.kind == "structure":
+            node_ids = tuple(_structured_dependencies(argument.value))
+        else:
+            node_ids = ()
+        for node_id in node_ids:
+            if node_id not in dependencies:
+                dependencies.append(node_id)
     return tuple(dependencies)
+
+
+def _structured_dependencies(value: object) -> Iterator[str]:
+    """Yield references embedded in one finite structured argument."""
+    if isinstance(value, _NodeRef | _ValueRef):
+        yield value.node_id
+        return
+    if isinstance(value, Mapping):
+        for item in value.values():
+            yield from _structured_dependencies(item)
+        return
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _structured_dependencies(item)
 
 
 def _require_node_ref(value: object, *, boundary: str) -> _NodeRef:
