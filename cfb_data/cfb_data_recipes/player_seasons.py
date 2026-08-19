@@ -8,10 +8,18 @@ display statistics remain ordered strings rather than inferred numbers.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from enum import StrEnum
-from typing import Protocol
 
+from cfb_data.adjusted_metrics.models.pydantic.responses import (
+    KickerPAAR,
+    PlayerWeightedEPA,
+)
+from cfb_data.adjusted_metrics.sources import (
+    adjusted_player_passing,
+    adjusted_player_rushing,
+    kicker_paar_metrics,
+)
 from cfb_data.analytics import RecipeRef, dataset, step
 from cfb_data.enums import Classification, SeasonType
 from cfb_data.metrics.models.pydantic.responses import PlayerSeasonPredictedPointsAdded
@@ -55,14 +63,6 @@ class PlayerSeasonCoverage(StrEnum):
     not_requested = "not_requested"
     empty = "empty"
     present = "present"
-
-
-class _PlayerSeasonEnrichment(Protocol):
-    """Describe identity shared by player-season enrichment rows."""
-
-    season: int
-    id: str
-    team: str
 
 
 class PlayerSeason(BaseModel):
@@ -118,11 +118,32 @@ class PlayerSeason(BaseModel):
         default=None,
         description="Source player success rates when requested and present.",
     )
+    passing_wepa_coverage: PlayerSeasonCoverage = Field(
+        description="Explicit adjusted passing EPA availability."
+    )
+    passing_wepa: PlayerWeightedEPA | None = Field(
+        default=None,
+        description="Source opponent-adjusted passing EPA when requested.",
+    )
+    rushing_wepa_coverage: PlayerSeasonCoverage = Field(
+        description="Explicit adjusted rushing EPA availability."
+    )
+    rushing_wepa: PlayerWeightedEPA | None = Field(
+        default=None,
+        description="Source opponent-adjusted rushing EPA when requested.",
+    )
+    kicker_paar_coverage: PlayerSeasonCoverage = Field(
+        description="Explicit kicker PAAR availability."
+    )
+    kicker_paar: KickerPAAR | None = Field(
+        default=None,
+        description="Source kicker points above replacement when requested.",
+    )
 
 
 @step(
     id="cfbd.player_seasons.compose",
-    revision=1,
+    revision=2,
     output=PlayerSeason,
     deterministic=True,
 )
@@ -135,6 +156,9 @@ def compose_player_seasons(
     usage: list[PlayerUsage] | None,
     ppa: list[PlayerSeasonPredictedPointsAdded] | None,
     success: list[PlayerSeasonSuccessRate] | None,
+    passing_wepa: list[PlayerWeightedEPA] | None,
+    rushing_wepa: list[PlayerWeightedEPA] | None,
+    kicker_paar: list[KickerPAAR] | None,
 ) -> list[PlayerSeason]:
     """Union roster and statistic athletes with explicit identity evidence.
 
@@ -145,6 +169,9 @@ def compose_player_seasons(
     :param usage: Requested player-usage rows, or ``None`` when omitted.
     :param ppa: Requested player-season PPA rows, or ``None`` when omitted.
     :param success: Requested player-success rows, or ``None`` when omitted.
+    :param passing_wepa: Requested adjusted passing rows, or ``None``.
+    :param rushing_wepa: Requested adjusted rushing rows, or ``None``.
+    :param kicker_paar: Requested kicker PAAR rows, or ``None``.
     :return: Union athlete memberships in deterministic team/athlete order.
     :raises ValueError: If source keys or athlete attributes conflict.
     """
@@ -194,18 +221,42 @@ def compose_player_seasons(
         base_keys=base_keys,
         season=season,
         label="Player usage",
+        identity=lambda row: (row.season, row.team, row.id),
     )
     ppa_by_key = _index_enrichment(
         ppa,
         base_keys=base_keys,
         season=season,
         label="Player PPA",
+        identity=lambda row: (row.season, row.team, row.id),
     )
     success_by_key = _index_enrichment(
         success,
         base_keys=base_keys,
         season=season,
         label="Player success",
+        identity=lambda row: (row.season, row.team, row.id),
+    )
+    passing_wepa_by_key = _index_enrichment(
+        passing_wepa,
+        base_keys=base_keys,
+        season=season,
+        label="Passing WEPA",
+        identity=lambda row: (row.year, row.team, row.athlete_id),
+    )
+    rushing_wepa_by_key = _index_enrichment(
+        rushing_wepa,
+        base_keys=base_keys,
+        season=season,
+        label="Rushing WEPA",
+        identity=lambda row: (row.year, row.team, row.athlete_id),
+    )
+    kicker_paar_by_key = _index_enrichment(
+        kicker_paar,
+        base_keys=base_keys,
+        season=season,
+        label="Kicker PAAR",
+        identity=lambda row: (row.year, row.team, row.athlete_id),
     )
 
     rows: list[PlayerSeason] = []
@@ -249,6 +300,24 @@ def compose_player_seasons(
                 success=(
                     success_by_key.get(key) if success_by_key is not None else None
                 ),
+                passing_wepa_coverage=_coverage_for(key, passing_wepa_by_key),
+                passing_wepa=(
+                    passing_wepa_by_key.get(key)
+                    if passing_wepa_by_key is not None
+                    else None
+                ),
+                rushing_wepa_coverage=_coverage_for(key, rushing_wepa_by_key),
+                rushing_wepa=(
+                    rushing_wepa_by_key.get(key)
+                    if rushing_wepa_by_key is not None
+                    else None
+                ),
+                kicker_paar_coverage=_coverage_for(key, kicker_paar_by_key),
+                kicker_paar=(
+                    kicker_paar_by_key.get(key)
+                    if kicker_paar_by_key is not None
+                    else None
+                ),
             )
         )
     return sorted(
@@ -259,7 +328,7 @@ def compose_player_seasons(
 
 @dataset(
     id="cfbd.player_seasons",
-    revision=1,
+    revision=2,
     row=PlayerSeason,
     grain="one athlete/source-team/season union membership",
     keys=("season", "source_team", "athlete_id"),
@@ -282,6 +351,9 @@ def player_seasons(
     include_usage: bool = False,
     include_ppa: bool = False,
     include_success: bool = False,
+    include_passing_wepa: bool = False,
+    include_rushing_wepa: bool = False,
+    include_kicker_paar: bool = False,
 ) -> RecipeRef[list[PlayerSeason]]:
     """Build the union of roster and season-stat athlete memberships.
 
@@ -299,6 +371,9 @@ def player_seasons(
     :param include_usage: Request player-usage metrics.
     :param include_ppa: Request player-season PPA metrics.
     :param include_success: Request player success-rate metrics.
+    :param include_passing_wepa: Request opponent-adjusted passing EPA.
+    :param include_rushing_wepa: Request opponent-adjusted rushing EPA.
+    :param include_kicker_paar: Request kicker points above replacement.
     :return: A reference to the validated player-seasons dataset.
     """
     return compose_player_seasons(
@@ -351,6 +426,31 @@ def player_seasons(
             if include_success
             else None
         ),
+        passing_wepa=(
+            adjusted_player_passing(
+                year=season,
+                conference=conference,
+                team=team,
+                position=position,
+            )
+            if include_passing_wepa
+            else None
+        ),
+        rushing_wepa=(
+            adjusted_player_rushing(
+                year=season,
+                conference=conference,
+                team=team,
+                position=position,
+            )
+            if include_rushing_wepa
+            else None
+        ),
+        kicker_paar=(
+            kicker_paar_metrics(year=season, conference=conference, team=team)
+            if include_kicker_paar
+            else None
+        ),
     )
 
 
@@ -358,12 +458,13 @@ def _identity_text(value: str) -> str:
     return " ".join(value.split()).casefold()
 
 
-def _index_enrichment[EnrichmentT: _PlayerSeasonEnrichment](
+def _index_enrichment[EnrichmentT](
     rows: list[EnrichmentT] | None,
     *,
     base_keys: set[tuple[str, str]],
     season: int,
     label: str,
+    identity: Callable[[EnrichmentT], tuple[int, str, str]],
 ) -> dict[tuple[str, str], EnrichmentT] | None:
     """Index optional player evidence without expanding the base universe.
 
@@ -371,6 +472,7 @@ def _index_enrichment[EnrichmentT: _PlayerSeasonEnrichment](
     :param base_keys: Authoritative roster/stat union keys.
     :param season: Requested player season.
     :param label: Safe enrichment label for validation errors.
+    :param identity: Extract the source season, team, and athlete ID.
     :return: Indexed evidence, or ``None`` when not requested.
     :raises ValueError: If evidence is duplicated or outside the base universe.
     """
@@ -378,9 +480,10 @@ def _index_enrichment[EnrichmentT: _PlayerSeasonEnrichment](
         return None
     indexed: dict[tuple[str, str], EnrichmentT] = {}
     for row in rows:
-        if row.season != season:
+        row_season, row_team, row_id = identity(row)
+        if row_season != season:
             raise ValueError(f"{label} contains a different season")
-        key = (_identity_text(row.team), row.id)
+        key = (_identity_text(row_team), row_id)
         if key not in base_keys:
             raise ValueError(f"{label} falls outside the player-season universe")
         if key in indexed:
@@ -391,7 +494,7 @@ def _index_enrichment[EnrichmentT: _PlayerSeasonEnrichment](
 
 def _coverage_for(
     key: tuple[str, str],
-    rows: Mapping[tuple[str, str], _PlayerSeasonEnrichment] | None,
+    rows: Mapping[tuple[str, str], object] | None,
 ) -> PlayerSeasonCoverage:
     """Return explicit per-athlete enrichment availability.
 

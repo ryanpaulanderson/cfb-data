@@ -141,6 +141,33 @@ def _success(athlete_id: str) -> dict[str, object]:
     }
 
 
+def _wepa(athlete_id: str, value: float) -> dict[str, object]:
+    """Return one adjusted player EPA enrichment row."""
+    return {
+        "year": 2024,
+        "athleteId": athlete_id,
+        "athleteName": f"Adjusted {athlete_id}",
+        "position": "QB",
+        "team": "Penn State",
+        "conference": "Big Ten",
+        "wepa": value,
+        "plays": 230,
+    }
+
+
+def _kicker_paar(athlete_id: str) -> dict[str, object]:
+    """Return one kicker points-above-replacement enrichment row."""
+    return {
+        "year": 2024,
+        "athleteId": athlete_id,
+        "athleteName": f"Kicker {athlete_id}",
+        "team": "Penn State",
+        "conference": "Big Ten",
+        "paar": 5.2,
+        "attempts": 22,
+    }
+
+
 @pytest.mark.asyncio
 async def test_recipe_unions_roster_only_and_stats_only_athletes(
     api_server: ServerFactory,
@@ -187,6 +214,12 @@ async def test_recipe_unions_roster_only_and_stats_only_athletes(
         PlayerSeasonCoverage.not_requested,
         PlayerSeasonCoverage.not_requested,
     ]
+    for field in ("passing_wepa", "rushing_wepa", "kicker_paar"):
+        assert frame[f"{field}_coverage"].tolist() == [
+            PlayerSeasonCoverage.not_requested,
+            PlayerSeasonCoverage.not_requested,
+            PlayerSeasonCoverage.not_requested,
+        ]
 
 
 @pytest.mark.asyncio
@@ -204,6 +237,9 @@ async def test_recipe_has_four_way_canonical_parity(
         "/player/usage": [_usage("001")],
         "/ppa/players/season": [_ppa("001")],
         "/stats/player/success": [_success("001")],
+        "/wepa/players/passing": [_wepa("001", 21.4)],
+        "/wepa/players/rushing": [_wepa("001", 8.1)],
+        "/wepa/players/kicking": [_kicker_paar("001")],
     }
     calls: dict[str, int] = {path: 0 for path in payloads}
 
@@ -234,6 +270,9 @@ async def test_recipe_has_four_way_canonical_parity(
                     include_usage=True,
                     include_ppa=True,
                     include_success=True,
+                    include_passing_wepa=True,
+                    include_rushing_wepa=True,
+                    include_kicker_paar=True,
                     policy=ExecutionPolicy(executor=executor, dask_max_workers=1),
                 )
             digests.append(run.artifact.descriptor.content_digest)
@@ -245,6 +284,9 @@ async def test_recipe_has_four_way_canonical_parity(
             assert restored.loc[0, "usage"]["usage"]["overall"] == 0.7
             assert restored.loc[0, "ppa"]["average_ppa"]["all"] == 0.2
             assert restored.loc[0, "success"]["passing"]["success_rate"] == 0.48
+            assert restored.loc[0, "passing_wepa"]["wepa"] == 21.4
+            assert restored.loc[0, "rushing_wepa"]["wepa"] == 8.1
+            assert restored.loc[0, "kicker_paar"]["paar"] == 5.2
 
     assert calls == dict.fromkeys(payloads, 4)
     assert len(set(digests)) == 1
@@ -277,7 +319,7 @@ async def test_duplicate_statistic_keys_fail_instead_of_aggregating(
             with pytest.raises(CFBDRunError) as exc_info:
                 await player_seasons(client, season=2024)
 
-    assert exc_info.value.node_id.endswith("cfbd.player_seasons.compose@1")
+    assert exc_info.value.node_id.endswith("cfbd.player_seasons.compose@2")
     assert exc_info.value.category == "ValueError"
 
 
@@ -304,7 +346,7 @@ async def test_sparse_enrichment_marks_nonqualifying_athletes_empty(
             retry_policy=RetryPolicy(max_attempts=1),
             analytics=AnalyticsConfig(root=tmp_path / "analytics"),
         ) as client:
-            frame = await player_seasons(
+            frame: pd.DataFrame = await player_seasons(
                 client,
                 season=2024,
                 team="Penn State",
@@ -351,5 +393,5 @@ async def test_enrichment_cannot_expand_player_season_universe(
                     include_usage=True,
                 )
 
-    assert exc_info.value.node_id.endswith("cfbd.player_seasons.compose@1")
+    assert exc_info.value.node_id.endswith("cfbd.player_seasons.compose@2")
     assert exc_info.value.category == "ValueError"
