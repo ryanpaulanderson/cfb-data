@@ -1,0 +1,17 @@
+api_version: cfb-data/v1
+kind: dataset
+id: example.source_games
+revision: 1
+description: Source-faithful validated games for a selected season.
+parameters:
+  year:
+    type: integer
+nodes:
+  - kind: source
+    id: games
+    operation: cfbd.games.list
+    revision: 1
+    bindings:
+      year:
+        parameter: year
+output_node: games

@@ -18,6 +18,7 @@ HTTP client or cleaning up inconsistent response shapes.
 - Cache responses locally so rerunning an analysis does not repeat every API
   call.
 - Resolve team, venue, game, and athlete names and IDs when joining data.
+- Build durable, resumable analytical datasets and named-output local workflows.
 
 The package validates requests and responses before building a DataFrame. That
 work happens inside the client; using it does not require knowing Pydantic,
@@ -41,6 +42,12 @@ For Redis caching:
 
 ```shell
 python -m pip install "cfb-data[redis]"
+```
+
+For declarative YAML dataset definitions:
+
+```shell
+python -m pip install "cfb-data[yaml]"
 ```
 
 SQLite caching is included in the normal installation.
@@ -96,6 +103,7 @@ Methods are grouped by subject:
 | `client.rankings`, `client.betting` | Polls and betting lines |
 | `client.recruiting`, `client.draft` | Recruits, transfer portal, NFL draft data |
 | `client.playoffs`, `client.adjusted_metrics` | CFP brackets and adjusted team/player metrics |
+| `client.datasets`, `client.workflows` | Curated analytical tables and durable named-output analyses |
 
 The [endpoint reference](docs/cfbd_api/README.md) lists every method, filter,
 access tier, and returned shape.
@@ -103,6 +111,10 @@ access tier, and returned shape.
 For notebook-sized examples that answer common questions, see [Common notebook
 recipes](docs/guides/common-recipes.md). It covers IDs versus full DataFrames,
 minimal cache hydration, season summaries, joins, and concurrent async calls.
+
+For reusable multi-source tables, durable recovery, Parquet export, Python
+extensions, and safe YAML definitions, see [Build durable datasets and
+workflows](docs/guides/datasets-and-workflows.md).
 
 ## Pass filters
 

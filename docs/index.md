@@ -27,6 +27,7 @@ signatures.
 | Copy a notebook recipe for a common question | [Common notebook recipes](guides/common-recipes.md) |
 | Understand a method's filters | [Requests and allowed values](guides/requests.md) |
 | Work with pandas, Polars, or nested results | [Work with results](guides/results.md) |
+| Combine endpoints into durable analytical tables | [Build durable datasets and workflows](guides/datasets-and-workflows.md) |
 | Avoid repeated calls or join data by IDs | [Cache responses and look up identities](guides/cache-and-identities.md) |
 | Fix an error | [Troubleshooting requests](guides/errors-and-retries.md) |
 | Look up every available endpoint | [Endpoint reference](cfbd_api/README.md) |
@@ -39,6 +40,7 @@ getting-started
 guides/common-recipes
 guides/requests
 guides/results
+guides/datasets-and-workflows
 guides/errors-and-retries
 guides/cache-and-identities
 cfbd_api/README
@@ -78,6 +80,7 @@ architecture/0002-heterogeneous-stat-scalars
 architecture/0003-canonical-arrow-parquet
 architecture/0004-api-cache-identity-catalog
 architecture/0005-client-retrieval-observability
+architecture/0006-durable-analytics-datasets-workflows
 notices-of-decision/README
 notices-of-decision/0001-canonical-nested-tabular-representation
 ```
@@ -96,9 +99,13 @@ notices-of-decision/0001-canonical-nested-tabular-representation
 - Optional SQLite or Redis caching can reduce repeated API calls and keep a
   locally queryable identity catalog. Both are useful on a single computer;
   Redis can also be shared by several scripts or machines.
+- Curated datasets and local workflows can combine validated sources into
+  durable, lineage-bearing pandas or Polars tables without changing the
+  source-shaped endpoint namespaces.
 
 This is an enthusiast-focused beta project. Its core retrieval, validation,
-DataFrame, caching, and identity workflows are usable and carefully tested.
+DataFrame, caching, identity, dataset, and local workflow paths are usable and
+carefully tested.
 Public APIs and local cache formats may still change before 1.0. The
 documentation describes the current version.
 

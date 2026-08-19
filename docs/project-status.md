@@ -3,8 +3,8 @@
 `cfb-data` is a beta project for people who want to explore college
 football data in Python. That includes data engineers and statisticians, but
 also fans learning pandas, Polars, or sports analytics. The library is built
-carefully, and its core retrieval, validation, DataFrame, caching, and identity
-workflows are usable and carefully tested. The user-facing API and
+carefully, and its core retrieval, validation, DataFrame, caching, identity,
+dataset, and local workflow paths are usable and carefully tested. The user-facing API and
 documentation continue to be shaped around what is most useful in real
 analyses.
 
@@ -31,6 +31,27 @@ result schemas are preserved across the pandas and Polars backends.
 The [endpoint reference](cfbd_api/README.md) lists every available method and
 its filters. [Getting started](getting-started.md) shows the shortest path from
 installation to a DataFrame.
+
+## Durable datasets and local workflows
+
+`client.datasets` provides twelve curated analytical tables above the
+source-shaped endpoint resources. Each declares an authoritative Pydantic row
+model and table contract, grain, candidate key, ordering, source lineage,
+coverage, and quality evidence before pandas or Polars presentation.
+
+`client.workflows` composes those tables into three named-output analyses for a
+team season, one game, or a program history. The embedded local runner plans
+before I/O, accounts for actual transport attempts, deduplicates exact source
+requests, checkpoints validated nodes, and recovers a failed analysis as an
+immutable child run. One run-wide scheduler bounds retrieval and compute even
+when several child datasets are ready at once. SQLite owns run state and the
+filesystem owns content-addressed Parquet or bounded modeled-JSON artifacts;
+neither is part of the response cache.
+
+Python definitions are the trusted extension surface. The optional `yaml`
+extra loads a finite, allowlisted graph into the same immutable contracts while
+rejecting executable or ambiguous YAML features. See [Build durable datasets
+and workflows](guides/datasets-and-workflows.md).
 
 ## Caching is optional
 
@@ -78,15 +99,18 @@ storage implementation.
 ## Not included yet
 
 - Polars `LazyFrame` results.
-- Public dataset or workflow namespaces that join several endpoints for you.
-- Public save/load methods for the package's internal Parquet format.
-- Automatic flattening, exploding, or feature engineering for nested data.
+- Remote artifact stores, multi-host workers, queues, cron, or side-effecting
+  workflow steps.
+- PyTorch training/inference, plotting, chart specifications, or generic model
+  and figure codecs.
+- Automatic broad per-player, per-coach, per-game win-probability, or
+  `/plays/stats` fan-out.
 - Raw JSON and a generic path-based request method.
 
-Users can already perform these transformations with ordinary synchronous
-pandas or Polars operations. Future dataset and workflow helpers will
-orchestrate completed results on that synchronous side of the retrieval
-boundary, without changing the source-shaped endpoint results underneath them.
+Users can add explicit portable transforms or backend-specific trusted Python
+transforms. The runner remains local and artifact-oriented; future modeling and
+visualization layers plug into the validated artifact/table-contract boundary
+without changing the source-shaped endpoint results underneath them.
 
 ## Architecture and contributor details
 
