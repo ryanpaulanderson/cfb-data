@@ -6,7 +6,7 @@ import os
 import sqlite3
 import stat
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pyarrow as pa
@@ -399,6 +399,120 @@ def test_attempt_reservation_requires_running_run(tmp_path: Path) -> None:
 
         assert exc_info.value.category == "attempt_run_state"
         assert database.attempt_count(run.run_id) == 0
+    finally:
+        database.close()
+
+
+def test_node_lease_requires_live_token_owner_for_publication(tmp_path: Path) -> None:
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+    database = _RunDatabase(root / "runs.sqlite3", clock=lambda: _NOW)
+    lease_key = "d" * 64
+    owner = "e" * 64
+    other = "f" * 64
+    try:
+        run = database.create_run(
+            recipe_id="cfbd.game_summaries",
+            recipe_revision=1,
+            recipe_kind="dataset",
+            parameter_fingerprint="a" * 64,
+            graph_fingerprint="b" * 64,
+            credential_scope="scope-a",
+        )
+        database.transition_node(run.run_id, "step", "ready")
+        database.transition_node(run.run_id, "step", "running")
+
+        assert database.acquire_node_lease(
+            lease_key=lease_key,
+            owner_token=owner,
+            run_id=run.run_id,
+            node_id="step",
+            ttl=timedelta(seconds=30),
+        )
+        assert not database.acquire_node_lease(
+            lease_key=lease_key,
+            owner_token=other,
+            run_id=run.run_id,
+            node_id="step",
+            ttl=timedelta(seconds=30),
+        )
+        assert not database.renew_node_lease(
+            lease_key=lease_key,
+            owner_token=other,
+            ttl=timedelta(seconds=30),
+        )
+        assert database.renew_node_lease(
+            lease_key=lease_key,
+            owner_token=owner,
+            ttl=timedelta(seconds=30),
+        )
+
+        with store.staging_directory() as directory:
+            staged = _TableArtifactCodec().stage(
+                directory=directory,
+                table=_table(),
+                row_model=_ArtifactRow,
+                identity=_IDENTITY,
+            )
+            with pytest.raises(CFBDPersistenceError) as exc_info:
+                database.publish_completed_node(
+                    run_id=run.run_id,
+                    node_id="step",
+                    output_name="value",
+                    node_fingerprint="c" * 64,
+                    staged=staged,
+                    object_store=store,
+                    placement="local",
+                    lease_key=lease_key,
+                    lease_owner_token=other,
+                )
+
+        assert exc_info.value.category == "node_lease_lost"
+        assert store.published_artifacts() == ()
+        assert not database.release_node_lease(
+            lease_key=lease_key,
+            owner_token=other,
+        )
+        assert database.release_node_lease(
+            lease_key=lease_key,
+            owner_token=owner,
+        )
+    finally:
+        database.close()
+
+
+def test_expired_node_lease_can_be_replaced(tmp_path: Path) -> None:
+    current = [_NOW]
+    database = _RunDatabase(
+        tmp_path / "runs.sqlite3",
+        clock=lambda: current[0],
+    )
+    try:
+        run = database.create_run(
+            recipe_id="cfbd.game_summaries",
+            recipe_revision=1,
+            recipe_kind="dataset",
+            parameter_fingerprint="a" * 64,
+            graph_fingerprint="b" * 64,
+            credential_scope="scope-a",
+        )
+        assert database.acquire_node_lease(
+            lease_key="d" * 64,
+            owner_token="e" * 64,
+            run_id=run.run_id,
+            node_id="step",
+            ttl=timedelta(seconds=1),
+        )
+
+        current[0] += timedelta(seconds=2)
+
+        assert database.acquire_node_lease(
+            lease_key="d" * 64,
+            owner_token="f" * 64,
+            run_id=run.run_id,
+            node_id="step",
+            ttl=timedelta(seconds=1),
+        )
     finally:
         database.close()
 

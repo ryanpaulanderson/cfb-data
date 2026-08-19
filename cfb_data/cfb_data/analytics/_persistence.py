@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Final, Literal, cast
 
@@ -649,6 +649,8 @@ class _RunDatabase(_RunDatabaseQueries):
         object_store: _ArtifactObjectStore,
         placement: _Placement,
         checkpoint_eligible: bool = True,
+        lease_key: str | None = None,
+        lease_owner_token: str | None = None,
     ) -> tuple[_StoredArtifact, _NodeArtifactBinding]:
         """Publish content and commit its successful node binding atomically.
 
@@ -659,6 +661,15 @@ class _RunDatabase(_RunDatabaseQueries):
         committed_at = _as_utc(self._clock())
         with self._transaction() as connection:
             self._require_run(connection, run_id)
+            if (lease_key is None) != (lease_owner_token is None):
+                raise ValueError("Lease key and owner token must be provided together")
+            if lease_key is not None and lease_owner_token is not None:
+                self._require_live_node_lease(
+                    connection,
+                    lease_key=lease_key,
+                    owner_token=lease_owner_token,
+                    now=committed_at,
+                )
             current = connection.execute(
                 self._sql.render("nodes/select_current_state.sql"),
                 (run_id, node_id),
@@ -945,6 +956,69 @@ class _RunDatabase(_RunDatabaseQueries):
                 object_store.remove(candidate.content_digest)
         return tuple(candidate.content_digest for candidate in plan.candidates)
 
+    def acquire_node_lease(
+        self,
+        *,
+        lease_key: str,
+        owner_token: str,
+        run_id: str,
+        node_id: str,
+        ttl: timedelta,
+    ) -> bool:
+        """Acquire a missing or expired token-owned transform lease."""
+        _validate_lease_identity(lease_key, owner_token)
+        _validate_lease_ttl(ttl)
+        now = _as_utc(self._clock())
+        expires_at = now + ttl
+        with self._transaction() as connection:
+            self._require_run(connection, run_id)
+            cursor = connection.execute(
+                self._sql.render("leases/acquire_node_lease.sql"),
+                (
+                    lease_key,
+                    owner_token,
+                    run_id,
+                    node_id,
+                    now.isoformat(),
+                    expires_at.isoformat(),
+                    now.isoformat(),
+                ),
+            )
+        return cursor.rowcount == 1
+
+    def renew_node_lease(
+        self,
+        *,
+        lease_key: str,
+        owner_token: str,
+        ttl: timedelta,
+    ) -> bool:
+        """Renew a still-live lease only while its owner token matches."""
+        _validate_lease_identity(lease_key, owner_token)
+        _validate_lease_ttl(ttl)
+        now = _as_utc(self._clock())
+        with self._transaction() as connection:
+            cursor = connection.execute(
+                self._sql.render("leases/renew_node_lease.sql"),
+                (
+                    (now + ttl).isoformat(),
+                    lease_key,
+                    owner_token,
+                    now.isoformat(),
+                ),
+            )
+        return cursor.rowcount == 1
+
+    def release_node_lease(self, *, lease_key: str, owner_token: str) -> bool:
+        """Release a node lease only while its owner token matches."""
+        _validate_lease_identity(lease_key, owner_token)
+        with self._transaction() as connection:
+            cursor = connection.execute(
+                self._sql.render("leases/release_node_lease.sql"),
+                (lease_key, owner_token),
+            )
+        return cursor.rowcount == 1
+
     def find_checkpoint(
         self,
         *,
@@ -1056,6 +1130,25 @@ class _RunDatabase(_RunDatabaseQueries):
         if row is not None and row["state"] in {"deleting", "deleted"}:
             raise CFBDPersistenceError(category="artifact_retired")
 
+    def _require_live_node_lease(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        lease_key: str,
+        owner_token: str,
+        now: datetime,
+    ) -> None:
+        row = connection.execute(
+            self._sql.render("leases/select_node_lease.sql"),
+            (lease_key,),
+        ).fetchone()
+        if (
+            row is None
+            or row["owner_token"] != owner_token
+            or datetime.fromisoformat(str(row["expires_at"])) <= now
+        ):
+            raise CFBDPersistenceError(category="node_lease_lost")
+
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
         with self._lock:
@@ -1095,9 +1188,9 @@ class _RunDatabase(_RunDatabaseQueries):
             version = self._connection.execute(
                 self._sql.render("migrations/get_user_version.sql")
             ).fetchone()[0]
-            if version not in {0, 1, 2, 3, 4, 5}:
+            if version not in {0, 1, 2, 3, 4, 5, 6}:
                 raise CFBDPersistenceError(category="database_version")
-            if version == 5:
+            if version == 6:
                 return
             migrations = {
                 0: ("migrations/001_initial.sql", 1),
@@ -1105,6 +1198,7 @@ class _RunDatabase(_RunDatabaseQueries):
                 2: ("migrations/003_retention.sql", 3),
                 3: ("migrations/004_attempt_reservations.sql", 4),
                 4: ("migrations/005_checkpoint_eligibility.sql", 5),
+                5: ("migrations/006_node_leases.sql", 6),
             }
             migration_name, target_version = migrations[version]
             try:
@@ -1115,7 +1209,7 @@ class _RunDatabase(_RunDatabaseQueries):
                         self._sql.render("transaction/rollback.sql")
                     )
                 raise
-            if target_version < 5:
+            if target_version < 6:
                 self._migrate()
 
 
@@ -1145,7 +1239,7 @@ class _RunDatabaseReader(_RunDatabaseQueries):
             version_row = self._connection.execute(
                 self._sql.render("migrations/get_user_version.sql")
             ).fetchone()
-            if version_row is None or int(version_row[0]) != 5:
+            if version_row is None or int(version_row[0]) != 6:
                 raise CFBDPersistenceError(category="database_version")
         except CFBDPersistenceError:
             raise
@@ -1348,6 +1442,24 @@ def _validate_completed_outputs(
     names = tuple(output[0] for output in outputs)
     if len(set(names)) != len(names):
         raise ValueError("Completed node output names must be unique")
+
+
+def _validate_lease_identity(lease_key: str, owner_token: str) -> None:
+    """Require bounded hexadecimal lease and owner identities."""
+    for name, value in (("lease_key", lease_key), ("owner_token", owner_token)):
+        if len(value) != 64 or any(
+            character not in _DIGEST_CHARACTERS for character in value
+        ):
+            raise ValueError(f"{name} must be a SHA-256 hexadecimal digest")
+
+
+def _validate_lease_ttl(ttl: timedelta) -> None:
+    """Require a finite positive lease duration no longer than one hour."""
+    if not isinstance(ttl, timedelta):
+        raise ValueError("Node lease TTL must be a datetime.timedelta")
+    seconds = ttl.total_seconds()
+    if not 0 < seconds <= 3600:
+        raise ValueError("Node lease TTL must be positive and at most one hour")
 
 
 _SAFE_PIN_CHARACTERS: Final = frozenset(
