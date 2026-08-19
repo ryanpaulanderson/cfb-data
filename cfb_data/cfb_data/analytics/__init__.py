@@ -14,6 +14,9 @@ from .config import AnalyticsConfig, RecipeProviderTrust
 from .discovery import RecipeSnapshot, discover_recipes
 from .errors import (
     CFBDAnalyticsError,
+    CFBDArtifactCodecError,
+    CFBDArtifactCorruptionError,
+    CFBDArtifactError,
     CFBDRecipeCompilationError,
     CFBDRecipeConfigurationError,
     CFBDRecipeDiscoveryError,
@@ -42,6 +45,9 @@ __all__ = [
     "AnalyticsStats",
     "AnalyticsStatsSnapshot",
     "CFBDAnalyticsError",
+    "CFBDArtifactCodecError",
+    "CFBDArtifactCorruptionError",
+    "CFBDArtifactError",
     "CFBDRecipeCompilationError",
     "CFBDRecipeConfigurationError",
     "CFBDRecipeDiscoveryError",

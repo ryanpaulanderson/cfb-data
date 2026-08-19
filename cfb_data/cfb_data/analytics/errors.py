@@ -29,6 +29,37 @@ class CFBDRecipeCompilationError(CFBDAnalyticsError):
     """Report a recipe graph that cannot be compiled safely."""
 
 
+class CFBDArtifactError(CFBDAnalyticsError):
+    """Report a validated analytics-artifact failure."""
+
+
+class CFBDArtifactCodecError(CFBDArtifactError):
+    """Report content that a configured artifact codec cannot encode."""
+
+    codec_id: str
+    category: str
+
+    def __init__(self, *, codec_id: str, category: str) -> None:
+        """Initialize a safe codec failure."""
+        self.codec_id = codec_id
+        self.category = category
+        super().__init__(f"Artifact codec {codec_id} rejected content ({category})")
+
+
+class CFBDArtifactCorruptionError(CFBDArtifactError):
+    """Report a durable artifact that fails closed validation."""
+
+    content_digest: str | None
+    category: str
+
+    def __init__(self, *, content_digest: str | None, category: str) -> None:
+        """Initialize a safe corruption failure."""
+        self.content_digest = content_digest
+        self.category = category
+        object_id = content_digest or "unknown"
+        super().__init__(f"Artifact {object_id} is invalid ({category})")
+
+
 class CFBDRunError(CFBDAnalyticsError):
     """Report a safely identified analytics execution failure."""
 
@@ -51,6 +82,9 @@ class CFBDRunError(CFBDAnalyticsError):
 
 __all__ = [
     "CFBDAnalyticsError",
+    "CFBDArtifactCodecError",
+    "CFBDArtifactCorruptionError",
+    "CFBDArtifactError",
     "CFBDRecipeCompilationError",
     "CFBDRecipeConfigurationError",
     "CFBDRecipeDiscoveryError",
