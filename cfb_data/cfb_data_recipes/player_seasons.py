@@ -8,10 +8,24 @@ display statistics remain ordered strings rather than inferred numbers.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from enum import StrEnum
+from typing import Protocol
+
 from cfb_data.analytics import RecipeRef, dataset, step
 from cfb_data.enums import Classification, SeasonType
-from cfb_data.stats.models.pydantic.responses import PlayerStat
-from cfb_data.stats.sources import player_season_stats
+from cfb_data.metrics.models.pydantic.responses import PlayerSeasonPredictedPointsAdded
+from cfb_data.metrics.sources import player_season_ppa
+from cfb_data.players.models.pydantic.responses import PlayerUsage
+from cfb_data.players.sources import player_usage
+from cfb_data.stats.models.pydantic.responses import (
+    PlayerSeasonSuccessRate,
+    PlayerStat,
+)
+from cfb_data.stats.sources import (
+    player_season_stats,
+    player_season_success,
+)
 from cfb_data.teams.identity import TeamIdentityIndex, TeamIdentityStatus
 from cfb_data.teams.models.pydantic.responses import Team
 from cfb_data.teams.sources import teams as teams_source
@@ -33,6 +47,22 @@ class PlayerSeasonStatistic(BaseModel):
     )
     source_conference: str = Field(json_schema_extra={"semantic_type": "dimension"})
     source_ordinal: int = Field(ge=0)
+
+
+class PlayerSeasonCoverage(StrEnum):
+    """Describe whether a requested player enrichment produced a row."""
+
+    not_requested = "not_requested"
+    empty = "empty"
+    present = "present"
+
+
+class _PlayerSeasonEnrichment(Protocol):
+    """Describe identity shared by player-season enrichment rows."""
+
+    season: int
+    id: str
+    team: str
 
 
 class PlayerSeason(BaseModel):
@@ -67,6 +97,27 @@ class PlayerSeason(BaseModel):
     statistics: list[PlayerSeasonStatistic] = Field(
         description="Ordered source display statistics for the athlete season."
     )
+    usage_coverage: PlayerSeasonCoverage = Field(
+        description="Explicit player-usage enrichment availability."
+    )
+    usage: PlayerUsage | None = Field(
+        default=None,
+        description="Source player-usage metrics when requested and present.",
+    )
+    ppa_coverage: PlayerSeasonCoverage = Field(
+        description="Explicit player-PPA enrichment availability."
+    )
+    ppa: PlayerSeasonPredictedPointsAdded | None = Field(
+        default=None,
+        description="Source player-season PPA when requested and present.",
+    )
+    success_coverage: PlayerSeasonCoverage = Field(
+        description="Explicit player-success enrichment availability."
+    )
+    success: PlayerSeasonSuccessRate | None = Field(
+        default=None,
+        description="Source player success rates when requested and present.",
+    )
 
 
 @step(
@@ -80,6 +131,10 @@ def compose_player_seasons(
     memberships: list[RosterMembership],
     statistics: list[PlayerStat],
     teams: list[Team],
+    *,
+    usage: list[PlayerUsage] | None,
+    ppa: list[PlayerSeasonPredictedPointsAdded] | None,
+    success: list[PlayerSeasonSuccessRate] | None,
 ) -> list[PlayerSeason]:
     """Union roster and statistic athletes with explicit identity evidence.
 
@@ -87,6 +142,9 @@ def compose_player_seasons(
     :param memberships: Validated output of the public Rosters recipe.
     :param statistics: Validated long-form player statistics.
     :param teams: Validated temporal team identity evidence.
+    :param usage: Requested player-usage rows, or ``None`` when omitted.
+    :param ppa: Requested player-season PPA rows, or ``None`` when omitted.
+    :param success: Requested player-success rows, or ``None`` when omitted.
     :return: Union athlete memberships in deterministic team/athlete order.
     :raises ValueError: If source keys or athlete attributes conflict.
     """
@@ -130,8 +188,28 @@ def compose_player_seasons(
             )
         )
 
+    base_keys = set(roster_by_key) | set(stats_by_key)
+    usage_by_key = _index_enrichment(
+        usage,
+        base_keys=base_keys,
+        season=season,
+        label="Player usage",
+    )
+    ppa_by_key = _index_enrichment(
+        ppa,
+        base_keys=base_keys,
+        season=season,
+        label="Player PPA",
+    )
+    success_by_key = _index_enrichment(
+        success,
+        base_keys=base_keys,
+        season=season,
+        label="Player success",
+    )
+
     rows: list[PlayerSeason] = []
-    for key in set(roster_by_key) | set(stats_by_key):
+    for key in base_keys:
         selected_membership = roster_by_key.get(key)
         source_team = source_team_by_key[key]
         if selected_membership is None:
@@ -163,6 +241,14 @@ def compose_player_seasons(
                 statistics_present=key in stats_by_key,
                 roster=selected_membership,
                 statistics=stats_by_key.get(key, []),
+                usage_coverage=_coverage_for(key, usage_by_key),
+                usage=usage_by_key.get(key) if usage_by_key is not None else None,
+                ppa_coverage=_coverage_for(key, ppa_by_key),
+                ppa=ppa_by_key.get(key) if ppa_by_key is not None else None,
+                success_coverage=_coverage_for(key, success_by_key),
+                success=(
+                    success_by_key.get(key) if success_by_key is not None else None
+                ),
             )
         )
     return sorted(
@@ -190,6 +276,12 @@ def player_seasons(
     end_week: int | None = None,
     season_type: SeasonType | None = None,
     category: str | None = None,
+    position: str | None = None,
+    threshold: int | None = None,
+    exclude_garbage_time: bool | None = None,
+    include_usage: bool = False,
+    include_ppa: bool = False,
+    include_success: bool = False,
 ) -> RecipeRef[list[PlayerSeason]]:
     """Build the union of roster and season-stat athlete memberships.
 
@@ -201,6 +293,12 @@ def player_seasons(
     :param end_week: Optional inclusive statistics ending week.
     :param season_type: Optional statistics season phase.
     :param category: Optional source statistic-category selector.
+    :param position: Optional usage and PPA position selector.
+    :param threshold: Optional PPA and success play threshold.
+    :param exclude_garbage_time: Optional enrichment source policy.
+    :param include_usage: Request player-usage metrics.
+    :param include_ppa: Request player-season PPA metrics.
+    :param include_success: Request player success-rate metrics.
     :return: A reference to the validated player-seasons dataset.
     """
     return compose_player_seasons(
@@ -216,6 +314,43 @@ def player_seasons(
             category=category,
         ),
         teams_source(year=season),
+        usage=(
+            player_usage(
+                year=season,
+                conference=conference,
+                position=position,
+                team=team,
+                exclude_garbage_time=exclude_garbage_time,
+            )
+            if include_usage
+            else None
+        ),
+        ppa=(
+            player_season_ppa(
+                year=season,
+                conference=conference,
+                team=team,
+                position=position,
+                threshold=threshold,
+                exclude_garbage_time=exclude_garbage_time,
+            )
+            if include_ppa
+            else None
+        ),
+        success=(
+            player_season_success(
+                year=season,
+                conference=conference,
+                team=team,
+                season_type=season_type,
+                start_week=start_week,
+                end_week=end_week,
+                threshold=threshold,
+                exclude_garbage_time=exclude_garbage_time,
+            )
+            if include_success
+            else None
+        ),
     )
 
 
@@ -223,4 +358,55 @@ def _identity_text(value: str) -> str:
     return " ".join(value.split()).casefold()
 
 
-__all__ = ["PlayerSeason", "PlayerSeasonStatistic", "player_seasons"]
+def _index_enrichment[EnrichmentT: _PlayerSeasonEnrichment](
+    rows: list[EnrichmentT] | None,
+    *,
+    base_keys: set[tuple[str, str]],
+    season: int,
+    label: str,
+) -> dict[tuple[str, str], EnrichmentT] | None:
+    """Index optional player evidence without expanding the base universe.
+
+    :param rows: Requested source rows, or ``None`` when omitted.
+    :param base_keys: Authoritative roster/stat union keys.
+    :param season: Requested player season.
+    :param label: Safe enrichment label for validation errors.
+    :return: Indexed evidence, or ``None`` when not requested.
+    :raises ValueError: If evidence is duplicated or outside the base universe.
+    """
+    if rows is None:
+        return None
+    indexed: dict[tuple[str, str], EnrichmentT] = {}
+    for row in rows:
+        if row.season != season:
+            raise ValueError(f"{label} contains a different season")
+        key = (_identity_text(row.team), row.id)
+        if key not in base_keys:
+            raise ValueError(f"{label} falls outside the player-season universe")
+        if key in indexed:
+            raise ValueError(f"{label} contains duplicate athlete keys")
+        indexed[key] = row
+    return indexed
+
+
+def _coverage_for(
+    key: tuple[str, str],
+    rows: Mapping[tuple[str, str], _PlayerSeasonEnrichment] | None,
+) -> PlayerSeasonCoverage:
+    """Return explicit per-athlete enrichment availability.
+
+    :param key: Authoritative player-season key.
+    :param rows: Requested indexed rows, or ``None`` when omitted.
+    :return: Not-requested, empty, or present coverage.
+    """
+    if rows is None:
+        return PlayerSeasonCoverage.not_requested
+    return PlayerSeasonCoverage.present if key in rows else PlayerSeasonCoverage.empty
+
+
+__all__ = [
+    "PlayerSeason",
+    "PlayerSeasonCoverage",
+    "PlayerSeasonStatistic",
+    "player_seasons",
+]
