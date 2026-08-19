@@ -10,6 +10,7 @@ from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
 from cfb_data._requests import _resolve_request
 from cfb_data.enums import Classification
+from cfb_data.teams._operations import ROSTER_LIST, TEAMS_LIST
 from cfb_data.teams.models.pydantic.requests import (
     FBSTeamsRequest,
     RosterRequest,
@@ -20,7 +21,6 @@ from cfb_data.teams.models.pydantic.requests import (
 )
 from cfb_data.teams.models.pydantic.responses import (
     Matchup,
-    RosterPlayer,
     Team,
     TeamATS,
     TeamTalent,
@@ -30,7 +30,6 @@ type _ClassificationArgument = Classification | Literal["fbs", "fcs", "ii", "iii
 _TEAM_ROWS = TypeAdapter(list[Team])
 _MATCHUP = TypeAdapter(Matchup)
 _ATS_ROWS = TypeAdapter(list[TeamATS])
-_ROSTER_ROWS = TypeAdapter(list[RosterPlayer])
 _TALENT_ROWS = TypeAdapter(list[TeamTalent])
 
 
@@ -70,18 +69,11 @@ class TeamsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        endpoint = "/teams"
-        validated = _resolve_request(
-            endpoint=endpoint,
-            request_type=TeamsRequest,
+        return await TEAMS_LIST.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-        )
-        rows = await self._executor.fetch_many(
-            endpoint=endpoint, request=validated, response_adapter=_TEAM_ROWS
-        )
-        return self._dataframe_adapter.from_models(
-            endpoint=endpoint, row_model=Team, models=rows
         )
 
     @overload
@@ -224,18 +216,11 @@ class TeamsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        endpoint = "/roster"
-        validated = _resolve_request(
-            endpoint=endpoint,
-            request_type=RosterRequest,
+        return await ROSTER_LIST.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-        )
-        rows = await self._executor.fetch_many(
-            endpoint=endpoint, request=validated, response_adapter=_ROSTER_ROWS
-        )
-        return self._dataframe_adapter.from_models(
-            endpoint=endpoint, row_model=RosterPlayer, models=rows
         )
 
     @overload
