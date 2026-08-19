@@ -55,59 +55,6 @@ Retrieval observability
 
 .. autodata:: cfb_data.RetrievalEvent
 
-Analytics contracts and evidence
---------------------------------
-
-.. autoclass:: cfb_data.AnalyticsConfig
-   :members:
-
-.. autoclass:: cfb_data.ExecutionPolicy
-   :members:
-
-.. autoclass:: cfb_data.TableContract
-   :members:
-
-.. autoclass:: cfb_data.DatasetDefinition
-   :members:
-
-.. autoclass:: cfb_data.WorkflowDefinition
-   :members:
-
-.. autoclass:: cfb_data.DatasetCatalog
-   :members:
-
-.. autoclass:: cfb_data.TransformRegistry
-   :members:
-
-.. autoclass:: cfb_data.DatasetPlan
-   :members:
-
-.. autoclass:: cfb_data.WorkflowPlan
-   :members:
-
-.. autoclass:: cfb_data.DatasetRun
-   :members:
-
-.. autoclass:: cfb_data.WorkflowRun
-   :members:
-
-.. autoclass:: cfb_data.WorkflowOutputs
-   :members:
-
-.. autoclass:: cfb_data.ArtifactRef
-   :members:
-
-.. autoclass:: cfb_data.ArtifactDescriptor
-   :members:
-
-.. autoclass:: cfb_data.RunDescriptor
-   :members:
-
-.. autoclass:: cfb_data.AnalyticsStats
-   :members:
-
-.. autodata:: cfb_data.AnalyticsEvent
-
 Identity results
 ----------------
 
@@ -217,22 +164,6 @@ Exceptions
    :show-inheritance:
 
 .. autoclass:: cfb_data.CFBDDataFrameConversionError
-   :members:
-   :show-inheritance:
-
-.. autoclass:: cfb_data.CFBDAnalyticsError
-   :members:
-   :show-inheritance:
-
-.. autoclass:: cfb_data.CFBDDefinitionError
-   :members:
-   :show-inheritance:
-
-.. autoclass:: cfb_data.CFBDArtifactError
-   :members:
-   :show-inheritance:
-
-.. autoclass:: cfb_data.CFBDRunError
    :members:
    :show-inheritance:
 

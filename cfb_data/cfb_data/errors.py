@@ -15,39 +15,6 @@ class CFBDOptionalDependencyError(CFBDError, ImportError):
     """Report that a selected optional feature is not installed."""
 
 
-class CFBDAnalyticsError(CFBDError):
-    """Report a failure owned by the dataset and workflow layer."""
-
-
-class CFBDDefinitionError(CFBDAnalyticsError, ValueError):
-    """Report an invalid dataset, workflow, transform, or YAML definition."""
-
-
-class CFBDArtifactError(CFBDAnalyticsError):
-    """Report an invalid, corrupt, incompatible, or unavailable artifact."""
-
-
-class CFBDRunError(CFBDAnalyticsError):
-    """Report a safely categorized dataset or workflow execution failure.
-
-    :param run_id: Non-secret identifier of the failed immutable run.
-    :param step_id: Stable definition-local identifier of the failed step.
-    :param category: Bounded failure category without an exception message.
-    """
-
-    run_id: str
-    step_id: str
-    category: str
-
-    def __init__(self, *, run_id: str, step_id: str, category: str) -> None:
-        self.run_id = run_id
-        self.step_id = step_id
-        self.category = category[:64]
-        super().__init__(
-            f"Analytics run {run_id} failed at step {step_id} ({self.category})"
-        )
-
-
 class CFBDCacheError(CFBDError):
     """Report a cache or identity-catalog operation failure."""
 
@@ -263,8 +230,6 @@ class CFBDDataFrameConversionError(_EndpointError):
 
 
 __all__ = [
-    "CFBDAnalyticsError",
-    "CFBDArtifactError",
     "CFBDAuthenticationError",
     "CFBDAuthorizationError",
     "CFBDCacheBackendError",
@@ -273,7 +238,6 @@ __all__ = [
     "CFBDClientStateError",
     "CFBDConfigurationError",
     "CFBDDataFrameConversionError",
-    "CFBDDefinitionError",
     "CFBDError",
     "CFBDHTTPError",
     "CFBDIdentityAmbiguityError",
@@ -284,7 +248,6 @@ __all__ = [
     "CFBDRequestValidationError",
     "CFBDResponseDecodeError",
     "CFBDResponseValidationError",
-    "CFBDRunError",
     "CFBDServerError",
     "CFBDTimeoutError",
     "CFBDTLSError",

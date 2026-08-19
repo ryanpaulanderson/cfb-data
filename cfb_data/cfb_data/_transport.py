@@ -17,7 +17,6 @@ from urllib.parse import urlsplit
 
 import aiohttp
 
-from cfb_data._attempt_budget import _reserve_http_attempt
 from cfb_data._observability import (
     _EventDispatcher,
     _failure_category,
@@ -236,7 +235,6 @@ class _HTTPTransport:
         url = f"{self._base_url}{endpoint}"
 
         for attempt in range(1, self._retry_policy.max_attempts + 1):
-            await _reserve_http_attempt()
             attempt_started_at = self._start_attempt(
                 context=context,
                 refresh_id=refresh_id,

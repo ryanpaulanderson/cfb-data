@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import builtins
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, TypeVar, cast, overload
+from typing import TypeVar, overload
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -24,14 +24,12 @@ from cfb_data.coaches.models.pydantic.responses import (
     DetailedCoachSeason,
 )
 
-if TYPE_CHECKING:
-    from cfb_data.analytics._sources import EndpointOperation
-
 _RequestT = TypeVar("_RequestT", bound=BaseModel)
 _RowT = TypeVar("_RowT", bound=BaseModel)
 
 _COACH_ROWS = TypeAdapter(list[Coach])
 _COACH_PROFILE = TypeAdapter(CoachProfile)
+_COACH_SEASON_ROWS = TypeAdapter(list[DetailedCoachSeason])
 _COACH_TENURE_ROWS = TypeAdapter(list[CoachTenure])
 
 
@@ -144,14 +142,13 @@ class CoachesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        source = _coach_seasons_source()
         return await self._fetch_many(
-            endpoint=source.endpoint,
-            request_type=source.request_model,
+            endpoint="/coaches/seasons",
+            request_type=CoachSeasonsRequest,
             request=request,
             filters=filters,
-            response_adapter=source.response_adapter,
-            row_model=source.output.row_model,
+            response_adapter=_COACH_SEASON_ROWS,
+            row_model=DetailedCoachSeason,
         )
 
     @overload
@@ -214,17 +211,6 @@ class CoachesResource[FrameT]:
         return self._dataframe_adapter.from_models(
             endpoint=endpoint, row_model=row_model, models=rows
         )
-
-
-def _coach_seasons_source() -> EndpointOperation[
-    CoachSeasonsRequest, DetailedCoachSeason
-]:
-    from cfb_data.analytics._sources import EndpointOperation, endpoint_operation
-
-    return cast(
-        EndpointOperation[CoachSeasonsRequest, DetailedCoachSeason],
-        endpoint_operation("cfbd.coaches.seasons"),
-    )
 
 
 __all__ = ["CoachesResource"]

@@ -149,8 +149,6 @@ class _EndpointExecutor:
                     endpoint=endpoint,
                     parameter_names=tuple(sorted(parameters)),
                     cache_mode=self._cache_coordinator.current_mode,
-                    analytics_run_id=context.analytics_run_id,
-                    analytics_step_id=context.analytics_step_id,
                 )
             )
         try:
@@ -192,8 +190,6 @@ class _EndpointExecutor:
                 failure_category=(
                     _failure_category(error) if error is not None else None
                 ),
-                analytics_run_id=context.analytics_run_id,
-                analytics_step_id=context.analytics_step_id,
             )
         )
 

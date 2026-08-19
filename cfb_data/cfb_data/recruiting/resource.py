@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Literal, TypeVar, cast, overload
+from typing import Literal, TypeVar, overload
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -22,15 +22,14 @@ from cfb_data.recruiting.models.pydantic.responses import (
     TeamRecruitingRanking,
 )
 
-if TYPE_CHECKING:
-    from cfb_data.analytics._sources import EndpointOperation
-
 _RequestT = TypeVar("_RequestT", bound=BaseModel)
 _RowT = TypeVar("_RowT", bound=BaseModel)
 type _RecruitClassificationArgument = (
     RecruitClassification | Literal["JUCO", "PrepSchool", "HighSchool"]
 )
 
+_RECRUIT_ROWS = TypeAdapter(list[Recruit])
+_TEAM_RANKING_ROWS = TypeAdapter(list[TeamRecruitingRanking])
 _GROUP_ROWS = TypeAdapter(list[AggregatedTeamRecruiting])
 
 
@@ -73,14 +72,13 @@ class RecruitingResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        source = _recruits_source()
         return await self._fetch_many(
-            endpoint=source.endpoint,
-            request_type=source.request_model,
+            endpoint="/recruiting/players",
+            request_type=RecruitingPlayersRequest,
             request=request,
             filters=filters,
-            response_adapter=source.response_adapter,
-            row_model=source.output.row_model,
+            response_adapter=_RECRUIT_ROWS,
+            row_model=Recruit,
         )
 
     @overload
@@ -107,14 +105,13 @@ class RecruitingResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        source = _team_rankings_source()
         return await self._fetch_many(
-            endpoint=source.endpoint,
-            request_type=source.request_model,
+            endpoint="/recruiting/teams",
+            request_type=RecruitingTeamsRequest,
             request=request,
             filters=filters,
-            response_adapter=source.response_adapter,
-            row_model=source.output.row_model,
+            response_adapter=_TEAM_RANKING_ROWS,
+            row_model=TeamRecruitingRanking,
         )
 
     @overload
@@ -178,26 +175,6 @@ class RecruitingResource[FrameT]:
         return self._dataframe_adapter.from_models(
             endpoint=endpoint, row_model=row_model, models=rows
         )
-
-
-def _recruits_source() -> EndpointOperation[RecruitingPlayersRequest, Recruit]:
-    from cfb_data.analytics._sources import EndpointOperation, endpoint_operation
-
-    return cast(
-        EndpointOperation[RecruitingPlayersRequest, Recruit],
-        endpoint_operation("cfbd.recruiting.players"),
-    )
-
-
-def _team_rankings_source() -> EndpointOperation[
-    RecruitingTeamsRequest, TeamRecruitingRanking
-]:
-    from cfb_data.analytics._sources import EndpointOperation, endpoint_operation
-
-    return cast(
-        EndpointOperation[RecruitingTeamsRequest, TeamRecruitingRanking],
-        endpoint_operation("cfbd.recruiting.team_rankings"),
-    )
 
 
 __all__ = ["RecruitingResource"]

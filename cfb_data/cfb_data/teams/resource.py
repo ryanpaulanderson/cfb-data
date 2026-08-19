@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, cast, overload
+from typing import Literal, overload
 
 from pydantic import TypeAdapter
 
@@ -26,13 +26,11 @@ from cfb_data.teams.models.pydantic.responses import (
     TeamTalent,
 )
 
-if TYPE_CHECKING:
-    from cfb_data.analytics._sources import EndpointOperation
-
 type _ClassificationArgument = Classification | Literal["fbs", "fcs", "ii", "iii"]
 _TEAM_ROWS = TypeAdapter(list[Team])
 _MATCHUP = TypeAdapter(Matchup)
 _ATS_ROWS = TypeAdapter(list[TeamATS])
+_ROSTER_ROWS = TypeAdapter(list[RosterPlayer])
 _TALENT_ROWS = TypeAdapter(list[TeamTalent])
 
 
@@ -226,17 +224,18 @@ class TeamsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        source = _roster_source()
-        endpoint = source.endpoint
+        endpoint = "/roster"
         validated = _resolve_request(
             endpoint=endpoint,
-            request_type=source.request_model,
+            request_type=RosterRequest,
             request=request,
             filters=filters,
         )
-        rows = await source.fetch(self._executor, validated)
+        rows = await self._executor.fetch_many(
+            endpoint=endpoint, request=validated, response_adapter=_ROSTER_ROWS
+        )
         return self._dataframe_adapter.from_models(
-            endpoint=endpoint, row_model=source.output.row_model, models=rows
+            endpoint=endpoint, row_model=RosterPlayer, models=rows
         )
 
     @overload
@@ -269,12 +268,3 @@ class TeamsResource[FrameT]:
         return self._dataframe_adapter.from_models(
             endpoint=endpoint, row_model=TeamTalent, models=rows
         )
-
-
-def _roster_source() -> EndpointOperation[RosterRequest, RosterPlayer]:
-    from cfb_data.analytics._sources import EndpointOperation, endpoint_operation
-
-    return cast(
-        EndpointOperation[RosterRequest, RosterPlayer],
-        endpoint_operation("cfbd.teams.roster"),
-    )

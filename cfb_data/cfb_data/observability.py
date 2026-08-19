@@ -105,8 +105,6 @@ class RetrievalStarted:
     endpoint: str
     parameter_names: tuple[str, ...]
     cache_mode: CacheMode
-    analytics_run_id: str | None = None
-    analytics_step_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,8 +129,6 @@ class RetrievalFinished:
     row_count: int | None
     duration_seconds: float
     failure_category: str | None
-    analytics_run_id: str | None = None
-    analytics_step_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

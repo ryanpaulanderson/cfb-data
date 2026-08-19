@@ -138,18 +138,3 @@ hydration behavior.
 
 .. autoclass:: cfb_data.identities.resource.AthleteIdentities
    :members:
-
-Datasets
---------
-
-Curated methods return the configured eager DataFrame. The advanced methods
-return durable execution evidence. See :doc:`../guides/datasets-and-workflows`.
-
-.. autoclass:: cfb_data.analytics.datasets.DatasetsResource
-   :members:
-
-Workflows
----------
-
-.. autoclass:: cfb_data.analytics.workflows.WorkflowsResource
-   :members:

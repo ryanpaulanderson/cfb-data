@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, cast, overload
+from typing import Literal, overload
+
+from pydantic import TypeAdapter
 
 from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
@@ -10,9 +12,6 @@ from cfb_data._requests import _resolve_request
 from cfb_data.drives.models.pydantic.requests import DrivesRequest
 from cfb_data.drives.models.pydantic.responses import Drive
 from cfb_data.enums import Classification, SeasonType
-
-if TYPE_CHECKING:
-    from cfb_data.analytics._sources import EndpointOperation
 
 type _SeasonTypeArgument = (
     SeasonType
@@ -26,6 +25,7 @@ type _SeasonTypeArgument = (
     ]
 )
 type _ClassificationArgument = Classification | Literal["fbs", "fcs", "ii", "iii"]
+_DRIVE_ROWS = TypeAdapter(list[Drive])
 
 
 class DrivesResource[FrameT]:
@@ -75,25 +75,20 @@ class DrivesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        source = _drives_source()
-        endpoint = source.endpoint
+        endpoint = "/drives"
         validated = _resolve_request(
             endpoint=endpoint,
-            request_type=source.request_model,
+            request_type=DrivesRequest,
             request=request,
             filters=filters,
         )
-        rows = await source.fetch(self._executor, validated)
+        rows = await self._executor.fetch_many(
+            endpoint=endpoint,
+            request=validated,
+            response_adapter=_DRIVE_ROWS,
+        )
         return self._dataframe_adapter.from_models(
             endpoint=endpoint,
-            row_model=source.output.row_model,
+            row_model=Drive,
             models=rows,
         )
-
-
-def _drives_source() -> EndpointOperation[DrivesRequest, Drive]:
-    from cfb_data.analytics._sources import EndpointOperation, endpoint_operation
-
-    return cast(
-        EndpointOperation[DrivesRequest, Drive], endpoint_operation("cfbd.drives.list")
-    )

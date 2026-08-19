@@ -6,9 +6,7 @@ import asyncio
 import logging
 import time
 import uuid
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
-from contextvars import ContextVar
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from cfb_data.observability import (
@@ -18,9 +16,6 @@ from cfb_data.observability import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-_ANALYTICS_CONTEXT: ContextVar[tuple[str, str] | None] = ContextVar(
-    "cfb_data_analytics_context", default=None
-)
 
 
 @dataclass(slots=True)
@@ -33,8 +28,6 @@ class _OperationContext:
     started_at: float
     source: RetrievalSource = RetrievalSource.unknown
     refresh_id: str | None = None
-    analytics_run_id: str | None = None
-    analytics_step_id: str | None = None
 
 
 class _EventDispatcher:
@@ -69,18 +62,11 @@ class _EventDispatcher:
         """Return a new safe operation context when observation is enabled."""
         if self._observer is None:
             return None
-        analytics_context = _ANALYTICS_CONTEXT.get()
         return _OperationContext(
             client_id=self._client_id,
             operation_id=uuid.uuid4().hex,
             endpoint=endpoint,
             started_at=self._monotonic(),
-            analytics_run_id=(
-                analytics_context[0] if analytics_context is not None else None
-            ),
-            analytics_step_id=(
-                analytics_context[1] if analytics_context is not None else None
-            ),
         )
 
     def new_refresh_id(self) -> str:
@@ -122,19 +108,4 @@ def _failure_category(error: BaseException) -> str:
     return type(error).__name__[:64]
 
 
-@contextmanager
-def _analytics_correlation(run_id: str, step_id: str) -> Iterator[None]:
-    """Correlate retrieval events with one analytics source step."""
-    token = _ANALYTICS_CONTEXT.set((run_id, step_id))
-    try:
-        yield
-    finally:
-        _ANALYTICS_CONTEXT.reset(token)
-
-
-__all__ = [
-    "_analytics_correlation",
-    "_EventDispatcher",
-    "_OperationContext",
-    "_failure_category",
-]
+__all__ = ["_EventDispatcher", "_OperationContext", "_failure_category"]
