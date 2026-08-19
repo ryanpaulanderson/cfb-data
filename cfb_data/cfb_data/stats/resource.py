@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Literal, TypeVar, overload
+from typing import Literal, overload
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
-from cfb_data._requests import _resolve_request
 from cfb_data.enums import Classification, SeasonType
 from cfb_data.stats._operations import (
+    ADVANCED_GAME_STATS,
     ADVANCED_SEASON_STATS,
+    GAME_HAVOC_STATS,
+    PLAYER_GAME_SUCCESS,
     PLAYER_SEASON_STATS,
+    PLAYER_SEASON_SUCCESS,
     TEAM_SEASON_STATS,
 )
 from cfb_data.stats.models.pydantic.requests import (
@@ -25,17 +27,8 @@ from cfb_data.stats.models.pydantic.requests import (
     PlayerSeasonSuccessRequest,
     TeamSeasonStatsRequest,
 )
-from cfb_data.stats.models.pydantic.responses import (
-    AdvancedGameStat,
-    GameHavocStats,
-    PlayerGameSuccessRate,
-    PlayerSeasonSuccessRate,
-    StatCategory,
-    _StatCategoryValue,
-)
+from cfb_data.stats.models.pydantic.responses import StatCategory, _StatCategoryValue
 
-_RequestT = TypeVar("_RequestT", bound=BaseModel)
-_RowT = TypeVar("_RowT", bound=BaseModel)
 type _ClassificationArgument = Classification | Literal["fbs", "fcs", "ii", "iii"]
 type _SeasonTypeArgument = (
     SeasonType
@@ -49,11 +42,7 @@ type _SeasonTypeArgument = (
     ]
 )
 
-_PLAYER_SEASON_SUCCESS_ROWS = TypeAdapter(list[PlayerSeasonSuccessRate])
-_PLAYER_GAME_SUCCESS_ROWS = TypeAdapter(list[PlayerGameSuccessRate])
 _CATEGORY_VALUES = TypeAdapter(list[_StatCategoryValue])
-_ADVANCED_GAME_ROWS = TypeAdapter(list[AdvancedGameStat])
-_GAME_HAVOC_ROWS = TypeAdapter(list[GameHavocStats])
 
 
 class _CategoriesRequest(BaseModel):
@@ -146,13 +135,11 @@ class StatsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/stats/player/success",
-            request_type=PlayerSeasonSuccessRequest,
+        return await PLAYER_SEASON_SUCCESS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_PLAYER_SEASON_SUCCESS_ROWS,
-            row_model=PlayerSeasonSuccessRate,
         )
 
     @overload
@@ -187,13 +174,11 @@ class StatsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/stats/player/success/game",
-            request_type=PlayerGameSuccessRequest,
+        return await PLAYER_GAME_SUCCESS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_PLAYER_GAME_SUCCESS_ROWS,
-            row_model=PlayerGameSuccessRate,
         )
 
     @overload
@@ -317,13 +302,11 @@ class StatsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/stats/game/advanced",
-            request_type=AdvancedGameStatsRequest,
+        return await ADVANCED_GAME_STATS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_ADVANCED_GAME_ROWS,
-            row_model=AdvancedGameStat,
         )
 
     @overload
@@ -353,41 +336,11 @@ class StatsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/stats/game/havoc",
-            request_type=GameHavocRequest,
+        return await GAME_HAVOC_STATS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_GAME_HAVOC_ROWS,
-            row_model=GameHavocStats,
-        )
-
-    async def _fetch_many(
-        self,
-        *,
-        endpoint: str,
-        request_type: type[_RequestT],
-        request: _RequestT | None,
-        filters: Mapping[str, object],
-        response_adapter: TypeAdapter[list[_RowT]],
-        row_model: type[_RowT],
-    ) -> FrameT:
-        """Validate, fetch, and convert one Stats list route."""
-        validated = _resolve_request(
-            endpoint=endpoint,
-            request_type=request_type,
-            request=request,
-            filters=filters,
-        )
-        rows = await self._executor.fetch_many(
-            endpoint=endpoint,
-            request=validated,
-            response_adapter=response_adapter,
-        )
-        return self._dataframe_adapter.from_models(
-            endpoint=endpoint,
-            row_model=row_model,
-            models=rows,
         )
 
 
