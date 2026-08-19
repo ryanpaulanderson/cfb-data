@@ -5,7 +5,15 @@ from __future__ import annotations
 import inspect
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
-from typing import TYPE_CHECKING, ParamSpec, Self, TypeVar, cast, overload
+from typing import (
+    TYPE_CHECKING,
+    Concatenate,
+    ParamSpec,
+    Self,
+    TypeVar,
+    cast,
+    overload,
+)
 
 from pydantic import BaseModel
 
@@ -18,7 +26,7 @@ from ._parameters import (
 )
 from ._registration import _publish_candidate
 from .errors import CFBDRecipeConfigurationError, CFBDRecipeUsageError
-from .types import RecipeRef
+from .types import RecipeRef, SourceContext
 
 if TYPE_CHECKING:
     from .planning import ExecutionPolicy, RecipeInspection, RecipePlan
@@ -160,6 +168,18 @@ class SourceRecipe[**P, R](_Recipe[P, R]):
 
         return _call_in_build_context(self, (), parameters)
 
+    async def _execute_source(
+        self,
+        context: object,
+        parameters: Mapping[str, object],
+    ) -> object:
+        """Execute the trusted source body with an engine-owned context."""
+        callable_function = cast(Callable[..., object], self._function)
+        result = callable_function(context, **parameters)
+        if inspect.isawaitable(result):
+            return await cast(Awaitable[object], result)
+        return result
+
 
 class StepRecipe[**P, R](_Recipe[P, R]):
     """Represent one pure transformation boundary."""
@@ -294,19 +314,19 @@ class WorkflowRecipe[**P, R](_Recipe[P, R]):
 
 
 @overload
-def source[**Params, Result](
-    function: Callable[Params, Result],
+def source[**Params, Row](
+    function: Callable[Concatenate[SourceContext[Row], Params], Awaitable[list[Row]]],
     *,
     operation: object | None = None,
     id: str | None = None,
     revision: int | None = None,
     output: type[object] | None = None,
     cost: int | None = None,
-) -> SourceRecipe[Params, Result]: ...
+) -> SourceRecipe[Params, list[Row]]: ...
 
 
 @overload
-def source[**Params, Result](
+def source[**Params, Row](
     function: None = None,
     *,
     operation: object | None = None,
@@ -314,21 +334,21 @@ def source[**Params, Result](
     revision: int | None = None,
     output: type[object] | None = None,
     cost: int | None = None,
-) -> Callable[[Callable[Params, Result]], SourceRecipe[Params, Result]]: ...
+) -> Callable[
+    [Callable[Concatenate[SourceContext[Row], Params], Awaitable[list[Row]]]],
+    SourceRecipe[Params, list[Row]],
+]: ...
 
 
-def source[**Params, Result](
-    function: Callable[Params, Result] | None = None,
+def source(
+    function: object | None = None,
     *,
     operation: object | None = None,
     id: str | None = None,
     revision: int | None = None,
     output: type[object] | None = None,
     cost: int | None = None,
-) -> (
-    SourceRecipe[Params, Result]
-    | Callable[[Callable[Params, Result]], SourceRecipe[Params, Result]]
-):
+) -> object:
     """Decorate one endpoint-backed or custom coordinator source."""
     derived_id = getattr(operation, "id", None) if operation is not None else None
     derived_revision = (
@@ -367,7 +387,11 @@ def source[**Params, Result](
         operation=operation,
         source_cost=source_cost,
     )
-    return _decorate(function, declaration, SourceRecipe)
+    return _decorate(
+        cast(Callable[..., object] | None, function),
+        declaration,
+        SourceRecipe,
+    )
 
 
 @overload
@@ -422,6 +446,36 @@ def step[**Params, Result](
     return _decorate(function, declaration, StepRecipe)
 
 
+@overload
+def dataset[**Params, Result](
+    function: Callable[Params, Result],
+    *,
+    id: str | None = None,
+    revision: int | None = None,
+    row: type[BaseModel],
+    grain: str,
+    keys: tuple[str, ...],
+    order_by: tuple[str, ...] = (),
+    partition_by: tuple[str, ...] = (),
+    event_time: str | None = None,
+) -> DatasetRecipe[Params, Result]: ...
+
+
+@overload
+def dataset[**Params, Result](
+    function: None = None,
+    *,
+    id: str | None = None,
+    revision: int | None = None,
+    row: type[BaseModel],
+    grain: str,
+    keys: tuple[str, ...],
+    order_by: tuple[str, ...] = (),
+    partition_by: tuple[str, ...] = (),
+    event_time: str | None = None,
+) -> Callable[[Callable[Params, Result]], DatasetRecipe[Params, Result]]: ...
+
+
 def dataset[**Params, Result](
     function: Callable[Params, Result] | None = None,
     *,
@@ -461,6 +515,24 @@ def dataset[**Params, Result](
         event_time=event_time,
     )
     return _decorate(function, declaration, DatasetRecipe)
+
+
+@overload
+def workflow[**Params, Result](
+    function: Callable[Params, Result],
+    *,
+    id: str | None = None,
+    revision: int | None = None,
+) -> WorkflowRecipe[Params, Result]: ...
+
+
+@overload
+def workflow[**Params, Result](
+    function: None = None,
+    *,
+    id: str | None = None,
+    revision: int | None = None,
+) -> Callable[[Callable[Params, Result]], WorkflowRecipe[Params, Result]]: ...
 
 
 def workflow[**Params, Result](

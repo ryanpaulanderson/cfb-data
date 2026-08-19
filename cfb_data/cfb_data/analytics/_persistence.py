@@ -606,6 +606,67 @@ class _RunDatabase:
             committed_at=committed_at,
         )
 
+    def bind_reused_node(
+        self,
+        *,
+        run_id: str,
+        node_id: str,
+        output_name: str,
+        node_fingerprint: str,
+        candidate: _CheckpointCandidate,
+    ) -> _NodeArtifactBinding:
+        """Bind compatible existing content and record terminal reuse."""
+        committed_at = _as_utc(self._clock())
+        binding = candidate.binding
+        with self._transaction() as connection:
+            self._require_run(connection, run_id)
+            self._require_registered_artifact(connection, binding.content_digest)
+            self._require_artifact_not_retired(connection, binding.content_digest)
+            current = connection.execute(
+                """
+                SELECT state FROM node_transitions
+                WHERE run_id = ? AND node_id = ?
+                ORDER BY transition_id DESC LIMIT 1
+                """,
+                (run_id, node_id),
+            ).fetchone()
+            if current is None or current["state"] != "ready":
+                raise CFBDPersistenceError(category="node_transition")
+            connection.execute(
+                """
+                INSERT INTO node_artifact_bindings (
+                    run_id, node_id, output_name, node_fingerprint,
+                    content_digest, placement, committed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    node_id,
+                    output_name,
+                    node_fingerprint,
+                    binding.content_digest,
+                    binding.placement,
+                    committed_at.isoformat(),
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO node_transitions (
+                    run_id, node_id, state, occurred_at
+                ) VALUES (?, ?, 'reused', ?)
+                """,
+                (run_id, node_id, committed_at.isoformat()),
+            )
+        return _NodeArtifactBinding(
+            run_id=run_id,
+            node_id=node_id,
+            output_name=output_name,
+            node_fingerprint=node_fingerprint,
+            content_digest=binding.content_digest,
+            placement=binding.placement,
+            committed_at=committed_at,
+        )
+
     def retire_run(self, run_id: str) -> None:
         """Retire a run's retention claim without deleting its audit record."""
         occurred_at = _as_utc(self._clock())
