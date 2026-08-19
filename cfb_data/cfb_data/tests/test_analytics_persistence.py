@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import stat
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from cfb_data.analytics._artifacts import _TableArtifactCodec
 from cfb_data.analytics._persistence import (
     _analytics_root,
     _ArtifactObjectStore,
+    _PruneCandidate,
     _RunDatabase,
     _StoredArtifact,
 )
@@ -57,6 +59,33 @@ def _publish(store: _ArtifactObjectStore) -> _StoredArtifact:
             identity=_IDENTITY,
         )
         return store.publish(staged)
+
+
+def _run_with_artifact(
+    database: _RunDatabase,
+    artifact: _StoredArtifact,
+    *,
+    credential_scope: str = "scope-a",
+) -> str:
+    run = database.create_run(
+        recipe_id="cfbd.game_summaries",
+        recipe_revision=1,
+        recipe_kind="dataset",
+        parameter_fingerprint="a" * 64,
+        graph_fingerprint="b" * 64,
+        credential_scope=credential_scope,
+    )
+    database.transition_node(run.run_id, "step", "ready")
+    database.transition_node(run.run_id, "step", "running")
+    database.bind_completed_node(
+        run_id=run.run_id,
+        node_id="step",
+        output_name="value",
+        node_fingerprint="c" * 64,
+        artifact=artifact,
+        placement="local",
+    )
+    return run.run_id
 
 
 def test_root_resolution_does_not_create_files(tmp_path: Path) -> None:
@@ -275,3 +304,114 @@ def test_database_file_uses_private_permissions(tmp_path: Path) -> None:
     database.close()
 
     assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+
+
+def test_active_run_and_pin_both_protect_artifact_from_pruning(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+    artifact = _publish(store)
+    database = _RunDatabase(root / "runs.sqlite3", clock=lambda: _NOW)
+    try:
+        run_id = _run_with_artifact(database, artifact)
+
+        assert database.plan_prune().candidates == ()
+
+        database.pin_artifact(artifact.content_digest, name="important")
+        database.retire_run(run_id)
+        assert database.plan_prune().candidates == ()
+
+        database.unpin_artifact(artifact.content_digest, name="important")
+        plan = database.plan_prune()
+        assert [candidate.content_digest for candidate in plan.candidates] == [
+            artifact.content_digest
+        ]
+    finally:
+        database.close()
+
+
+def test_shared_artifact_remains_while_any_run_claim_is_active(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+    artifact = _publish(store)
+    database = _RunDatabase(root / "runs.sqlite3", clock=lambda: _NOW)
+    try:
+        first = _run_with_artifact(database, artifact)
+        second = _run_with_artifact(database, artifact)
+
+        database.retire_run(first)
+        assert database.plan_prune().candidates == ()
+
+        database.retire_run(second)
+        assert len(database.plan_prune().candidates) == 1
+    finally:
+        database.close()
+
+
+def test_stale_prune_plan_fails_before_removing_content(tmp_path: Path) -> None:
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+    artifact = _publish(store)
+    database = _RunDatabase(root / "runs.sqlite3", clock=lambda: _NOW)
+    try:
+        run_id = _run_with_artifact(database, artifact)
+        database.retire_run(run_id)
+        plan = database.plan_prune()
+        database.retain_run(run_id)
+
+        with pytest.raises(CFBDPersistenceError) as exc_info:
+            database.execute_prune(plan, object_store=store)
+
+        assert exc_info.value.category == "prune_plan_stale"
+        assert store.load_manifest(artifact.content_digest) == artifact.manifest
+    finally:
+        database.close()
+
+
+def test_tampered_prune_plan_fails_validation(tmp_path: Path) -> None:
+    database = _RunDatabase(tmp_path / "runs.sqlite3", clock=lambda: _NOW)
+    try:
+        plan = database.plan_prune()
+        tampered = replace(
+            plan,
+            candidates=(_PruneCandidate(content_digest="0" * 64, size_bytes=1),),
+        )
+
+        with pytest.raises(CFBDPersistenceError) as exc_info:
+            database.execute_prune(
+                tampered,
+                object_store=_ArtifactObjectStore(tmp_path / "objects"),
+            )
+
+        assert exc_info.value.category == "prune_plan"
+    finally:
+        database.close()
+
+
+def test_validated_prune_removes_only_retired_unpinned_content(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+    artifact = _publish(store)
+    database = _RunDatabase(root / "runs.sqlite3", clock=lambda: _NOW)
+    try:
+        run_id = _run_with_artifact(database, artifact)
+        database.retire_run(run_id)
+        plan = database.plan_prune()
+
+        removed = database.execute_prune(plan, object_store=store)
+
+        assert removed == (artifact.content_digest,)
+        assert database.bindings(run_id)[0].content_digest == artifact.content_digest
+        assert database.plan_prune().candidates == ()
+        with pytest.raises(CFBDArtifactCorruptionError):
+            store.load_manifest(artifact.content_digest)
+        with pytest.raises(CFBDPersistenceError) as exc_info:
+            database.retain_run(run_id)
+        assert exc_info.value.category == "retention_content_missing"
+    finally:
+        database.close()

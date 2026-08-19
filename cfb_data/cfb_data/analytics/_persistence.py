@@ -23,6 +23,7 @@ from ._artifacts import (
     _StagedArtifact,
     _verify_directory_members,
 )
+from ._compiler import _digest
 from .config import AnalyticsConfig
 from .errors import CFBDArtifactCorruptionError, CFBDPersistenceError
 
@@ -98,6 +99,22 @@ class _CheckpointCandidate:
 
     binding: _NodeArtifactBinding
     manifest: _ArtifactManifest
+
+
+@dataclass(frozen=True, slots=True)
+class _PruneCandidate:
+    """Describe one unreferenced and unpinned immutable object."""
+
+    content_digest: str
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class _PrunePlan:
+    """Bind a dry-run candidate snapshot to validation evidence."""
+
+    candidates: tuple[_PruneCandidate, ...]
+    validation_digest: str
 
 
 def _analytics_root(config: AnalyticsConfig) -> Path:
@@ -209,6 +226,22 @@ class _ArtifactObjectStore:
         self.load_manifest(content_digest)
         return self._object_path(content_digest)
 
+    def remove(self, content_digest: str) -> None:
+        """Remove one validated immutable object through a recoverable rename."""
+        source = self.directory(content_digest)
+        trash = (
+            self._objects / "staging" / f".trash-{content_digest}-{uuid.uuid4().hex}"
+        )
+        _make_private_directory(trash.parent)
+        try:
+            os.rename(source, trash)
+            _flush_directory(source.parent)
+            _flush_directory(trash.parent)
+            shutil.rmtree(trash)
+            _flush_directory(trash.parent)
+        except OSError as exc:
+            raise CFBDPersistenceError(category="artifact_remove") from exc
+
     def _object_path(self, content_digest: str) -> Path:
         if len(content_digest) != 64 or any(
             character not in _DIGEST_CHARACTERS for character in content_digest
@@ -308,6 +341,14 @@ class _RunDatabase:
                 """,
                 (run_id, created_at.isoformat()),
             )
+            connection.execute(
+                """
+                INSERT INTO run_retention_transitions (
+                    run_id, state, occurred_at
+                ) VALUES (?, 'active', ?)
+                """,
+                (run_id, created_at.isoformat()),
+            )
         return self.get_run(run_id)
 
     def transition_run(
@@ -395,6 +436,10 @@ class _RunDatabase:
         ).decode("utf-8")
         with self._transaction() as connection:
             self._require_run(connection, run_id)
+            self._require_artifact_not_retired(
+                connection,
+                artifact.content_digest,
+            )
             row = connection.execute(
                 "SELECT manifest_json FROM artifact_objects WHERE content_digest = ?",
                 (artifact.content_digest,),
@@ -464,6 +509,155 @@ class _RunDatabase:
             placement=placement,
             committed_at=committed_at,
         )
+
+    def retire_run(self, run_id: str) -> None:
+        """Retire a run's retention claim without deleting its audit record."""
+        occurred_at = _as_utc(self._clock())
+        with self._transaction() as connection:
+            self._require_run(connection, run_id)
+            state = self._run_retention_state(connection, run_id)
+            if state != "active":
+                raise CFBDPersistenceError(category="retention_transition")
+            connection.execute(
+                """
+                INSERT INTO run_retention_transitions (
+                    run_id, state, occurred_at
+                ) VALUES (?, 'retired', ?)
+                """,
+                (run_id, occurred_at.isoformat()),
+            )
+
+    def retain_run(self, run_id: str) -> None:
+        """Restore a retired run's retention claim if its objects still exist."""
+        occurred_at = _as_utc(self._clock())
+        with self._transaction() as connection:
+            self._require_run(connection, run_id)
+            if self._run_retention_state(connection, run_id) != "retired":
+                raise CFBDPersistenceError(category="retention_transition")
+            unavailable = connection.execute(
+                """
+                SELECT 1
+                FROM node_artifact_bindings AS binding
+                WHERE binding.run_id = ?
+                  AND EXISTS (
+                    SELECT 1 FROM artifact_gc_transitions AS gc
+                    WHERE gc.content_digest = binding.content_digest
+                      AND gc.transition_id = (
+                        SELECT MAX(latest.transition_id)
+                        FROM artifact_gc_transitions AS latest
+                        WHERE latest.content_digest = binding.content_digest
+                      )
+                      AND gc.state IN ('deleting', 'deleted')
+                  )
+                LIMIT 1
+                """,
+                (run_id,),
+            ).fetchone()
+            if unavailable is not None:
+                raise CFBDPersistenceError(category="retention_content_missing")
+            connection.execute(
+                """
+                INSERT INTO run_retention_transitions (
+                    run_id, state, occurred_at
+                ) VALUES (?, 'active', ?)
+                """,
+                (run_id, occurred_at.isoformat()),
+            )
+
+    def pin_artifact(self, content_digest: str, *, name: str) -> None:
+        """Append an explicit named pin for an available artifact."""
+        _validate_pin_name(name)
+        occurred_at = _as_utc(self._clock())
+        with self._transaction() as connection:
+            self._require_registered_artifact(connection, content_digest)
+            self._require_artifact_not_retired(connection, content_digest)
+            if self._pin_state(connection, content_digest, name) == "pinned":
+                raise CFBDPersistenceError(category="pin_transition")
+            connection.execute(
+                """
+                INSERT INTO artifact_pin_transitions (
+                    content_digest, pin_name, state, occurred_at
+                ) VALUES (?, ?, 'pinned', ?)
+                """,
+                (content_digest, name, occurred_at.isoformat()),
+            )
+
+    def unpin_artifact(self, content_digest: str, *, name: str) -> None:
+        """Append removal of an existing named artifact pin."""
+        _validate_pin_name(name)
+        occurred_at = _as_utc(self._clock())
+        with self._transaction() as connection:
+            if self._pin_state(connection, content_digest, name) != "pinned":
+                raise CFBDPersistenceError(category="pin_transition")
+            connection.execute(
+                """
+                INSERT INTO artifact_pin_transitions (
+                    content_digest, pin_name, state, occurred_at
+                ) VALUES (?, ?, 'unpinned', ?)
+                """,
+                (content_digest, name, occurred_at.isoformat()),
+            )
+
+    def plan_prune(self) -> _PrunePlan:
+        """Return a non-mutating snapshot of currently eligible objects."""
+        with self._lock:
+            rows = self._eligible_artifacts(self._connection)
+        candidates = tuple(
+            _PruneCandidate(
+                content_digest=str(row["content_digest"]),
+                size_bytes=_manifest_size(str(row["manifest_json"])),
+            )
+            for row in rows
+        )
+        return _PrunePlan(
+            candidates=candidates,
+            validation_digest=_prune_validation_digest(candidates),
+        )
+
+    def execute_prune(
+        self,
+        plan: _PrunePlan,
+        *,
+        object_store: _ArtifactObjectStore,
+    ) -> tuple[str, ...]:
+        """Execute a validated plan while rechecking every safety condition."""
+        if plan.validation_digest != _prune_validation_digest(plan.candidates):
+            raise CFBDPersistenceError(category="prune_plan")
+        current = self.plan_prune()
+        if current != plan:
+            raise CFBDPersistenceError(category="prune_plan_stale")
+        removed: list[str] = []
+        for candidate in plan.candidates:
+            object_store.load_manifest(candidate.content_digest)
+            occurred_at = _as_utc(self._clock())
+            with self._transaction() as connection:
+                eligible = {
+                    str(row["content_digest"])
+                    for row in self._eligible_artifacts(connection)
+                }
+                if candidate.content_digest not in eligible:
+                    raise CFBDPersistenceError(category="prune_plan_stale")
+                connection.execute(
+                    """
+                    INSERT INTO artifact_gc_transitions (
+                        content_digest, state, occurred_at
+                    ) VALUES (?, 'deleting', ?)
+                    """,
+                    (candidate.content_digest, occurred_at.isoformat()),
+                )
+            object_store.remove(candidate.content_digest)
+            deleted_at = _as_utc(self._clock())
+            with self._transaction() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO artifact_gc_transitions (
+                        content_digest, state, occurred_at
+                    ) VALUES (?, 'deleted', ?)
+                    """,
+                    (candidate.content_digest, deleted_at.isoformat()),
+                )
+            removed.append(candidate.content_digest)
+        return tuple(removed)
 
     def get_run(self, run_id: str) -> _RunRecord:
         """Return one safe immutable run with its derived latest state."""
@@ -588,6 +782,111 @@ class _RunDatabase:
             ).fetchone()
         return None if row is None else _node_state(row["state"])
 
+    def _eligible_artifacts(
+        self,
+        connection: sqlite3.Connection,
+    ) -> Sequence[sqlite3.Row]:
+        return connection.execute(
+            """
+            SELECT object.content_digest, object.manifest_json
+            FROM artifact_objects AS object
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM node_artifact_bindings AS binding
+                JOIN run_retention_transitions AS retention
+                  ON retention.run_id = binding.run_id
+                 AND retention.transition_id = (
+                    SELECT MAX(latest.transition_id)
+                    FROM run_retention_transitions AS latest
+                    WHERE latest.run_id = binding.run_id
+                 )
+                WHERE binding.content_digest = object.content_digest
+                  AND retention.state = 'active'
+            )
+              AND NOT EXISTS (
+                SELECT 1 FROM artifact_pin_transitions AS pin
+                WHERE pin.content_digest = object.content_digest
+                  AND pin.transition_id = (
+                    SELECT MAX(latest.transition_id)
+                    FROM artifact_pin_transitions AS latest
+                    WHERE latest.content_digest = object.content_digest
+                      AND latest.pin_name = pin.pin_name
+                  )
+                  AND pin.state = 'pinned'
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM artifact_gc_transitions AS gc
+                WHERE gc.content_digest = object.content_digest
+                  AND gc.transition_id = (
+                    SELECT MAX(latest.transition_id)
+                    FROM artifact_gc_transitions AS latest
+                    WHERE latest.content_digest = object.content_digest
+                  )
+                  AND gc.state IN ('deleting', 'deleted')
+              )
+            ORDER BY object.content_digest
+            """
+        ).fetchall()
+
+    def _run_retention_state(
+        self,
+        connection: sqlite3.Connection,
+        run_id: str,
+    ) -> str:
+        row = connection.execute(
+            """
+            SELECT state FROM run_retention_transitions
+            WHERE run_id = ? ORDER BY transition_id DESC LIMIT 1
+            """,
+            (run_id,),
+        ).fetchone()
+        if row is None or row["state"] not in {"active", "retired"}:
+            raise CFBDPersistenceError(category="retention_state")
+        return str(row["state"])
+
+    def _pin_state(
+        self,
+        connection: sqlite3.Connection,
+        content_digest: str,
+        name: str,
+    ) -> str | None:
+        row = connection.execute(
+            """
+            SELECT state FROM artifact_pin_transitions
+            WHERE content_digest = ? AND pin_name = ?
+            ORDER BY transition_id DESC LIMIT 1
+            """,
+            (content_digest, name),
+        ).fetchone()
+        return None if row is None else str(row["state"])
+
+    def _require_registered_artifact(
+        self,
+        connection: sqlite3.Connection,
+        content_digest: str,
+    ) -> None:
+        row = connection.execute(
+            "SELECT 1 FROM artifact_objects WHERE content_digest = ?",
+            (content_digest,),
+        ).fetchone()
+        if row is None:
+            raise CFBDPersistenceError(category="artifact_missing")
+
+    def _require_artifact_not_retired(
+        self,
+        connection: sqlite3.Connection,
+        content_digest: str,
+    ) -> None:
+        row = connection.execute(
+            """
+            SELECT state FROM artifact_gc_transitions
+            WHERE content_digest = ? ORDER BY transition_id DESC LIMIT 1
+            """,
+            (content_digest,),
+        ).fetchone()
+        if row is not None and row["state"] in {"deleting", "deleted"}:
+            raise CFBDPersistenceError(category="artifact_retired")
+
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
         with self._lock:
@@ -626,12 +925,12 @@ class _RunDatabase:
     def _migrate(self) -> None:
         with self._lock:
             version = self._connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in {0, 1, 2}:
+            if version not in {0, 1, 2, 3}:
                 raise CFBDPersistenceError(category="database_version")
-            if version == 2:
+            if version == 3:
                 return
-            migration = _SCHEMA_V1 if version == 0 else _SCHEMA_V2
-            target_version = 1 if version == 0 else 2
+            migrations = {0: (_SCHEMA_V1, 1), 1: (_SCHEMA_V2, 2), 2: (_SCHEMA_V3, 3)}
+            migration, target_version = migrations[version]
             try:
                 self._connection.executescript(
                     f"BEGIN IMMEDIATE;\n{migration}\n"
@@ -641,7 +940,7 @@ class _RunDatabase:
                 if self._connection.in_transaction:
                     self._connection.execute("ROLLBACK")
                 raise
-            if target_version == 1:
+            if target_version < 3:
                 self._migrate()
 
 
@@ -747,6 +1046,49 @@ def _remove_owned_staging(directory: Path, expected_parent: Path) -> None:
     shutil.rmtree(directory)
 
 
+def _validate_pin_name(name: str) -> None:
+    """Require a bounded safe label rather than an arbitrary path or secret."""
+    if (
+        not name
+        or len(name) > 128
+        or any(character not in _SAFE_PIN_CHARACTERS for character in name)
+    ):
+        raise ValueError("Artifact pin names must be safe non-empty slugs")
+
+
+_SAFE_PIN_CHARACTERS: Final = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+)
+
+
+def _manifest_size(payload: str) -> int:
+    """Return total payload bytes from a validated stored manifest."""
+    try:
+        manifest = _ArtifactManifest.model_validate_json(payload, strict=True)
+    except ValueError as exc:
+        raise CFBDArtifactCorruptionError(
+            content_digest=None,
+            category="database_manifest",
+        ) from exc
+    return sum(part.size_bytes for part in manifest.body.parts)
+
+
+def _prune_validation_digest(candidates: Sequence[_PruneCandidate]) -> str:
+    """Bind a prune plan to ordered candidate identity and size evidence."""
+    return _digest(
+        {
+            "prune_plan": 1,
+            "candidates": [
+                {
+                    "content_digest": candidate.content_digest,
+                    "size_bytes": candidate.size_bytes,
+                }
+                for candidate in candidates
+            ],
+        }
+    )
+
+
 _SCHEMA_V1: Final = """
 CREATE TABLE runs (
     run_id TEXT PRIMARY KEY,
@@ -843,6 +1185,57 @@ BEGIN SELECT RAISE(ABORT, 'bindings are immutable'); END;
 
 _SCHEMA_V2: Final = """
 ALTER TABLE runs ADD COLUMN credential_scope TEXT NOT NULL DEFAULT '';
+"""
+
+_SCHEMA_V3: Final = """
+CREATE TABLE run_retention_transitions (
+    transition_id INTEGER PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(run_id),
+    state TEXT NOT NULL CHECK (state IN ('active', 'retired')),
+    occurred_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX retention_by_run
+    ON run_retention_transitions(run_id, transition_id);
+INSERT INTO run_retention_transitions (run_id, state, occurred_at)
+    SELECT run_id, 'active', created_at FROM runs;
+
+CREATE TABLE artifact_pin_transitions (
+    transition_id INTEGER PRIMARY KEY,
+    content_digest TEXT NOT NULL REFERENCES artifact_objects(content_digest),
+    pin_name TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pinned', 'unpinned')),
+    occurred_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX pins_by_artifact
+    ON artifact_pin_transitions(content_digest, pin_name, transition_id);
+
+CREATE TABLE artifact_gc_transitions (
+    transition_id INTEGER PRIMARY KEY,
+    content_digest TEXT NOT NULL REFERENCES artifact_objects(content_digest),
+    state TEXT NOT NULL CHECK (state IN ('deleting', 'deleted')),
+    occurred_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX gc_by_artifact
+    ON artifact_gc_transitions(content_digest, transition_id);
+
+CREATE TRIGGER retention_is_immutable_update
+BEFORE UPDATE ON run_retention_transitions
+BEGIN SELECT RAISE(ABORT, 'retention transitions are immutable'); END;
+CREATE TRIGGER retention_is_immutable_delete
+BEFORE DELETE ON run_retention_transitions
+BEGIN SELECT RAISE(ABORT, 'retention transitions are immutable'); END;
+CREATE TRIGGER pins_are_immutable_update
+BEFORE UPDATE ON artifact_pin_transitions
+BEGIN SELECT RAISE(ABORT, 'pin transitions are immutable'); END;
+CREATE TRIGGER pins_are_immutable_delete
+BEFORE DELETE ON artifact_pin_transitions
+BEGIN SELECT RAISE(ABORT, 'pin transitions are immutable'); END;
+CREATE TRIGGER gc_is_immutable_update
+BEFORE UPDATE ON artifact_gc_transitions
+BEGIN SELECT RAISE(ABORT, 'gc transitions are immutable'); END;
+CREATE TRIGGER gc_is_immutable_delete
+BEFORE DELETE ON artifact_gc_transitions
+BEGIN SELECT RAISE(ABORT, 'gc transitions are immutable'); END;
 """
 
 
