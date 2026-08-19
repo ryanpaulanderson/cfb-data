@@ -122,6 +122,45 @@ async def test_plan_counts_identical_source_requests_once() -> None:
 
 
 @pytest.mark.asyncio
+async def test_plan_expands_recompute_through_dependency_descendants() -> None:
+    """Expose forced execution for a selected node and every downstream node."""
+    client = CFBDClient("planning-key")
+    baseline = await _planned_games.plan(client, year=2024, team="Penn State")
+    source_id = baseline.nodes[0].node_id
+
+    forced = await _planned_games.plan(
+        client,
+        year=2024,
+        team="Penn State",
+        policy=ExecutionPolicy(recompute_nodes=(source_id,)),
+    )
+
+    assert all(node.recompute for node in forced.nodes)
+
+
+@pytest.mark.asyncio
+async def test_plan_rejects_an_unknown_recompute_node_before_io(
+    tmp_path: Path,
+) -> None:
+    """Require expert recompute controls to reference the exact compiled plan."""
+    root = tmp_path / "analytics"
+    client = CFBDClient(
+        "planning-key",
+        analytics=AnalyticsConfig(root=root),
+    )
+
+    with pytest.raises(CFBDRecipeCompilationError, match="unknown recompute"):
+        await _planned_games.plan(
+            client,
+            year=2024,
+            team="Penn State",
+            policy=ExecutionPolicy(recompute_nodes=("missing-node",)),
+        )
+
+    assert not root.exists()
+
+
+@pytest.mark.asyncio
 async def test_inspection_reads_an_exact_cached_source_without_mutation(
     api_server: ServerFactory,
     game_response: dict[str, object],

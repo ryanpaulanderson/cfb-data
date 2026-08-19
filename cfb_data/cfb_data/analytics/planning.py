@@ -61,6 +61,7 @@ class ExecutionPolicy:
     max_http_attempts: int = 100
     max_expanded_nodes: int = 10_000
     checkpoint_mode: CheckpointMode = "all"
+    recompute_nodes: tuple[str, ...] = ()
     dask_max_workers: int = 4
     dask_threads_per_worker: int = 1
     dask_transfer_limit_bytes: int = 512 * 1024 * 1024
@@ -71,6 +72,15 @@ class ExecutionPolicy:
             raise ValueError("executor must be 'local' or 'dask'")
         if self.checkpoint_mode not in {"all", "outputs_only", "off"}:
             raise ValueError("checkpoint_mode is invalid")
+        if (
+            not isinstance(self.recompute_nodes, tuple)
+            or any(
+                not isinstance(node_id, str) or not node_id
+                for node_id in self.recompute_nodes
+            )
+            or len(set(self.recompute_nodes)) != len(self.recompute_nodes)
+        ):
+            raise ValueError("recompute_nodes must contain unique non-empty node IDs")
         positive = (
             self.retrieval_concurrency,
             self.compute_concurrency,
@@ -97,6 +107,7 @@ class RecipePlanNode:
     placement: NodePlacement
     parameter_names: tuple[str, ...]
     deferred_parameters: tuple[str, ...]
+    recompute: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +145,7 @@ def _plan_recipe(
     selected = policy or ExecutionPolicy()
     bridge = _client_bridge(client)
     graph = _compile_recipe(recipe, args, kwargs, max_nodes=selected.max_expanded_nodes)
+    recompute_nodes = _expanded_recompute_nodes(graph, selected.recompute_nodes)
     nodes: list[RecipePlanNode] = []
     logical_source_cost = 0
     planned_source_requests: set[str] = set()
@@ -168,6 +180,7 @@ def _plan_recipe(
                 placement=placement,
                 parameter_names=tuple(node.arguments),
                 deferred_parameters=deferred,
+                recompute=node.node_id in recompute_nodes,
             )
         )
     worst_case_attempts = logical_source_cost * bridge.retry_max_attempts
@@ -184,6 +197,7 @@ def _plan_recipe(
             "attempts": worst_case_attempts,
             "max_nodes": selected.max_expanded_nodes,
             "checkpoint_mode": selected.checkpoint_mode,
+            "recompute_nodes": sorted(recompute_nodes),
         }
     )
     plan = RecipePlan(
@@ -199,6 +213,24 @@ def _plan_recipe(
         diagnostics=(),
     )
     return plan, graph
+
+
+def _expanded_recompute_nodes(
+    graph: _CompiledGraph,
+    requested: tuple[str, ...],
+) -> frozenset[str]:
+    """Expand explicitly forced nodes through their dependency descendants."""
+    known = frozenset(node.node_id for node in graph.nodes)
+    unknown = tuple(node_id for node_id in requested if node_id not in known)
+    if unknown:
+        raise CFBDRecipeCompilationError(
+            "Execution policy references an unknown recompute node"
+        )
+    expanded = set(requested)
+    for node in graph.nodes:
+        if any(dependency in expanded for dependency in node.dependencies):
+            expanded.add(node.node_id)
+    return frozenset(expanded)
 
 
 def _source_request_key(node: _CompiledNode) -> str:

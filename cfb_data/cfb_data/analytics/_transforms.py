@@ -79,6 +79,7 @@ class _TransformRunner:
         parent_run_id: str | None,
         source_behavior: _SourceBehavior,
         checkpoint_nodes: frozenset[str] | None = None,
+        recompute_nodes: frozenset[str] = frozenset(),
         backend: _Backend,
         dispatcher: _AnalyticsDispatcher,
         lease_ttl: timedelta = _DEFAULT_LEASE_TTL,
@@ -97,6 +98,7 @@ class _TransformRunner:
         self._parent_run_id = parent_run_id
         self._source_behavior = source_behavior
         self._checkpoint_nodes = checkpoint_nodes
+        self._recompute_nodes = recompute_nodes
         self._backend = backend
         self._dispatcher = dispatcher
         self._lease_ttl = lease_ttl
@@ -174,6 +176,8 @@ class _TransformRunner:
             source_behavior=self._source_behavior,
             checkpoint_eligible=self._checkpoint_eligible(node),
         )
+        if node.node_id in self._recompute_nodes:
+            scope = "none"
         reused = await self._load_compatible_checkpoint(
             node,
             row_model=row_model,

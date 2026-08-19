@@ -145,6 +145,64 @@ async def test_checkpoint_off_keeps_artifacts_but_never_publishes_reuse(
 
 
 @pytest.mark.asyncio
+async def test_targeted_recompute_executes_selected_node_and_publishes_reuse(
+    api_server: ServerFactory,
+    game_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Force one boundary without disabling its future checkpoint evidence."""
+    calls = 0
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        return web.json_response([game_response])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "targeted-recompute-key",
+            base_url=base_url,
+            retry_policy=RetryPolicy(max_attempts=1),
+            cache=SQLiteCacheConfig(path=tmp_path / "responses.sqlite3"),
+            analytics=AnalyticsConfig(root=tmp_path / "analytics"),
+        ) as client:
+            plan = await _runtime_games.plan(
+                client,
+                year=2024,
+                team="Penn State",
+            )
+            dataset_id = plan.nodes[-1].node_id
+            initial = await _runtime_games.run(
+                client,
+                year=2024,
+                team="Penn State",
+            )
+            reused = await _runtime_games.run(
+                client,
+                year=2024,
+                team="Penn State",
+            )
+            forced = await _runtime_games.run(
+                client,
+                year=2024,
+                team="Penn State",
+                policy=ExecutionPolicy(recompute_nodes=(dataset_id,)),
+            )
+            replay = await _runtime_games.run(
+                client,
+                year=2024,
+                team="Penn State",
+            )
+
+    assert initial.reused_nodes == 0
+    assert reused.reused_nodes == 1
+    assert forced.reused_nodes == 0
+    assert all(node.checkpoint_eligible for node in forced.lineage)
+    assert replay.reused_nodes == 1
+    assert calls == 1
+
+
+@pytest.mark.asyncio
 async def test_refresh_source_behavior_forces_response_cache_refresh(
     api_server: ServerFactory,
     game_response: dict[str, object],
@@ -313,6 +371,70 @@ async def test_explicit_recovery_reuses_sources_after_downstream_revision_change
     assert recovered.actual_http_attempts == 0
     assert recovered.reused_nodes >= 1
     assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_recompute_source_bypasses_parent_snapshot_during_recovery(
+    api_server: ServerFactory,
+    game_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Let an expert force retrieval while preserving normal cache policy."""
+    calls = 0
+    attempts = 0
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        return web.json_response([game_response])
+
+    @step(
+        id="tests.forced_source_recovery_step",
+        revision=1,
+        output=Game,
+        deterministic=False,
+    )
+    def intermittent(rows: list[Game]) -> list[Game]:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("injected downstream failure")
+        return rows
+
+    @dataset(
+        id="tests.forced_source_recovery_dataset",
+        revision=1,
+        row=Game,
+        grain="one game",
+        keys=("id",),
+        order_by=("season", "week", "id"),
+    )
+    def recoverable(*, year: int, team: str) -> RecipeRef[list[Game]]:
+        return intermittent(games(year=year, team=team))
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "forced-source-recovery-key",
+            base_url=base_url,
+            retry_policy=RetryPolicy(max_attempts=1),
+            analytics=AnalyticsConfig(root=tmp_path / "analytics"),
+        ) as client:
+            plan = await recoverable.plan(client, year=2024, team="Penn State")
+            source_id = plan.nodes[0].node_id
+            with pytest.raises(CFBDRunError) as exc_info:
+                await recoverable.run(client, year=2024, team="Penn State")
+
+            recovered = await recoverable.run(
+                client,
+                year=2024,
+                team="Penn State",
+                resume_from=exc_info.value.run_id,
+                policy=ExecutionPolicy(recompute_nodes=(source_id,)),
+            )
+
+    assert recovered.actual_http_attempts == 1
+    assert recovered.reused_nodes == 0
+    assert calls == 2
 
 
 @pytest.mark.asyncio

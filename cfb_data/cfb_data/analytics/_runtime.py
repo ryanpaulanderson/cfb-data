@@ -36,7 +36,7 @@ from ._transforms import _TransformRunner
 from .config import AnalyticsConfig
 from .errors import CFBDRecipeCompilationError, CFBDRunError
 from .observability import AnalyticsEvent, AnalyticsEventType, AnalyticsOutcome
-from .planning import ExecutionPolicy, _plan_recipe
+from .planning import ExecutionPolicy, _expanded_recompute_nodes, _plan_recipe
 from .results import ArtifactRef, RecipeRun, RunNodeEvidence, WorkflowOutputs
 
 type SourceBehavior = Literal["preserve_snapshot", "normal_freshness", "refresh"]
@@ -253,6 +253,7 @@ async def _execute_graph(
 ) -> Mapping[str, _NodeResult]:
     """Schedule deterministic ready batches across coordinator-owned sessions."""
     checkpoint_nodes = _checkpoint_nodes(graph, policy.checkpoint_mode)
+    recompute_nodes = _expanded_recompute_nodes(graph, policy.recompute_nodes)
     source_runner = _SourceRunner(
         endpoint_executor=bridge.executor,
         database=database,
@@ -262,6 +263,7 @@ async def _execute_graph(
         parent_run_id=parent_run_id,
         source_behavior=source_behavior,
         checkpoint_nodes=checkpoint_nodes,
+        recompute_nodes=recompute_nodes,
         concurrency=policy.retrieval_concurrency,
         dispatcher=dispatcher,
     )
@@ -282,6 +284,7 @@ async def _execute_graph(
         parent_run_id=parent_run_id,
         source_behavior=source_behavior,
         checkpoint_nodes=checkpoint_nodes,
+        recompute_nodes=recompute_nodes,
         backend=bridge.dataframe_backend,
         dispatcher=dispatcher,
     )
@@ -295,6 +298,7 @@ async def _execute_graph(
             parent_run_id=parent_run_id,
             source_behavior=source_behavior,
             checkpoint_nodes=checkpoint_nodes,
+            recompute_nodes=recompute_nodes,
             backend=bridge.dataframe_backend,
             dispatcher=dispatcher,
         )
@@ -399,6 +403,7 @@ def _transform_runner(
     parent_run_id: str | None,
     source_behavior: SourceBehavior,
     checkpoint_nodes: frozenset[str],
+    recompute_nodes: frozenset[str],
     backend: Literal["pandas", "polars"],
     dispatcher: _AnalyticsDispatcher,
 ) -> _TransformRunner:
@@ -411,6 +416,7 @@ def _transform_runner(
         parent_run_id=parent_run_id,
         source_behavior=source_behavior,
         checkpoint_nodes=checkpoint_nodes,
+        recompute_nodes=recompute_nodes,
         backend=backend,
         dispatcher=dispatcher,
     )

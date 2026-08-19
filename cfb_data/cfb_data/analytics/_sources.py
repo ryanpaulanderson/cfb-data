@@ -88,6 +88,7 @@ class _SourceRunner:
         parent_run_id: str | None,
         source_behavior: _SourceBehavior,
         checkpoint_nodes: frozenset[str] | None = None,
+        recompute_nodes: frozenset[str] = frozenset(),
         concurrency: int,
         dispatcher: _AnalyticsDispatcher,
     ) -> None:
@@ -102,6 +103,7 @@ class _SourceRunner:
         self._parent_run_id = parent_run_id
         self._source_behavior = source_behavior
         self._checkpoint_nodes = checkpoint_nodes
+        self._recompute_nodes = recompute_nodes
         self._semaphore = asyncio.Semaphore(concurrency)
         self._dispatcher = dispatcher
         self._retrievals: dict[str, asyncio.Task[list[BaseModel]]] = {}
@@ -198,6 +200,8 @@ class _SourceRunner:
             source_behavior=self._source_behavior,
             checkpoint_eligible=self._checkpoint_eligible(node),
         )
+        if node.node_id in self._recompute_nodes:
+            scope = "none"
         candidate = await asyncio.to_thread(
             self._database.find_checkpoint,
             node_fingerprint=fingerprint,
