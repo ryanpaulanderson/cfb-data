@@ -22,6 +22,7 @@ from cfb_data._tabular import (
     _logical_schema_digest,
 )
 
+from ._artifact_contract import _DatasetContractEvidence
 from ._artifacts import _json_schema_digest, _JsonArtifactCodec, _TableArtifactCodec
 from ._checkpoints import (
     _checkpoint_scope,
@@ -339,6 +340,7 @@ class _TransformRunner:
                 table=table,
                 row_model=row_model,
                 identity=identity,
+                dataset=_dataset_contract(node),
             )
             resolved_fingerprint = self._resolved_fingerprint(
                 node,
@@ -601,6 +603,7 @@ class _TransformRunner:
         try:
             rows = await asyncio.to_thread(
                 self._load_rows,
+                node,
                 row_model,
                 identity,
                 candidate,
@@ -695,6 +698,7 @@ class _TransformRunner:
 
     def _load_rows(
         self,
+        node: _CompiledNode,
         row_model: type[BaseModel],
         identity: _AnalyticsTableIdentity,
         candidate: _CheckpointCandidate,
@@ -704,6 +708,7 @@ class _TransformRunner:
             manifest=candidate.manifest,
             row_model=row_model,
             identity=identity,
+            dataset=_dataset_contract(node),
         )
         return _analytics_models_from_arrow_table(
             row_model=row_model,
@@ -963,6 +968,22 @@ def _validate_dataset_quality(
             raise ValueError(
                 "Dataset ordering fields are not mutually comparable"
             ) from exc
+
+
+def _dataset_contract(node: _CompiledNode) -> _DatasetContractEvidence | None:
+    """Project one dataset declaration into stable artifact semantics."""
+    if node.kind != "dataset":
+        return None
+    grain = node.declaration.grain
+    if grain is None:
+        raise CFBDRecipeCompilationError("Dataset grain is unavailable")
+    return _DatasetContractEvidence(
+        grain=grain,
+        keys=node.declaration.keys,
+        order_by=node.declaration.order_by,
+        partition_by=node.declaration.partition_by,
+        event_time=node.declaration.event_time,
+    )
 
 
 def _row_list_adapter(

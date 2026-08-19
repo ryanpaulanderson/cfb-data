@@ -33,6 +33,30 @@ OutputT = TypeVar("OutputT")
 
 
 @dataclass(frozen=True, slots=True)
+class ArtifactColumn:
+    """Describe one ordered analytical column without Python model identity."""
+
+    name: str
+    nullable: bool
+    description: str | None
+    unit: str | None
+    semantic_type: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class QualityCheck:
+    """Report one stable successful artifact validation."""
+
+    check: Literal[
+        "row_contract",
+        "candidate_key_uniqueness",
+        "deterministic_order",
+    ]
+    outcome: Literal["passed"]
+    rows_checked: int
+
+
+@dataclass(frozen=True, slots=True)
 class ArtifactDescriptor:
     """Describe stable validated artifact content without exposing its path."""
 
@@ -46,6 +70,13 @@ class ArtifactDescriptor:
     schema_digest: str
     row_count: int | None
     byte_count: int
+    grain: str | None
+    keys: tuple[str, ...]
+    order_by: tuple[str, ...]
+    partition_by: tuple[str, ...]
+    event_time: str | None
+    columns: tuple[ArtifactColumn, ...]
+    quality: tuple[QualityCheck, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +197,7 @@ class ArtifactRef:
 def _artifact_descriptor(manifest: _ArtifactManifest) -> ArtifactDescriptor:
     """Project a validated private manifest into its safe public descriptor."""
     body = manifest.body
+    table = body.table
     return ArtifactDescriptor(
         content_digest=manifest.content_digest,
         kind=body.kind,
@@ -177,6 +209,37 @@ def _artifact_descriptor(manifest: _ArtifactManifest) -> ArtifactDescriptor:
         schema_digest=body.schema_digest,
         row_count=body.row_count,
         byte_count=sum(part.size_bytes for part in body.parts),
+        grain=None if table is None else table.grain,
+        keys=() if table is None else table.keys,
+        order_by=() if table is None else table.order_by,
+        partition_by=() if table is None else table.partition_by,
+        event_time=None if table is None else table.event_time,
+        columns=(
+            ()
+            if table is None
+            else tuple(
+                ArtifactColumn(
+                    name=column.name,
+                    nullable=column.nullable,
+                    description=column.description,
+                    unit=column.unit,
+                    semantic_type=column.semantic_type,
+                )
+                for column in table.columns
+            )
+        ),
+        quality=(
+            ()
+            if table is None
+            else tuple(
+                QualityCheck(
+                    check=result.check,
+                    outcome=result.outcome,
+                    rows_checked=result.rows_checked,
+                )
+                for result in table.quality
+            )
+        ),
     )
 
 
@@ -206,10 +269,22 @@ class WorkflowOutputs[OutputT](Mapping[str, OutputT]):
 
 
 @dataclass(frozen=True, slots=True)
+class RecipeSourceCoverage:
+    """Report successful source availability without exposing selectors."""
+
+    node_id: str
+    operation_id: str
+    access_tier: Literal["free", "tier_1", "tier_2"]
+    state: Literal["empty", "present"]
+    row_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class RunNodeEvidence:
     """Report one successful node binding without paths or parameters."""
 
     node_id: str
+    node_kind: Literal["source", "step", "dataset", "workflow"]
     output_name: str
     content_digest: str
     placement: Literal["coordinator", "local", "dask"]
@@ -225,6 +300,8 @@ class RecipeRun[OutputT]:
     parent_run_id: str | None
     value: OutputT
     artifacts: Mapping[str, ArtifactRef]
+    source_coverage: tuple[RecipeSourceCoverage, ...]
+    quality: Mapping[str, tuple[QualityCheck, ...]]
     lineage: tuple[RunNodeEvidence, ...]
     actual_http_attempts: int
     reused_nodes: int
@@ -242,9 +319,12 @@ class RecipeRun[OutputT]:
 
 
 __all__ = [
+    "ArtifactColumn",
     "ArtifactDescriptor",
     "ArtifactRef",
+    "QualityCheck",
     "RecipeRun",
+    "RecipeSourceCoverage",
     "RunNodeEvidence",
     "WorkflowOutputs",
 ]

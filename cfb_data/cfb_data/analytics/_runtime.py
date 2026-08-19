@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
 from cfb_data._observability import _failure_category
+from cfb_data._operation import _ManyEndpointOperation
 from cfb_data.cache._coordinator import CacheCoordinator
 from cfb_data.cache.config import CacheMode
 
@@ -43,7 +44,13 @@ from .planning import (
     _inspect_recipe,
     _plan_recipe,
 )
-from .results import ArtifactRef, RecipeRun, RunNodeEvidence, WorkflowOutputs
+from .results import (
+    ArtifactRef,
+    RecipeRun,
+    RecipeSourceCoverage,
+    RunNodeEvidence,
+    WorkflowOutputs,
+)
 
 type SourceBehavior = Literal["preserve_snapshot", "normal_freshness", "refresh"]
 
@@ -549,6 +556,7 @@ async def _public_result(
             row_model=row_model,
         )
     bindings = await asyncio.to_thread(database.bindings, run_id)
+    graph_nodes = {node.node_id: node for node in graph.nodes}
     evidence: list[RunNodeEvidence] = []
     reused = 0
     for binding in bindings:
@@ -558,6 +566,7 @@ async def _public_result(
         evidence.append(
             RunNodeEvidence(
                 node_id=binding.node_id,
+                node_kind=graph_nodes[binding.node_id].kind,
                 output_name=binding.output_name,
                 content_digest=binding.content_digest,
                 placement=binding.placement,
@@ -568,11 +577,34 @@ async def _public_result(
     value: object = (
         frames["value"] if graph.root_kind == "dataset" else WorkflowOutputs(frames)
     )
+    source_coverage: list[RecipeSourceCoverage] = []
+    for node in graph.nodes:
+        if node.kind != "source":
+            continue
+        operation = node.declaration.operation
+        if not isinstance(operation, _ManyEndpointOperation):
+            raise CFBDRecipeCompilationError("Source operation metadata is unavailable")
+        row_count = results[node.node_id].artifact.manifest.body.row_count
+        if row_count is None:
+            raise CFBDRecipeCompilationError("Source row count is unavailable")
+        source_coverage.append(
+            RecipeSourceCoverage(
+                node_id=node.node_id,
+                operation_id=operation.id,
+                access_tier=operation.access_tier,
+                state="empty" if row_count == 0 else "present",
+                row_count=row_count,
+            )
+        )
     return RecipeRun(
         run_id=run_id,
         parent_run_id=parent_run_id,
         value=value,
         artifacts=MappingProxyType(artifacts),
+        source_coverage=tuple(source_coverage),
+        quality=MappingProxyType(
+            {name: artifact.descriptor.quality for name, artifact in artifacts.items()}
+        ),
         lineage=tuple(evidence),
         actual_http_attempts=await asyncio.to_thread(database.attempt_count, run_id),
         reused_nodes=reused,

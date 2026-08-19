@@ -87,6 +87,26 @@ async def test_dataset_direct_and_advanced_runs_share_durable_execution(
         assert advanced.reused_nodes == 1
         assert isinstance(advanced.artifact, ArtifactRef)
         assert advanced.artifact.descriptor.row_count == 1
+        assert advanced.artifact.descriptor.grain == "one game"
+        assert advanced.artifact.descriptor.keys == ("id",)
+        assert advanced.artifact.descriptor.order_by == (
+            "season",
+            "week",
+            "id",
+        )
+        assert tuple(result.check for result in advanced.quality["value"]) == (
+            "row_contract",
+            "candidate_key_uniqueness",
+            "deterministic_order",
+        )
+        assert len(advanced.source_coverage) == 1
+        assert advanced.source_coverage[0].operation_id == "cfbd.games.list"
+        assert advanced.source_coverage[0].state == "present"
+        assert advanced.source_coverage[0].row_count == 1
+        assert {node.node_kind for node in advanced.lineage} == {
+            "source",
+            "dataset",
+        }
         restored = advanced.artifact.load()
         assert isinstance(restored, pd.DataFrame)
         assert restored.equals(advanced.value)

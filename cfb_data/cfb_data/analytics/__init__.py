@@ -71,9 +71,12 @@ from .operations import (
 )
 from .planning import ExecutionPolicy, RecipeInspection, RecipePlan, RecipePlanNode
 from .results import (
+    ArtifactColumn,
     ArtifactDescriptor,
     ArtifactRef,
+    QualityCheck,
     RecipeRun,
+    RecipeSourceCoverage,
     RunNodeEvidence,
     WorkflowOutputs,
 )
@@ -95,6 +98,7 @@ __all__ = [
     "AnalyticsOutcome",
     "AnalyticsStats",
     "AnalyticsStatsSnapshot",
+    "ArtifactColumn",
     "ArtifactDescriptor",
     "ArtifactRef",
     "ArtifactInspection",
@@ -121,6 +125,7 @@ __all__ = [
     "RecipeRef",
     "RecipeProviderTrust",
     "RecipeRun",
+    "RecipeSourceCoverage",
     "RecipeInspection",
     "RecipePlan",
     "RecipePlanNode",
@@ -136,6 +141,7 @@ __all__ = [
     "PruneCandidate",
     "PrunePlan",
     "PruneResult",
+    "QualityCheck",
     "WorkflowOutputs",
     "WorkflowRecipe",
     "dataset",

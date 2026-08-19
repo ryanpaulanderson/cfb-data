@@ -11,6 +11,7 @@ from cfb_data._tabular import (
     _analytics_arrow_table_from_models,
     _AnalyticsTableIdentity,
 )
+from cfb_data.analytics._artifact_contract import _DatasetContractEvidence
 from cfb_data.analytics._artifacts import (
     _canonical_json_bytes,
     _JsonArtifactCodec,
@@ -123,6 +124,69 @@ def test_table_codec_preserves_empty_schema(tmp_path: Path) -> None:
     assert len(staged.manifest.body.parts) == 1
     assert restored.num_rows == 0
     assert restored.schema.equals(_table(row_count=0).schema, check_metadata=True)
+
+
+def test_table_codec_binds_dataset_semantics_and_quality_to_content(
+    tmp_path: Path,
+) -> None:
+    """Persist declared grain, fields, nullability, and successful checks."""
+    directory = tmp_path / "contract"
+    directory.mkdir()
+    contract = _DatasetContractEvidence(
+        grain="one game",
+        keys=("game_id",),
+        order_by=("game_id",),
+        partition_by=(),
+        event_time=None,
+    )
+
+    staged = _TableArtifactCodec().stage(
+        directory=directory,
+        table=_table(),
+        row_model=_TableRow,
+        identity=_IDENTITY,
+        dataset=contract,
+    )
+
+    metadata = staged.manifest.body.table
+    assert staged.manifest.body.schema_version == 2
+    assert metadata is not None
+    assert metadata.grain == "one game"
+    assert metadata.keys == ("game_id",)
+    assert tuple(column.name for column in metadata.columns) == (
+        "game_id",
+        "score",
+        "tags",
+    )
+    assert tuple(column.nullable for column in metadata.columns) == (
+        False,
+        True,
+        False,
+    )
+    assert tuple(result.check for result in metadata.quality) == (
+        "row_contract",
+        "candidate_key_uniqueness",
+        "deterministic_order",
+    )
+    assert all(result.rows_checked == 3 for result in metadata.quality)
+
+    incompatible = _DatasetContractEvidence(
+        grain="one score observation",
+        keys=("game_id",),
+        order_by=("game_id",),
+        partition_by=(),
+        event_time=None,
+    )
+    with pytest.raises(CFBDArtifactCorruptionError) as exc_info:
+        _TableArtifactCodec().load(
+            directory=directory,
+            manifest=staged.manifest,
+            row_model=_TableRow,
+            identity=_IDENTITY,
+            dataset=incompatible,
+        )
+
+    assert exc_info.value.category == "table"
 
 
 def test_table_codec_rejects_corrupt_part(tmp_path: Path) -> None:

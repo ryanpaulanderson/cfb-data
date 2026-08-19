@@ -30,6 +30,12 @@ from cfb_data._tabular import (
     _logical_schema_digest,
 )
 
+from ._artifact_contract import (
+    _artifact_columns,
+    _DatasetContractEvidence,
+    _table_artifact_contract,
+    _TableArtifactContract,
+)
 from .errors import CFBDArtifactCodecError, CFBDArtifactCorruptionError
 
 _MANIFEST_NAME: Final = "manifest.json"
@@ -75,7 +81,7 @@ class _ArtifactManifestBody(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     kind: str = Field(min_length=1, max_length=128)
     codec_id: str = Field(min_length=1, max_length=256)
     codec_version: int = Field(ge=1)
@@ -84,6 +90,7 @@ class _ArtifactManifestBody(BaseModel):
     output_revision: int = Field(ge=1)
     schema_digest: str = Field(pattern=_DIGEST_PATTERN)
     row_count: int | None = Field(default=None, ge=0)
+    table: _TableArtifactContract | None = None
     parts: tuple[_ArtifactPart, ...] = Field(min_length=1)
 
     @field_validator("output_id")
@@ -97,7 +104,9 @@ class _ArtifactManifestBody(BaseModel):
 
     @model_validator(mode="after")
     def validate_parts(self) -> _ArtifactManifestBody:
-        """Require unique deterministically ordered part names."""
+        """Require coherent kind metadata and deterministically ordered parts."""
+        if (self.kind == "table") != (self.table is not None):
+            raise ValueError("Only table artifacts may contain table metadata")
         names = tuple(part.name for part in self.parts)
         if len(set(names)) != len(names):
             raise ValueError("Artifact part names must be unique")
@@ -154,6 +163,7 @@ class _TableArtifactCodec:
         table: pa.Table,
         row_model: type[BaseModel],
         identity: _AnalyticsTableIdentity,
+        dataset: _DatasetContractEvidence | None = None,
     ) -> _StagedArtifact:
         """Write, reread, and validate deterministic Parquet parts.
 
@@ -222,6 +232,11 @@ class _TableArtifactCodec:
             output_revision=identity.revision,
             schema_digest=schema_digest,
             row_count=table.num_rows,
+            table=_table_artifact_contract(
+                row_model,
+                row_count=table.num_rows,
+                dataset=dataset,
+            ),
             parts=tuple(parts),
         )
         manifest = _write_manifest(directory, body)
@@ -230,6 +245,7 @@ class _TableArtifactCodec:
             manifest=manifest,
             row_model=row_model,
             identity=identity,
+            dataset=dataset,
         )
         return _StagedArtifact(directory=directory, manifest=manifest)
 
@@ -240,6 +256,7 @@ class _TableArtifactCodec:
         manifest: _ArtifactManifest | None,
         row_model: type[BaseModel],
         identity: _AnalyticsTableIdentity,
+        dataset: _DatasetContractEvidence | None = None,
     ) -> pa.Table:
         """Load and validate all ordered Parquet parts.
 
@@ -286,6 +303,17 @@ class _TableArtifactCodec:
                 _logical_schema(row_model)
             ):
                 raise ValueError("Artifact logical schema digest is invalid")
+            metadata = checked.body.table
+            if metadata is None or metadata.columns != _artifact_columns(row_model):
+                raise ValueError("Artifact column metadata is invalid")
+            if any(result.rows_checked != total_rows for result in metadata.quality):
+                raise ValueError("Artifact quality evidence has an invalid row count")
+            if dataset is not None and metadata != _table_artifact_contract(
+                row_model,
+                row_count=total_rows,
+                dataset=dataset,
+            ):
+                raise ValueError("Artifact table contract is incompatible")
             if len(tables) == 1:
                 return tables[0]
             return pa.concat_tables(tables, promote_options="none")
