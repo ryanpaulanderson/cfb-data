@@ -39,6 +39,8 @@ and
 [`docs/architecture/0003-canonical-arrow-parquet.md`](docs/architecture/0003-canonical-arrow-parquet.md)
 and
 [`docs/architecture/0004-api-cache-identity-catalog.md`](docs/architecture/0004-api-cache-identity-catalog.md)
+and the proposed
+[`docs/architecture/0006-modular-analytics-recipes.md`](docs/architecture/0006-modular-analytics-recipes.md)
 before changing endpoint, validation, Arrow, DataFrame, Parquet, cache,
 identity, dataset, or workflow code.
 
