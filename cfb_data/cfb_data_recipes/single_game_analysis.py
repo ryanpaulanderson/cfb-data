@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TypedDict
 
 from cfb_data.analytics import require_one, value, workflow
+from cfb_data.enums import MediaType
 
 from cfb_data_recipes.betting_lines import BettingLine, betting_lines
 from cfb_data_recipes.drives import DriveRow, drives
@@ -31,10 +32,13 @@ class SingleGameAnalysisRefs(TypedDict):
     betting_lines: list[BettingLine]
 
 
-@workflow(id="cfbd.single_game_analysis", revision=1)
+@workflow(id="cfbd.single_game_analysis", revision=2)
 def single_game_analysis(
     *,
     game_id: int,
+    include_game_media: bool = False,
+    game_media_type: MediaType | None = None,
+    include_game_weather: bool = False,
     include_team_stats: bool = False,
     include_advanced_box: bool = False,
     include_win_probability: bool = False,
@@ -42,12 +46,20 @@ def single_game_analysis(
     """Build the core named products for one exact game.
 
     :param game_id: Stable CFBD game identifier.
+    :param include_game_media: Request source-faithful broadcast outlets.
+    :param game_media_type: Optional broadcast-medium selector.
+    :param include_game_weather: Request Tier 1 game weather.
     :param include_team_stats: Request conventional team-game statistics.
     :param include_advanced_box: Request the nested advanced game box score.
     :param include_win_probability: Request exact play win probabilities.
     :return: Typed references to six named dataset outputs.
     """
-    summaries = game_summaries(game_id=game_id)
+    summaries = game_summaries(
+        game_id=game_id,
+        include_media=include_game_media,
+        media_type=game_media_type,
+        include_weather=include_game_weather,
+    )
     context = require_one(summaries)
     season = value(context, path=("season",), expected_type=int)
     week = value(context, path=("week",), expected_type=int)

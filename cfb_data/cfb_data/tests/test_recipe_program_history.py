@@ -134,6 +134,8 @@ async def test_history_enrichments_expand_only_the_static_plan() -> None:
         team="Penn State",
         start_season=2024,
         end_season=2024,
+        include_game_media=True,
+        include_game_weather=True,
         include_team_game_stats=True,
         include_advanced_game_stats=True,
         include_game_havoc=True,
@@ -145,6 +147,8 @@ async def test_history_enrichments_expand_only_the_static_plan() -> None:
 
     node_ids = "\n".join(node.node_id for node in enriched.nodes)
     assert enriched.worst_case_http_attempts > base.worst_case_http_attempts
+    assert "cfbd.games.media" in node_ids
+    assert "cfbd.games.weather" in node_ids
     assert "cfbd.games.team_stats" in node_ids
     assert "cfbd.stats.advanced_game" in node_ids
     assert "cfbd.stats.game_havoc" in node_ids

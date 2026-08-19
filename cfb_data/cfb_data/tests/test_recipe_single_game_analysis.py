@@ -138,6 +138,32 @@ async def test_workflow_exposes_exact_game_advanced_box_enrichment(
 
 
 @pytest.mark.asyncio
+async def test_workflow_exposes_game_summary_enrichment_plan() -> None:
+    """Compose media and weather through the ordinary game-summary recipe."""
+    client = CFBDClient(
+        "single-game-workflow-key",
+        retry_policy=RetryPolicy(max_attempts=1),
+    )
+
+    base = await single_game_analysis.plan(client, game_id=401628347)
+    enriched = await single_game_analysis.plan(
+        client,
+        game_id=401628347,
+        include_game_media=True,
+        include_game_weather=True,
+    )
+
+    node_ids = "\n".join(node.node_id for node in enriched.nodes)
+    assert enriched.worst_case_http_attempts == base.worst_case_http_attempts + 2
+    assert "cfbd.games.media" in node_ids
+    assert "cfbd.games.weather" in node_ids
+    media_node = next(
+        node for node in enriched.nodes if "cfbd.games.media" in node.node_id
+    )
+    assert media_node.deferred_parameters == ("year", "week", "team")
+
+
+@pytest.mark.asyncio
 async def test_workflow_has_four_way_artifact_and_graph_parity(
     api_server: ServerFactory,
     game_response: dict[str, object],

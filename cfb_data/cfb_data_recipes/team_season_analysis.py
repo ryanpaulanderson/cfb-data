@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TypedDict
 
 from cfb_data.analytics import workflow
-from cfb_data.enums import Classification, SeasonType
+from cfb_data.enums import Classification, MediaType, SeasonType
 
 from cfb_data_recipes.coach_seasons import CoachSeason, coach_seasons
 from cfb_data_recipes.game_summaries import GameSummary, game_summaries
@@ -34,7 +34,7 @@ class TeamSeasonAnalysisRefs(TypedDict):
     coach_seasons: list[CoachSeason]
 
 
-@workflow(id="cfbd.team_season_analysis", revision=1)
+@workflow(id="cfbd.team_season_analysis", revision=2)
 def team_season_analysis(
     *,
     season: int,
@@ -42,6 +42,9 @@ def team_season_analysis(
     season_type: SeasonType | None = None,
     classification: Classification | None = None,
     include_team_game_stats: bool = False,
+    include_game_media: bool = False,
+    game_media_type: MediaType | None = None,
+    include_game_weather: bool = False,
     include_advanced_game_stats: bool = False,
     include_game_havoc: bool = False,
     include_game_ppa: bool = False,
@@ -59,6 +62,9 @@ def team_season_analysis(
     :param season_type: Optional game and player-stat season phase.
     :param classification: Optional roster and source classification.
     :param include_team_game_stats: Request conventional team-game statistics.
+    :param include_game_media: Request game-summary broadcast outlets.
+    :param game_media_type: Optional broadcast-medium selector.
+    :param include_game_weather: Request Tier 1 game-summary weather.
     :param include_advanced_game_stats: Request advanced team-game statistics.
     :param include_game_havoc: Request team-game havoc statistics.
     :param include_game_ppa: Request team-game PPA metrics.
@@ -76,6 +82,9 @@ def team_season_analysis(
             team=team,
             season_type=season_type,
             classification=classification,
+            include_media=include_game_media,
+            media_type=game_media_type,
+            include_weather=include_game_weather,
         ),
         "team_games": team_games(
             year=season,

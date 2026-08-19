@@ -45,6 +45,8 @@ _SOURCES = {
     "/coaches/seasons",
 }
 _OPTIONAL_SOURCES = {
+    "/games/media",
+    "/games/weather",
     "/games/teams",
     "/stats/game/advanced",
     "/stats/game/havoc",
@@ -118,6 +120,8 @@ async def test_workflow_composes_all_dataset_enrichment_options(
                 client,
                 season=2024,
                 team="Penn State",
+                include_game_media=True,
+                include_game_weather=True,
                 include_team_game_stats=True,
                 include_advanced_game_stats=True,
                 include_game_havoc=True,

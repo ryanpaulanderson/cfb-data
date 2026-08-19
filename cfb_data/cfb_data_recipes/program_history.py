@@ -11,7 +11,12 @@ from __future__ import annotations
 from typing import TypedDict
 
 from cfb_data.analytics import step, workflow
-from cfb_data.enums import Classification, RecruitClassification, SeasonType
+from cfb_data.enums import (
+    Classification,
+    MediaType,
+    RecruitClassification,
+    SeasonType,
+)
 
 from cfb_data_recipes.coach_seasons import CoachSeason, coach_seasons
 from cfb_data_recipes.game_summaries import GameSummary, game_summaries
@@ -99,7 +104,7 @@ def _concatenate_poll_rankings(
     return _concatenate(groups)
 
 
-@workflow(id="cfbd.program_history", revision=1)
+@workflow(id="cfbd.program_history", revision=2)
 def program_history(
     *,
     team: str,
@@ -108,6 +113,9 @@ def program_history(
     season_type: SeasonType | None = None,
     classification: Classification | None = None,
     recruit_classification: RecruitClassification | None = None,
+    include_game_media: bool = False,
+    game_media_type: MediaType | None = None,
+    include_game_weather: bool = False,
     include_team_game_stats: bool = False,
     include_advanced_game_stats: bool = False,
     include_game_havoc: bool = False,
@@ -124,6 +132,9 @@ def program_history(
     :param season_type: Optional game and ranking season phase.
     :param classification: Optional game and team-stat classification.
     :param recruit_classification: Optional recruit-type selector.
+    :param include_game_media: Request game-summary broadcast outlets.
+    :param game_media_type: Optional broadcast-medium selector.
+    :param include_game_weather: Request Tier 1 game-summary weather.
     :param include_team_game_stats: Request conventional team-game statistics.
     :param include_advanced_game_stats: Request advanced team-game statistics.
     :param include_game_havoc: Request team-game havoc statistics.
@@ -141,6 +152,9 @@ def program_history(
             team=team,
             season_type=season_type,
             classification=classification,
+            include_media=include_game_media,
+            media_type=game_media_type,
+            include_weather=include_game_weather,
         )
         for season in seasons
     )
