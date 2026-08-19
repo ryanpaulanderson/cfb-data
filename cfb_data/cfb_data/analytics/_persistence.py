@@ -24,6 +24,7 @@ from ._artifacts import (
     _verify_directory_members,
 )
 from ._compiler import _digest
+from ._sqlite_sql import AnalyticsSQLiteSQL
 from .config import AnalyticsConfig
 from .errors import (
     CFBDArtifactCorruptionError,
@@ -292,6 +293,7 @@ class _RunDatabase:
         _make_private_directory(path.parent)
         self._clock = clock or (lambda: datetime.now(UTC))
         self._lock = threading.RLock()
+        self._sql = AnalyticsSQLiteSQL()
         try:
             self._connection = sqlite3.connect(
                 path,
@@ -300,10 +302,12 @@ class _RunDatabase:
                 check_same_thread=False,
             )
             self._connection.row_factory = sqlite3.Row
-            self._connection.execute("PRAGMA foreign_keys = ON")
-            self._connection.execute("PRAGMA journal_mode = WAL")
-            self._connection.execute("PRAGMA synchronous = FULL")
-            self._connection.execute("PRAGMA busy_timeout = 30000")
+            self._connection.execute(self._sql.render("config/enable_foreign_keys.sql"))
+            self._connection.execute(self._sql.render("config/enable_wal.sql"))
+            self._connection.execute(
+                self._sql.render("config/set_synchronous_full.sql")
+            )
+            self._connection.execute(self._sql.render("config/set_busy_timeout.sql"))
             self._migrate()
             os.chmod(path, 0o600)
         except (OSError, sqlite3.Error) as exc:
@@ -338,13 +342,7 @@ class _RunDatabase:
         created_at = _as_utc(self._clock())
         with self._transaction() as connection:
             connection.execute(
-                """
-                INSERT INTO runs (
-                    run_id, recipe_id, recipe_revision, recipe_kind,
-                    parameter_fingerprint, graph_fingerprint, parent_run_id,
-                    credential_scope, max_http_attempts, source_behavior, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+                self._sql.render("runs/insert_run.sql"),
                 (
                     run_id,
                     recipe_id,
@@ -360,19 +358,12 @@ class _RunDatabase:
                 ),
             )
             connection.execute(
-                """
-                INSERT INTO run_transitions (run_id, state, occurred_at)
-                VALUES (?, 'created', ?)
-                """,
-                (run_id, created_at.isoformat()),
+                self._sql.render("runs/insert_transition.sql"),
+                (run_id, "created", created_at.isoformat(), None, None),
             )
             connection.execute(
-                """
-                INSERT INTO run_retention_transitions (
-                    run_id, state, occurred_at
-                ) VALUES (?, 'active', ?)
-                """,
-                (run_id, created_at.isoformat()),
+                self._sql.render("runs/insert_retention_transition.sql"),
+                (run_id, "active", created_at.isoformat()),
             )
         return self.get_run(run_id)
 
@@ -393,14 +384,14 @@ class _RunDatabase:
             if current != "running":
                 raise CFBDPersistenceError(category="attempt_run_state")
             run = connection.execute(
-                "SELECT max_http_attempts FROM runs WHERE run_id = ?",
+                self._sql.render("runs/select_attempt_limit.sql"),
                 (run_id,),
             ).fetchone()
             if run is None:
                 raise CFBDPersistenceError(category="run_missing")
             limit = int(run["max_http_attempts"])
             count_row = connection.execute(
-                "SELECT COUNT(*) AS count FROM attempt_reservations WHERE run_id = ?",
+                self._sql.render("attempts/count_by_run.sql"),
                 (run_id,),
             ).fetchone()
             if count_row is None:
@@ -413,11 +404,7 @@ class _RunDatabase:
                     limit=limit,
                 )
             connection.execute(
-                """
-                INSERT INTO attempt_reservations (
-                    run_id, node_id, endpoint, retry_number, ordinal, reserved_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
+                self._sql.render("attempts/insert_reservation.sql"),
                 (
                     run_id,
                     node_id,
@@ -440,7 +427,7 @@ class _RunDatabase:
         """Return the exact durable attempt count for one run."""
         with self._lock:
             row = self._connection.execute(
-                "SELECT COUNT(*) AS count FROM attempt_reservations WHERE run_id = ?",
+                self._sql.render("attempts/count_by_run.sql"),
                 (run_id,),
             ).fetchone()
         if row is None:
@@ -462,11 +449,7 @@ class _RunDatabase:
             if state not in _RUN_TRANSITIONS[current]:
                 raise CFBDPersistenceError(category="run_transition")
             connection.execute(
-                """
-                INSERT INTO run_transitions (
-                    run_id, state, occurred_at, node_id, failure_category
-                ) VALUES (?, ?, ?, ?, ?)
-                """,
+                self._sql.render("runs/insert_transition.sql"),
                 (
                     run_id,
                     state,
@@ -490,22 +473,14 @@ class _RunDatabase:
         with self._transaction() as connection:
             self._require_run(connection, run_id)
             row = connection.execute(
-                """
-                SELECT state FROM node_transitions
-                WHERE run_id = ? AND node_id = ?
-                ORDER BY transition_id DESC LIMIT 1
-                """,
+                self._sql.render("nodes/select_current_state.sql"),
                 (run_id, node_id),
             ).fetchone()
             current = None if row is None else _node_state(row["state"])
             if state not in _NODE_TRANSITIONS[current]:
                 raise CFBDPersistenceError(category="node_transition")
             connection.execute(
-                """
-                INSERT INTO node_transitions (
-                    run_id, node_id, state, occurred_at, failure_category
-                ) VALUES (?, ?, ?, ?, ?)
-                """,
+                self._sql.render("nodes/insert_transition.sql"),
                 (
                     run_id,
                     node_id,
@@ -537,7 +512,7 @@ class _RunDatabase:
                 artifact.content_digest,
             )
             row = connection.execute(
-                "SELECT manifest_json FROM artifact_objects WHERE content_digest = ?",
+                self._sql.render("artifacts/select_manifest.sql"),
                 (artifact.content_digest,),
             ).fetchone()
             if row is not None and row["manifest_json"] != manifest_payload:
@@ -546,12 +521,7 @@ class _RunDatabase:
                     category="database_collision",
                 )
             connection.execute(
-                """
-                INSERT OR IGNORE INTO artifact_objects (
-                    content_digest, kind, codec_id, codec_version,
-                    manifest_json, first_seen_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
+                self._sql.render("artifacts/insert_object.sql"),
                 (
                     artifact.content_digest,
                     artifact.manifest.body.kind,
@@ -562,12 +532,7 @@ class _RunDatabase:
                 ),
             )
             connection.execute(
-                """
-                INSERT INTO node_artifact_bindings (
-                    run_id, node_id, output_name, node_fingerprint,
-                    content_digest, placement, committed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
+                self._sql.render("nodes/insert_binding.sql"),
                 (
                     run_id,
                     node_id,
@@ -579,22 +544,14 @@ class _RunDatabase:
                 ),
             )
             current = connection.execute(
-                """
-                SELECT state FROM node_transitions
-                WHERE run_id = ? AND node_id = ?
-                ORDER BY transition_id DESC LIMIT 1
-                """,
+                self._sql.render("nodes/select_current_state.sql"),
                 (run_id, node_id),
             ).fetchone()
             if current is None or current["state"] != "running":
                 raise CFBDPersistenceError(category="node_transition")
             connection.execute(
-                """
-                INSERT INTO node_transitions (
-                    run_id, node_id, state, occurred_at
-                ) VALUES (?, ?, 'completed', ?)
-                """,
-                (run_id, node_id, committed_at.isoformat()),
+                self._sql.render("nodes/insert_transition.sql"),
+                (run_id, node_id, "completed", committed_at.isoformat(), None),
             )
         return _NodeArtifactBinding(
             run_id=run_id,
@@ -623,22 +580,13 @@ class _RunDatabase:
             self._require_registered_artifact(connection, binding.content_digest)
             self._require_artifact_not_retired(connection, binding.content_digest)
             current = connection.execute(
-                """
-                SELECT state FROM node_transitions
-                WHERE run_id = ? AND node_id = ?
-                ORDER BY transition_id DESC LIMIT 1
-                """,
+                self._sql.render("nodes/select_current_state.sql"),
                 (run_id, node_id),
             ).fetchone()
             if current is None or current["state"] != "ready":
                 raise CFBDPersistenceError(category="node_transition")
             connection.execute(
-                """
-                INSERT INTO node_artifact_bindings (
-                    run_id, node_id, output_name, node_fingerprint,
-                    content_digest, placement, committed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
+                self._sql.render("nodes/insert_binding.sql"),
                 (
                     run_id,
                     node_id,
@@ -650,12 +598,8 @@ class _RunDatabase:
                 ),
             )
             connection.execute(
-                """
-                INSERT INTO node_transitions (
-                    run_id, node_id, state, occurred_at
-                ) VALUES (?, ?, 'reused', ?)
-                """,
-                (run_id, node_id, committed_at.isoformat()),
+                self._sql.render("nodes/insert_transition.sql"),
+                (run_id, node_id, "reused", committed_at.isoformat(), None),
             )
         return _NodeArtifactBinding(
             run_id=run_id,
@@ -676,12 +620,8 @@ class _RunDatabase:
             if state != "active":
                 raise CFBDPersistenceError(category="retention_transition")
             connection.execute(
-                """
-                INSERT INTO run_retention_transitions (
-                    run_id, state, occurred_at
-                ) VALUES (?, 'retired', ?)
-                """,
-                (run_id, occurred_at.isoformat()),
+                self._sql.render("runs/insert_retention_transition.sql"),
+                (run_id, "retired", occurred_at.isoformat()),
             )
 
     def retain_run(self, run_id: str) -> None:
@@ -692,33 +632,14 @@ class _RunDatabase:
             if self._run_retention_state(connection, run_id) != "retired":
                 raise CFBDPersistenceError(category="retention_transition")
             unavailable = connection.execute(
-                """
-                SELECT 1
-                FROM node_artifact_bindings AS binding
-                WHERE binding.run_id = ?
-                  AND EXISTS (
-                    SELECT 1 FROM artifact_gc_transitions AS gc
-                    WHERE gc.content_digest = binding.content_digest
-                      AND gc.transition_id = (
-                        SELECT MAX(latest.transition_id)
-                        FROM artifact_gc_transitions AS latest
-                        WHERE latest.content_digest = binding.content_digest
-                      )
-                      AND gc.state IN ('deleting', 'deleted')
-                  )
-                LIMIT 1
-                """,
+                self._sql.render("runs/select_unavailable_retained_content.sql"),
                 (run_id,),
             ).fetchone()
             if unavailable is not None:
                 raise CFBDPersistenceError(category="retention_content_missing")
             connection.execute(
-                """
-                INSERT INTO run_retention_transitions (
-                    run_id, state, occurred_at
-                ) VALUES (?, 'active', ?)
-                """,
-                (run_id, occurred_at.isoformat()),
+                self._sql.render("runs/insert_retention_transition.sql"),
+                (run_id, "active", occurred_at.isoformat()),
             )
 
     def pin_artifact(self, content_digest: str, *, name: str) -> None:
@@ -731,12 +652,8 @@ class _RunDatabase:
             if self._pin_state(connection, content_digest, name) == "pinned":
                 raise CFBDPersistenceError(category="pin_transition")
             connection.execute(
-                """
-                INSERT INTO artifact_pin_transitions (
-                    content_digest, pin_name, state, occurred_at
-                ) VALUES (?, ?, 'pinned', ?)
-                """,
-                (content_digest, name, occurred_at.isoformat()),
+                self._sql.render("artifacts/insert_pin_transition.sql"),
+                (content_digest, name, "pinned", occurred_at.isoformat()),
             )
 
     def unpin_artifact(self, content_digest: str, *, name: str) -> None:
@@ -747,12 +664,8 @@ class _RunDatabase:
             if self._pin_state(connection, content_digest, name) != "pinned":
                 raise CFBDPersistenceError(category="pin_transition")
             connection.execute(
-                """
-                INSERT INTO artifact_pin_transitions (
-                    content_digest, pin_name, state, occurred_at
-                ) VALUES (?, ?, 'unpinned', ?)
-                """,
-                (content_digest, name, occurred_at.isoformat()),
+                self._sql.render("artifacts/insert_pin_transition.sql"),
+                (content_digest, name, "unpinned", occurred_at.isoformat()),
             )
 
     def plan_prune(self) -> _PrunePlan:
@@ -795,23 +708,15 @@ class _RunDatabase:
                 if candidate.content_digest not in eligible:
                     raise CFBDPersistenceError(category="prune_plan_stale")
                 connection.execute(
-                    """
-                    INSERT INTO artifact_gc_transitions (
-                        content_digest, state, occurred_at
-                    ) VALUES (?, 'deleting', ?)
-                    """,
-                    (candidate.content_digest, occurred_at.isoformat()),
+                    self._sql.render("artifacts/insert_gc_transition.sql"),
+                    (candidate.content_digest, "deleting", occurred_at.isoformat()),
                 )
             object_store.remove(candidate.content_digest)
             deleted_at = _as_utc(self._clock())
             with self._transaction() as connection:
                 connection.execute(
-                    """
-                    INSERT INTO artifact_gc_transitions (
-                        content_digest, state, occurred_at
-                    ) VALUES (?, 'deleted', ?)
-                    """,
-                    (candidate.content_digest, deleted_at.isoformat()),
+                    self._sql.render("artifacts/insert_gc_transition.sql"),
+                    (candidate.content_digest, "deleted", deleted_at.isoformat()),
                 )
             removed.append(candidate.content_digest)
         return tuple(removed)
@@ -820,17 +725,7 @@ class _RunDatabase:
         """Return one safe immutable run with its derived latest state."""
         with self._lock:
             row = self._connection.execute(
-                """
-                SELECT r.*, t.state
-                FROM runs AS r
-                JOIN run_transitions AS t
-                  ON t.transition_id = (
-                    SELECT MAX(t2.transition_id)
-                    FROM run_transitions AS t2
-                    WHERE t2.run_id = r.run_id
-                  )
-                WHERE r.run_id = ?
-                """,
+                self._sql.render("runs/select_run.sql"),
                 (run_id,),
             ).fetchone()
         if row is None:
@@ -841,10 +736,7 @@ class _RunDatabase:
         """Return successful artifact bindings in commit order."""
         with self._lock:
             rows = self._connection.execute(
-                """
-                SELECT * FROM node_artifact_bindings
-                WHERE run_id = ? ORDER BY binding_id
-                """,
+                self._sql.render("nodes/select_bindings.sql"),
                 (run_id,),
             ).fetchall()
         return tuple(_binding(row) for row in rows)
@@ -867,28 +759,7 @@ class _RunDatabase:
                 if parent_run_id is None:
                     raise CFBDPersistenceError(category="checkpoint_scope")
                 row = self._connection.execute(
-                    """
-                    WITH RECURSIVE ancestry(run_id, parent_run_id, depth) AS (
-                        SELECT run_id, parent_run_id, 0
-                        FROM runs WHERE run_id = ?
-                        UNION ALL
-                        SELECT parent.run_id, parent.parent_run_id, ancestry.depth + 1
-                        FROM runs AS parent
-                        JOIN ancestry ON parent.run_id = ancestry.parent_run_id
-                    )
-                    SELECT binding.*, object.manifest_json
-                    FROM ancestry
-                    JOIN runs AS run ON run.run_id = ancestry.run_id
-                    JOIN node_artifact_bindings AS binding
-                      ON binding.run_id = ancestry.run_id
-                    JOIN artifact_objects AS object
-                      ON object.content_digest = binding.content_digest
-                    WHERE binding.node_fingerprint = ?
-                      AND binding.output_name = ?
-                      AND run.credential_scope = ?
-                    ORDER BY ancestry.depth, binding.binding_id DESC
-                    LIMIT 1
-                    """,
+                    self._sql.render("checkpoints/select_parent.sql"),
                     (
                         parent_run_id,
                         node_fingerprint,
@@ -898,18 +769,7 @@ class _RunDatabase:
                 ).fetchone()
             if row is None and scope in {"global", "parent_then_global"}:
                 row = self._connection.execute(
-                    """
-                    SELECT binding.*, object.manifest_json
-                    FROM node_artifact_bindings AS binding
-                    JOIN runs AS run ON run.run_id = binding.run_id
-                    JOIN artifact_objects AS object
-                      ON object.content_digest = binding.content_digest
-                    WHERE binding.node_fingerprint = ?
-                      AND binding.output_name = ?
-                      AND run.credential_scope = ?
-                    ORDER BY binding.binding_id DESC
-                    LIMIT 1
-                    """,
+                    self._sql.render("checkpoints/select_global.sql"),
                     (node_fingerprint, output_name, credential_scope),
                 ).fetchone()
         if row is None:
@@ -930,11 +790,7 @@ class _RunDatabase:
         """Return the latest node state without mutating durable evidence."""
         with self._lock:
             row = self._connection.execute(
-                """
-                SELECT state FROM node_transitions
-                WHERE run_id = ? AND node_id = ?
-                ORDER BY transition_id DESC LIMIT 1
-                """,
+                self._sql.render("nodes/select_current_state.sql"),
                 (run_id, node_id),
             ).fetchone()
         return None if row is None else _node_state(row["state"])
@@ -944,45 +800,7 @@ class _RunDatabase:
         connection: sqlite3.Connection,
     ) -> Sequence[sqlite3.Row]:
         return connection.execute(
-            """
-            SELECT object.content_digest, object.manifest_json
-            FROM artifact_objects AS object
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM node_artifact_bindings AS binding
-                JOIN run_retention_transitions AS retention
-                  ON retention.run_id = binding.run_id
-                 AND retention.transition_id = (
-                    SELECT MAX(latest.transition_id)
-                    FROM run_retention_transitions AS latest
-                    WHERE latest.run_id = binding.run_id
-                 )
-                WHERE binding.content_digest = object.content_digest
-                  AND retention.state = 'active'
-            )
-              AND NOT EXISTS (
-                SELECT 1 FROM artifact_pin_transitions AS pin
-                WHERE pin.content_digest = object.content_digest
-                  AND pin.transition_id = (
-                    SELECT MAX(latest.transition_id)
-                    FROM artifact_pin_transitions AS latest
-                    WHERE latest.content_digest = object.content_digest
-                      AND latest.pin_name = pin.pin_name
-                  )
-                  AND pin.state = 'pinned'
-              )
-              AND NOT EXISTS (
-                SELECT 1 FROM artifact_gc_transitions AS gc
-                WHERE gc.content_digest = object.content_digest
-                  AND gc.transition_id = (
-                    SELECT MAX(latest.transition_id)
-                    FROM artifact_gc_transitions AS latest
-                    WHERE latest.content_digest = object.content_digest
-                  )
-                  AND gc.state IN ('deleting', 'deleted')
-              )
-            ORDER BY object.content_digest
-            """
+            self._sql.render("artifacts/select_eligible_for_prune.sql")
         ).fetchall()
 
     def _run_retention_state(
@@ -991,10 +809,7 @@ class _RunDatabase:
         run_id: str,
     ) -> str:
         row = connection.execute(
-            """
-            SELECT state FROM run_retention_transitions
-            WHERE run_id = ? ORDER BY transition_id DESC LIMIT 1
-            """,
+            self._sql.render("runs/select_retention_state.sql"),
             (run_id,),
         ).fetchone()
         if row is None or row["state"] not in {"active", "retired"}:
@@ -1008,11 +823,7 @@ class _RunDatabase:
         name: str,
     ) -> str | None:
         row = connection.execute(
-            """
-            SELECT state FROM artifact_pin_transitions
-            WHERE content_digest = ? AND pin_name = ?
-            ORDER BY transition_id DESC LIMIT 1
-            """,
+            self._sql.render("artifacts/select_pin_state.sql"),
             (content_digest, name),
         ).fetchone()
         return None if row is None else str(row["state"])
@@ -1023,7 +834,7 @@ class _RunDatabase:
         content_digest: str,
     ) -> None:
         row = connection.execute(
-            "SELECT 1 FROM artifact_objects WHERE content_digest = ?",
+            self._sql.render("artifacts/require_registered.sql"),
             (content_digest,),
         ).fetchone()
         if row is None:
@@ -1035,10 +846,7 @@ class _RunDatabase:
         content_digest: str,
     ) -> None:
         row = connection.execute(
-            """
-            SELECT state FROM artifact_gc_transitions
-            WHERE content_digest = ? ORDER BY transition_id DESC LIMIT 1
-            """,
+            self._sql.render("artifacts/select_gc_state.sql"),
             (content_digest,),
         ).fetchone()
         if row is not None and row["state"] in {"deleting", "deleted"}:
@@ -1048,11 +856,13 @@ class _RunDatabase:
     def _transaction(self) -> Iterator[sqlite3.Connection]:
         with self._lock:
             try:
-                self._connection.execute("BEGIN IMMEDIATE")
+                self._connection.execute(
+                    self._sql.render("transaction/begin_immediate.sql")
+                )
                 yield self._connection
-                self._connection.execute("COMMIT")
+                self._connection.execute(self._sql.render("transaction/commit.sql"))
             except Exception:
-                self._connection.execute("ROLLBACK")
+                self._connection.execute(self._sql.render("transaction/rollback.sql"))
                 raise
 
     def _current_run_state(
@@ -1061,10 +871,7 @@ class _RunDatabase:
         run_id: str,
     ) -> _RunState:
         row = connection.execute(
-            """
-            SELECT state FROM run_transitions
-            WHERE run_id = ? ORDER BY transition_id DESC LIMIT 1
-            """,
+            self._sql.render("runs/select_current_state.sql"),
             (run_id,),
         ).fetchone()
         if row is None:
@@ -1073,7 +880,7 @@ class _RunDatabase:
 
     def _require_run(self, connection: sqlite3.Connection, run_id: str) -> None:
         row = connection.execute(
-            "SELECT 1 FROM runs WHERE run_id = ?",
+            self._sql.render("runs/require_run.sql"),
             (run_id,),
         ).fetchone()
         if row is None:
@@ -1081,26 +888,27 @@ class _RunDatabase:
 
     def _migrate(self) -> None:
         with self._lock:
-            version = self._connection.execute("PRAGMA user_version").fetchone()[0]
+            version = self._connection.execute(
+                self._sql.render("migrations/get_user_version.sql")
+            ).fetchone()[0]
             if version not in {0, 1, 2, 3, 4}:
                 raise CFBDPersistenceError(category="database_version")
             if version == 4:
                 return
             migrations = {
-                0: (_SCHEMA_V1, 1),
-                1: (_SCHEMA_V2, 2),
-                2: (_SCHEMA_V3, 3),
-                3: (_SCHEMA_V4, 4),
+                0: ("migrations/001_initial.sql", 1),
+                1: ("migrations/002_credential_scope.sql", 2),
+                2: ("migrations/003_retention.sql", 3),
+                3: ("migrations/004_attempt_reservations.sql", 4),
             }
-            migration, target_version = migrations[version]
+            migration_name, target_version = migrations[version]
             try:
-                self._connection.executescript(
-                    f"BEGIN IMMEDIATE;\n{migration}\n"
-                    f"PRAGMA user_version = {target_version};\nCOMMIT;"
-                )
+                self._connection.executescript(self._sql.render(migration_name))
             except Exception:
                 if self._connection.in_transaction:
-                    self._connection.execute("ROLLBACK")
+                    self._connection.execute(
+                        self._sql.render("transaction/rollback.sql")
+                    )
                 raise
             if target_version < 4:
                 self._migrate()
@@ -1250,180 +1058,6 @@ def _prune_validation_digest(candidates: Sequence[_PruneCandidate]) -> str:
             ],
         }
     )
-
-
-_SCHEMA_V1: Final = """
-CREATE TABLE runs (
-    run_id TEXT PRIMARY KEY,
-    recipe_id TEXT NOT NULL,
-    recipe_revision INTEGER,
-    recipe_kind TEXT NOT NULL CHECK (recipe_kind IN ('dataset', 'workflow')),
-    parameter_fingerprint TEXT NOT NULL,
-    graph_fingerprint TEXT NOT NULL,
-    parent_run_id TEXT REFERENCES runs(run_id),
-    source_behavior TEXT NOT NULL CHECK (
-        source_behavior IN ('preserve_snapshot', 'normal_freshness', 'refresh')
-    ),
-    created_at TEXT NOT NULL
-) STRICT;
-
-CREATE TABLE run_transitions (
-    transition_id INTEGER PRIMARY KEY,
-    run_id TEXT NOT NULL REFERENCES runs(run_id),
-    state TEXT NOT NULL CHECK (
-        state IN ('created', 'running', 'completed', 'failed', 'cancelled')
-    ),
-    occurred_at TEXT NOT NULL,
-    node_id TEXT,
-    failure_category TEXT
-) STRICT;
-CREATE INDEX run_transitions_by_run
-    ON run_transitions(run_id, transition_id);
-
-CREATE TABLE node_transitions (
-    transition_id INTEGER PRIMARY KEY,
-    run_id TEXT NOT NULL REFERENCES runs(run_id),
-    node_id TEXT NOT NULL,
-    state TEXT NOT NULL CHECK (
-        state IN ('ready', 'running', 'reused', 'completed', 'failed', 'cancelled')
-    ),
-    occurred_at TEXT NOT NULL,
-    failure_category TEXT
-) STRICT;
-CREATE INDEX node_transitions_by_node
-    ON node_transitions(run_id, node_id, transition_id);
-
-CREATE TABLE artifact_objects (
-    content_digest TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    codec_id TEXT NOT NULL,
-    codec_version INTEGER NOT NULL,
-    manifest_json TEXT NOT NULL,
-    first_seen_at TEXT NOT NULL
-) STRICT;
-
-CREATE TABLE node_artifact_bindings (
-    binding_id INTEGER PRIMARY KEY,
-    run_id TEXT NOT NULL REFERENCES runs(run_id),
-    node_id TEXT NOT NULL,
-    output_name TEXT NOT NULL,
-    node_fingerprint TEXT NOT NULL,
-    content_digest TEXT NOT NULL REFERENCES artifact_objects(content_digest),
-    placement TEXT NOT NULL CHECK (placement IN ('coordinator', 'local', 'dask')),
-    committed_at TEXT NOT NULL,
-    UNIQUE (run_id, node_id, output_name)
-) STRICT;
-CREATE INDEX bindings_by_content
-    ON node_artifact_bindings(content_digest);
-
-CREATE TRIGGER runs_are_immutable_update
-BEFORE UPDATE ON runs BEGIN SELECT RAISE(ABORT, 'runs are immutable'); END;
-CREATE TRIGGER runs_are_immutable_delete
-BEFORE DELETE ON runs BEGIN SELECT RAISE(ABORT, 'runs are immutable'); END;
-CREATE TRIGGER run_transitions_are_immutable_update
-BEFORE UPDATE ON run_transitions
-BEGIN SELECT RAISE(ABORT, 'run transitions are immutable'); END;
-CREATE TRIGGER run_transitions_are_immutable_delete
-BEFORE DELETE ON run_transitions
-BEGIN SELECT RAISE(ABORT, 'run transitions are immutable'); END;
-CREATE TRIGGER node_transitions_are_immutable_update
-BEFORE UPDATE ON node_transitions
-BEGIN SELECT RAISE(ABORT, 'node transitions are immutable'); END;
-CREATE TRIGGER node_transitions_are_immutable_delete
-BEFORE DELETE ON node_transitions
-BEGIN SELECT RAISE(ABORT, 'node transitions are immutable'); END;
-CREATE TRIGGER artifact_objects_are_immutable_update
-BEFORE UPDATE ON artifact_objects
-BEGIN SELECT RAISE(ABORT, 'artifact objects are immutable'); END;
-CREATE TRIGGER artifact_objects_are_immutable_delete
-BEFORE DELETE ON artifact_objects
-BEGIN SELECT RAISE(ABORT, 'artifact objects are immutable'); END;
-CREATE TRIGGER bindings_are_immutable_update
-BEFORE UPDATE ON node_artifact_bindings
-BEGIN SELECT RAISE(ABORT, 'bindings are immutable'); END;
-CREATE TRIGGER bindings_are_immutable_delete
-BEFORE DELETE ON node_artifact_bindings
-BEGIN SELECT RAISE(ABORT, 'bindings are immutable'); END;
-"""
-
-_SCHEMA_V2: Final = """
-ALTER TABLE runs ADD COLUMN credential_scope TEXT NOT NULL DEFAULT '';
-"""
-
-_SCHEMA_V3: Final = """
-CREATE TABLE run_retention_transitions (
-    transition_id INTEGER PRIMARY KEY,
-    run_id TEXT NOT NULL REFERENCES runs(run_id),
-    state TEXT NOT NULL CHECK (state IN ('active', 'retired')),
-    occurred_at TEXT NOT NULL
-) STRICT;
-CREATE INDEX retention_by_run
-    ON run_retention_transitions(run_id, transition_id);
-INSERT INTO run_retention_transitions (run_id, state, occurred_at)
-    SELECT run_id, 'active', created_at FROM runs;
-
-CREATE TABLE artifact_pin_transitions (
-    transition_id INTEGER PRIMARY KEY,
-    content_digest TEXT NOT NULL REFERENCES artifact_objects(content_digest),
-    pin_name TEXT NOT NULL,
-    state TEXT NOT NULL CHECK (state IN ('pinned', 'unpinned')),
-    occurred_at TEXT NOT NULL
-) STRICT;
-CREATE INDEX pins_by_artifact
-    ON artifact_pin_transitions(content_digest, pin_name, transition_id);
-
-CREATE TABLE artifact_gc_transitions (
-    transition_id INTEGER PRIMARY KEY,
-    content_digest TEXT NOT NULL REFERENCES artifact_objects(content_digest),
-    state TEXT NOT NULL CHECK (state IN ('deleting', 'deleted')),
-    occurred_at TEXT NOT NULL
-) STRICT;
-CREATE INDEX gc_by_artifact
-    ON artifact_gc_transitions(content_digest, transition_id);
-
-CREATE TRIGGER retention_is_immutable_update
-BEFORE UPDATE ON run_retention_transitions
-BEGIN SELECT RAISE(ABORT, 'retention transitions are immutable'); END;
-CREATE TRIGGER retention_is_immutable_delete
-BEFORE DELETE ON run_retention_transitions
-BEGIN SELECT RAISE(ABORT, 'retention transitions are immutable'); END;
-CREATE TRIGGER pins_are_immutable_update
-BEFORE UPDATE ON artifact_pin_transitions
-BEGIN SELECT RAISE(ABORT, 'pin transitions are immutable'); END;
-CREATE TRIGGER pins_are_immutable_delete
-BEFORE DELETE ON artifact_pin_transitions
-BEGIN SELECT RAISE(ABORT, 'pin transitions are immutable'); END;
-CREATE TRIGGER gc_is_immutable_update
-BEFORE UPDATE ON artifact_gc_transitions
-BEGIN SELECT RAISE(ABORT, 'gc transitions are immutable'); END;
-CREATE TRIGGER gc_is_immutable_delete
-BEFORE DELETE ON artifact_gc_transitions
-BEGIN SELECT RAISE(ABORT, 'gc transitions are immutable'); END;
-"""
-
-_SCHEMA_V4: Final = """
-ALTER TABLE runs ADD COLUMN max_http_attempts INTEGER NOT NULL DEFAULT 100;
-
-CREATE TABLE attempt_reservations (
-    reservation_id INTEGER PRIMARY KEY,
-    run_id TEXT NOT NULL REFERENCES runs(run_id),
-    node_id TEXT NOT NULL,
-    endpoint TEXT NOT NULL,
-    retry_number INTEGER NOT NULL CHECK (retry_number > 0),
-    ordinal INTEGER NOT NULL CHECK (ordinal > 0),
-    reserved_at TEXT NOT NULL,
-    UNIQUE (run_id, ordinal)
-) STRICT;
-CREATE INDEX attempts_by_run
-    ON attempt_reservations(run_id, reservation_id);
-
-CREATE TRIGGER attempts_are_immutable_update
-BEFORE UPDATE ON attempt_reservations
-BEGIN SELECT RAISE(ABORT, 'attempt reservations are immutable'); END;
-CREATE TRIGGER attempts_are_immutable_delete
-BEFORE DELETE ON attempt_reservations
-BEGIN SELECT RAISE(ABORT, 'attempt reservations are immutable'); END;
-"""
 
 
 __all__: Sequence[str] = ()

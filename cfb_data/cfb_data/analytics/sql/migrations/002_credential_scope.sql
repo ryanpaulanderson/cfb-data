@@ -1,0 +1,4 @@
+BEGIN IMMEDIATE;
+ALTER TABLE runs ADD COLUMN credential_scope TEXT NOT NULL DEFAULT '';
+PRAGMA user_version = 2;
+COMMIT;
