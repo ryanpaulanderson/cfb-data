@@ -12,6 +12,7 @@ from cfb_data.analytics import (
     AnalyticsConfig,
     ArtifactRef,
     CFBDRecipeCompilationError,
+    ExecutionPolicy,
     RecipeRef,
     RecipeRun,
     dataset,
@@ -90,6 +91,136 @@ async def test_dataset_direct_and_advanced_runs_share_durable_execution(
         assert exported.is_file()
         assert str(root) not in repr(advanced.artifact)
     assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_off_keeps_artifacts_but_never_publishes_reuse(
+    api_server: ServerFactory,
+    game_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Keep lineage artifacts while preventing disabled bindings from memoizing."""
+    calls = 0
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        return web.json_response([game_response])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "checkpoint-policy-key",
+            base_url=base_url,
+            retry_policy=RetryPolicy(max_attempts=1),
+            cache=SQLiteCacheConfig(path=tmp_path / "responses.sqlite3"),
+            analytics=AnalyticsConfig(root=tmp_path / "analytics"),
+        ) as client:
+            disabled = await _runtime_games.run(
+                client,
+                year=2024,
+                team="Penn State",
+                policy=ExecutionPolicy(checkpoint_mode="off"),
+            )
+            first_enabled = await _runtime_games.run(
+                client,
+                year=2024,
+                team="Penn State",
+            )
+            replay = await _runtime_games.run(
+                client,
+                year=2024,
+                team="Penn State",
+            )
+
+    assert isinstance(disabled.artifact, ArtifactRef)
+    assert disabled.reused_nodes == 0
+    assert all(not node.checkpoint_eligible for node in disabled.lineage)
+    assert first_enabled.reused_nodes == 0
+    assert all(node.checkpoint_eligible for node in first_enabled.lineage)
+    assert replay.reused_nodes == 1
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_refresh_source_behavior_forces_response_cache_refresh(
+    api_server: ServerFactory,
+    game_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Make the advanced refresh option consume a fresh transport attempt."""
+    calls = 0
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        return web.json_response([game_response])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "source-refresh-key",
+            base_url=base_url,
+            retry_policy=RetryPolicy(max_attempts=1),
+            cache=SQLiteCacheConfig(path=tmp_path / "responses.sqlite3"),
+            analytics=AnalyticsConfig(root=tmp_path / "analytics"),
+        ) as client:
+            initial = await _runtime_games.run(
+                client,
+                year=2024,
+                team="Penn State",
+            )
+            refreshed = await _runtime_games.run(
+                client,
+                year=2024,
+                team="Penn State",
+                source_behavior="refresh",
+            )
+            cached = await _runtime_games.run(
+                client,
+                year=2024,
+                team="Penn State",
+            )
+
+    assert initial.actual_http_attempts == 1
+    assert refreshed.actual_http_attempts == 1
+    assert cached.actual_http_attempts == 0
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_outputs_only_checkpoints_final_workflow_values(
+    api_server: ServerFactory,
+    game_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Reuse an exported dataset boundary without memoizing its source node."""
+
+    async def handler(request: web.Request) -> web.Response:
+        return web.json_response([game_response])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "outputs-only-key",
+            base_url=base_url,
+            retry_policy=RetryPolicy(max_attempts=1),
+            cache=SQLiteCacheConfig(path=tmp_path / "responses.sqlite3"),
+            analytics=AnalyticsConfig(root=tmp_path / "analytics"),
+        ) as client:
+            first = await _runtime_workflow.run(
+                client,
+                year=2024,
+                team="Penn State",
+                policy=ExecutionPolicy(checkpoint_mode="outputs_only"),
+            )
+            second = await _runtime_workflow.run(
+                client,
+                year=2024,
+                team="Penn State",
+            )
+
+    assert first.reused_nodes == 0
+    assert any(not node.checkpoint_eligible for node in first.lineage)
+    assert any(node.checkpoint_eligible for node in first.lineage)
+    assert second.reused_nodes == 1
 
 
 @pytest.mark.asyncio

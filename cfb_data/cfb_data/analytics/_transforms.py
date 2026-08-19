@@ -60,6 +60,7 @@ class _TransformRunner:
         credential_scope: str,
         parent_run_id: str | None,
         source_behavior: _SourceBehavior,
+        checkpoint_nodes: frozenset[str] | None = None,
         backend: _Backend,
         dispatcher: _AnalyticsDispatcher,
     ) -> None:
@@ -71,6 +72,7 @@ class _TransformRunner:
         self._credential_scope = credential_scope
         self._parent_run_id = parent_run_id
         self._source_behavior = source_behavior
+        self._checkpoint_nodes = checkpoint_nodes
         self._backend = backend
         self._dispatcher = dispatcher
 
@@ -144,6 +146,7 @@ class _TransformRunner:
             node,
             parent_run_id=self._parent_run_id,
             source_behavior=self._source_behavior,
+            checkpoint_eligible=self._checkpoint_eligible(node),
         )
         if fingerprint is not None:
             candidate = await asyncio.to_thread(
@@ -199,6 +202,7 @@ class _TransformRunner:
                     node,
                     fingerprint,
                     placement,
+                    self._checkpoint_eligible(node),
                 )
                 value = rows
                 row_count: int | None = len(rows)
@@ -211,6 +215,7 @@ class _TransformRunner:
                     node,
                     fingerprint,
                     placement,
+                    self._checkpoint_eligible(node),
                 )
                 value = control_value
                 row_count = None
@@ -270,6 +275,7 @@ class _TransformRunner:
         node: _CompiledNode,
         fingerprint: str | None,
         placement: Literal["coordinator", "local", "dask"],
+        checkpoint_eligible: bool,
     ) -> tuple[list[BaseModel], _StoredArtifact, str]:
         try:
             rows = _row_list_adapter(row_model).validate_python(raw)
@@ -304,6 +310,7 @@ class _TransformRunner:
                 staged=staged,
                 object_store=self._object_store,
                 placement=placement,
+                checkpoint_eligible=checkpoint_eligible,
             )
         return rows, artifact, resolved_fingerprint
 
@@ -315,6 +322,7 @@ class _TransformRunner:
         node: _CompiledNode,
         fingerprint: str | None,
         placement: Literal["coordinator", "local", "dask"],
+        checkpoint_eligible: bool,
     ) -> tuple[object, _StoredArtifact, str]:
         """Validate, publish, and bind one bounded modeled-JSON control value."""
         try:
@@ -343,6 +351,7 @@ class _TransformRunner:
                 staged=staged,
                 object_store=self._object_store,
                 placement=placement,
+                checkpoint_eligible=checkpoint_eligible,
             )
         return value, artifact, resolved_fingerprint
 
@@ -362,6 +371,10 @@ class _TransformRunner:
                 "artifact": content_digest,
             }
         )
+
+    def _checkpoint_eligible(self, node: _CompiledNode) -> bool:
+        """Return whether this run may publish reusable evidence for a node."""
+        return self._checkpoint_nodes is None or node.node_id in self._checkpoint_nodes
 
     async def _load_table_candidate(
         self,
@@ -385,6 +398,7 @@ class _TransformRunner:
                 output_name="value",
                 node_fingerprint=fingerprint,
                 candidate=candidate,
+                checkpoint_eligible=self._checkpoint_eligible(node),
             )
         except CFBDArtifactCorruptionError:
             self._emit(
@@ -438,6 +452,7 @@ class _TransformRunner:
                 output_name="value",
                 node_fingerprint=fingerprint,
                 candidate=candidate,
+                checkpoint_eligible=self._checkpoint_eligible(node),
             )
         except CFBDArtifactCorruptionError:
             self._emit(

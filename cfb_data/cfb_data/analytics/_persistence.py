@@ -96,6 +96,7 @@ class _NodeArtifactBinding:
     node_fingerprint: str
     content_digest: str
     placement: _Placement
+    checkpoint_eligible: bool
     committed_at: datetime
 
 
@@ -627,12 +628,14 @@ class _RunDatabase(_RunDatabaseQueries):
         node_fingerprint: str,
         artifact: _StoredArtifact,
         placement: _Placement,
+        checkpoint_eligible: bool = True,
     ) -> _NodeArtifactBinding:
         """Commit artifact registration, binding, and node success last."""
         return self.bind_completed_outputs(
             run_id=run_id,
             node_id=node_id,
             outputs=((output_name, node_fingerprint, artifact, placement),),
+            checkpoint_eligible=checkpoint_eligible,
         )[0]
 
     def publish_completed_node(
@@ -645,6 +648,7 @@ class _RunDatabase(_RunDatabaseQueries):
         staged: _StagedArtifact,
         object_store: _ArtifactObjectStore,
         placement: _Placement,
+        checkpoint_eligible: bool = True,
     ) -> tuple[_StoredArtifact, _NodeArtifactBinding]:
         """Publish content and commit its successful node binding atomically.
 
@@ -668,6 +672,7 @@ class _RunDatabase(_RunDatabaseQueries):
                 node_id=node_id,
                 outputs=((output_name, node_fingerprint, artifact, placement),),
                 committed_at=committed_at,
+                checkpoint_eligible=checkpoint_eligible,
             )[0]
         return artifact, binding
 
@@ -677,6 +682,7 @@ class _RunDatabase(_RunDatabaseQueries):
         run_id: str,
         node_id: str,
         outputs: Sequence[tuple[str, str, _StoredArtifact, _Placement]],
+        checkpoint_eligible: bool = True,
     ) -> tuple[_NodeArtifactBinding, ...]:
         """Commit named artifact bindings and node success in one transaction."""
         _validate_completed_outputs(outputs)
@@ -695,6 +701,7 @@ class _RunDatabase(_RunDatabaseQueries):
                 node_id=node_id,
                 outputs=outputs,
                 committed_at=committed_at,
+                checkpoint_eligible=checkpoint_eligible,
             )
 
     def _bind_completed_outputs(
@@ -705,6 +712,7 @@ class _RunDatabase(_RunDatabaseQueries):
         node_id: str,
         outputs: Sequence[tuple[str, str, _StoredArtifact, _Placement]],
         committed_at: datetime,
+        checkpoint_eligible: bool,
     ) -> tuple[_NodeArtifactBinding, ...]:
         """Bind validated outputs and append success inside one owned transaction."""
         _validate_completed_outputs(outputs)
@@ -745,6 +753,7 @@ class _RunDatabase(_RunDatabaseQueries):
                     node_fingerprint,
                     artifact.content_digest,
                     placement,
+                    int(checkpoint_eligible),
                     committed_at.isoformat(),
                 ),
             )
@@ -760,6 +769,7 @@ class _RunDatabase(_RunDatabaseQueries):
                 node_fingerprint=node_fingerprint,
                 content_digest=artifact.content_digest,
                 placement=placement,
+                checkpoint_eligible=checkpoint_eligible,
                 committed_at=committed_at,
             )
             for output_name, node_fingerprint, artifact, placement in outputs
@@ -773,6 +783,7 @@ class _RunDatabase(_RunDatabaseQueries):
         output_name: str,
         node_fingerprint: str,
         candidate: _CheckpointCandidate,
+        checkpoint_eligible: bool = True,
     ) -> _NodeArtifactBinding:
         """Bind compatible existing content and record terminal reuse."""
         committed_at = _as_utc(self._clock())
@@ -796,6 +807,7 @@ class _RunDatabase(_RunDatabaseQueries):
                     node_fingerprint,
                     binding.content_digest,
                     binding.placement,
+                    int(checkpoint_eligible),
                     committed_at.isoformat(),
                 ),
             )
@@ -810,6 +822,7 @@ class _RunDatabase(_RunDatabaseQueries):
             node_fingerprint=node_fingerprint,
             content_digest=binding.content_digest,
             placement=binding.placement,
+            checkpoint_eligible=checkpoint_eligible,
             committed_at=committed_at,
         )
 
@@ -1082,15 +1095,16 @@ class _RunDatabase(_RunDatabaseQueries):
             version = self._connection.execute(
                 self._sql.render("migrations/get_user_version.sql")
             ).fetchone()[0]
-            if version not in {0, 1, 2, 3, 4}:
+            if version not in {0, 1, 2, 3, 4, 5}:
                 raise CFBDPersistenceError(category="database_version")
-            if version == 4:
+            if version == 5:
                 return
             migrations = {
                 0: ("migrations/001_initial.sql", 1),
                 1: ("migrations/002_credential_scope.sql", 2),
                 2: ("migrations/003_retention.sql", 3),
                 3: ("migrations/004_attempt_reservations.sql", 4),
+                4: ("migrations/005_checkpoint_eligibility.sql", 5),
             }
             migration_name, target_version = migrations[version]
             try:
@@ -1101,7 +1115,7 @@ class _RunDatabase(_RunDatabaseQueries):
                         self._sql.render("transaction/rollback.sql")
                     )
                 raise
-            if target_version < 4:
+            if target_version < 5:
                 self._migrate()
 
 
@@ -1131,7 +1145,7 @@ class _RunDatabaseReader(_RunDatabaseQueries):
             version_row = self._connection.execute(
                 self._sql.render("migrations/get_user_version.sql")
             ).fetchone()
-            if version_row is None or int(version_row[0]) != 4:
+            if version_row is None or int(version_row[0]) != 5:
                 raise CFBDPersistenceError(category="database_version")
         except CFBDPersistenceError:
             raise
@@ -1241,6 +1255,7 @@ def _binding(row: sqlite3.Row) -> _NodeArtifactBinding:
         node_fingerprint=str(row["node_fingerprint"]),
         content_digest=str(row["content_digest"]),
         placement=_placement(row["placement"]),
+        checkpoint_eligible=bool(row["checkpoint_eligible"]),
         committed_at=datetime.fromisoformat(str(row["committed_at"])),
     )
 

@@ -87,6 +87,7 @@ class _SourceRunner:
         credential_scope: str,
         parent_run_id: str | None,
         source_behavior: _SourceBehavior,
+        checkpoint_nodes: frozenset[str] | None = None,
         concurrency: int,
         dispatcher: _AnalyticsDispatcher,
     ) -> None:
@@ -100,6 +101,7 @@ class _SourceRunner:
         self._credential_scope = credential_scope
         self._parent_run_id = parent_run_id
         self._source_behavior = source_behavior
+        self._checkpoint_nodes = checkpoint_nodes
         self._semaphore = asyncio.Semaphore(concurrency)
         self._dispatcher = dispatcher
         self._retrievals: dict[str, asyncio.Task[list[BaseModel]]] = {}
@@ -194,6 +196,7 @@ class _SourceRunner:
             node,
             parent_run_id=self._parent_run_id,
             source_behavior=self._source_behavior,
+            checkpoint_eligible=self._checkpoint_eligible(node),
         )
         candidate = await asyncio.to_thread(
             self._database.find_checkpoint,
@@ -234,6 +237,7 @@ class _SourceRunner:
                 identity,
                 node.node_id,
                 fingerprint,
+                self._checkpoint_eligible(node),
             )
         except asyncio.CancelledError:
             await asyncio.to_thread(
@@ -356,6 +360,7 @@ class _SourceRunner:
                 output_name="value",
                 node_fingerprint=fingerprint,
                 candidate=candidate,
+                checkpoint_eligible=self._checkpoint_eligible(node),
             )
         except CFBDArtifactCorruptionError:
             self._emit(
@@ -388,6 +393,7 @@ class _SourceRunner:
         identity: _AnalyticsTableIdentity,
         node_id: str,
         fingerprint: str,
+        checkpoint_eligible: bool,
     ) -> _StoredArtifact:
         """Stage, publish, and durably bind source rows under one reservation."""
         table: pa.Table = _analytics_arrow_table_from_models(
@@ -410,8 +416,13 @@ class _SourceRunner:
                 staged=staged,
                 object_store=self._object_store,
                 placement="coordinator",
+                checkpoint_eligible=checkpoint_eligible,
             )
             return artifact
+
+    def _checkpoint_eligible(self, node: _CompiledNode) -> bool:
+        """Return whether this run may publish reusable evidence for a node."""
+        return self._checkpoint_nodes is None or node.node_id in self._checkpoint_nodes
 
     def _load_rows(
         self,

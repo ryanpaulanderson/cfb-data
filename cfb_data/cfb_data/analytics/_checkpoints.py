@@ -98,9 +98,10 @@ def _checkpoint_scope(
     *,
     parent_run_id: str | None,
     source_behavior: _SourceBehavior,
+    checkpoint_eligible: bool = True,
 ) -> _CheckpointScope:
     """Select reuse scope without allowing checkpoints to freeze API freshness."""
-    if not node.declaration.durable:
+    if not node.declaration.durable or not checkpoint_eligible:
         return "none"
     if node.kind == "source":
         if parent_run_id is not None and source_behavior == "preserve_snapshot":

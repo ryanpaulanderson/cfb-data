@@ -213,6 +213,7 @@ class RunNodeEvidence:
     output_name: str
     content_digest: str
     placement: Literal["coordinator", "local", "dask"]
+    checkpoint_eligible: bool
     reused: bool
 
 

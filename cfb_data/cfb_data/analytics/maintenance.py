@@ -56,6 +56,7 @@ class RunArtifactSummary:
     node_id: str
     output_name: str
     placement: Placement
+    checkpoint_eligible: bool
     committed_at: datetime
     descriptor: ArtifactDescriptor
 
@@ -367,6 +368,7 @@ def _inspect_run_sync(config: AnalyticsConfig, run_id: str) -> RunInspection:
                     node_id=binding.node_id,
                     output_name=binding.output_name,
                     placement=binding.placement,
+                    checkpoint_eligible=binding.checkpoint_eligible,
                     committed_at=binding.committed_at,
                     descriptor=_artifact_descriptor(object_manifest),
                 )

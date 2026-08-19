@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Awaitable, Mapping, Sequence
+from contextlib import nullcontext
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, Protocol, cast
@@ -14,6 +15,8 @@ from pydantic import BaseModel
 from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
 from cfb_data._observability import _failure_category
+from cfb_data.cache._coordinator import CacheCoordinator
+from cfb_data.cache.config import CacheMode
 
 from ._checkpoints import (
     _node_fingerprint,
@@ -43,6 +46,7 @@ class _RuntimeBridge(Protocol):
     """Describe client-owned dependencies used by one coordinator run."""
 
     executor: _EndpointExecutor
+    cache_coordinator: CacheCoordinator
     dataframe_adapter: _DataFrameAdapter[object]
     dataframe_backend: Literal["pandas", "polars"]
     credential_scope: str
@@ -140,17 +144,23 @@ async def _execute_run(
         )
         started = time.monotonic()
         try:
-            results = await _execute_graph(
-                graph=graph,
-                bridge=bridge,
-                database=database,
-                store=store,
-                run_id=run.run_id,
-                parent_run_id=resume_from,
-                source_behavior=resolved_source_behavior,
-                policy=selected,
-                dispatcher=dispatcher,
+            cache_scope = (
+                bridge.cache_coordinator.mode_scope(CacheMode.refresh)
+                if resolved_source_behavior == "refresh"
+                else nullcontext()
             )
+            with cache_scope:
+                results = await _execute_graph(
+                    graph=graph,
+                    bridge=bridge,
+                    database=database,
+                    store=store,
+                    run_id=run.run_id,
+                    parent_run_id=resume_from,
+                    source_behavior=resolved_source_behavior,
+                    policy=selected,
+                    dispatcher=dispatcher,
+                )
             public = await _public_result(
                 graph=graph,
                 results=results,
@@ -231,6 +241,7 @@ async def _execute_graph(
     dispatcher: _AnalyticsDispatcher,
 ) -> Mapping[str, _NodeResult]:
     """Schedule deterministic ready batches across coordinator-owned sessions."""
+    checkpoint_nodes = _checkpoint_nodes(graph, policy.checkpoint_mode)
     source_runner = _SourceRunner(
         endpoint_executor=bridge.executor,
         database=database,
@@ -239,6 +250,7 @@ async def _execute_graph(
         credential_scope=bridge.credential_scope,
         parent_run_id=parent_run_id,
         source_behavior=source_behavior,
+        checkpoint_nodes=checkpoint_nodes,
         concurrency=policy.retrieval_concurrency,
         dispatcher=dispatcher,
     )
@@ -258,6 +270,7 @@ async def _execute_graph(
         credential_scope=bridge.credential_scope,
         parent_run_id=parent_run_id,
         source_behavior=source_behavior,
+        checkpoint_nodes=checkpoint_nodes,
         backend=bridge.dataframe_backend,
         dispatcher=dispatcher,
     )
@@ -270,6 +283,7 @@ async def _execute_graph(
             credential_scope=bridge.credential_scope,
             parent_run_id=parent_run_id,
             source_behavior=source_behavior,
+            checkpoint_nodes=checkpoint_nodes,
             backend=bridge.dataframe_backend,
             dispatcher=dispatcher,
         )
@@ -336,6 +350,7 @@ async def _execute_graph(
                         run_id=run_id,
                         backend=bridge.dataframe_backend,
                         dispatcher=dispatcher,
+                        checkpoint_eligible=node.node_id in checkpoint_nodes,
                     )
                 completed.add(node.node_id)
                 remaining.remove(node)
@@ -372,6 +387,7 @@ def _transform_runner(
     credential_scope: str,
     parent_run_id: str | None,
     source_behavior: SourceBehavior,
+    checkpoint_nodes: frozenset[str],
     backend: Literal["pandas", "polars"],
     dispatcher: _AnalyticsDispatcher,
 ) -> _TransformRunner:
@@ -383,6 +399,7 @@ def _transform_runner(
         credential_scope=credential_scope,
         parent_run_id=parent_run_id,
         source_behavior=source_behavior,
+        checkpoint_nodes=checkpoint_nodes,
         backend=backend,
         dispatcher=dispatcher,
     )
@@ -396,6 +413,7 @@ async def _commit_workflow_boundary(
     run_id: str,
     backend: Literal["pandas", "polars"],
     dispatcher: _AnalyticsDispatcher,
+    checkpoint_eligible: bool,
 ) -> None:
     """Bind named workflow outputs to their existing immutable objects."""
     await asyncio.to_thread(database.transition_node, run_id, node.node_id, "ready")
@@ -458,6 +476,7 @@ async def _commit_workflow_boundary(
             (name, fingerprint, result.artifact, "coordinator")
             for name, result in named
         ),
+        checkpoint_eligible=checkpoint_eligible,
     )
     dispatcher.emit(
         AnalyticsEvent(
@@ -468,6 +487,20 @@ async def _commit_workflow_boundary(
             outcome=AnalyticsOutcome.success,
         )
     )
+
+
+def _checkpoint_nodes(
+    graph: _CompiledGraph,
+    mode: Literal["all", "outputs_only", "off"],
+) -> frozenset[str]:
+    """Select bindings eligible for later reuse without dropping run lineage."""
+    if mode == "all":
+        return frozenset(node.node_id for node in graph.nodes)
+    if mode == "off":
+        return frozenset()
+    if not any(node.node_id == graph.root_id for node in graph.nodes):
+        raise CFBDRecipeCompilationError("Compiled recipe has no root boundary")
+    return frozenset((*graph.outputs.values(), graph.root_id))
 
 
 async def _public_result(
@@ -511,6 +544,7 @@ async def _public_result(
                 output_name=binding.output_name,
                 content_digest=binding.content_digest,
                 placement=binding.placement,
+                checkpoint_eligible=binding.checkpoint_eligible,
                 reused=is_reused,
             )
         )
