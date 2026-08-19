@@ -169,6 +169,27 @@ def _ats() -> dict[str, object]:
     }
 
 
+def _returning_production() -> dict[str, object]:
+    """Return one source-shaped returning-production enrichment row."""
+    return {
+        "season": 2024,
+        "team": "Michigan",
+        "conference": "Big Ten",
+        "totalPPA": 120.5,
+        "totalPassingPPA": 65.0,
+        "totalReceivingPPA": 31.0,
+        "totalRushingPPA": 24.5,
+        "percentPPA": 0.62,
+        "percentPassingPPA": 0.58,
+        "percentReceivingPPA": 0.64,
+        "percentRushingPPA": 0.69,
+        "usage": 0.61,
+        "passingUsage": 0.57,
+        "receivingUsage": 0.63,
+        "rushingUsage": 0.68,
+    }
+
+
 @pytest.mark.asyncio
 async def test_recipe_uses_records_universe_and_preserves_ordered_statistics(
     api_server: ServerFactory,
@@ -212,6 +233,11 @@ async def test_recipe_uses_records_universe_and_preserves_ordered_statistics(
     assert frame.loc[0, "talent"] is None
     assert frame.loc[0, "ats_coverage"] == TeamSeasonCoverage.not_requested
     assert frame.loc[0, "ats"] is None
+    assert (
+        frame.loc[0, "returning_production_coverage"]
+        == TeamSeasonCoverage.not_requested
+    )
+    assert frame.loc[0, "returning_production"] is None
 
 
 @pytest.mark.asyncio
@@ -229,6 +255,7 @@ async def test_recipe_has_four_way_canonical_parity(
         "/ppa/teams": 0,
         "/talent": 0,
         "/teams/ats": 0,
+        "/player/returning": 0,
     }
 
     async def handler(request: web.Request) -> web.Response:
@@ -240,6 +267,7 @@ async def test_recipe_has_four_way_canonical_parity(
             "/ppa/teams": [_ppa()],
             "/talent": [_talent()],
             "/teams/ats": [_ats()],
+            "/player/returning": [_returning_production()],
         }
         return web.json_response(payloads[request.path])
 
@@ -266,6 +294,7 @@ async def test_recipe_has_four_way_canonical_parity(
                     include_ppa=True,
                     include_talent=True,
                     include_ats=True,
+                    include_returning_production=True,
                     policy=ExecutionPolicy(executor=executor, dask_max_workers=1),
                 )
             digests.append(run.artifact.descriptor.content_digest)
@@ -277,6 +306,11 @@ async def test_recipe_has_four_way_canonical_parity(
             assert restored.loc[0, "talent"]["talent"] == 982.31
             assert restored.loc[0, "ats_coverage"] == TeamSeasonCoverage.present
             assert restored.loc[0, "ats"]["ats_wins"] == 9
+            assert (
+                restored.loc[0, "returning_production_coverage"]
+                == TeamSeasonCoverage.present
+            )
+            assert restored.loc[0, "returning_production"]["percent_ppa"] == 0.62
 
     assert calls == {
         "/records": 4,
@@ -285,6 +319,7 @@ async def test_recipe_has_four_way_canonical_parity(
         "/ppa/teams": 4,
         "/talent": 4,
         "/teams/ats": 4,
+        "/player/returning": 4,
     }
     assert len(set(digests)) == 1
     assert all(result == records[0] for result in records[1:])
@@ -315,7 +350,7 @@ async def test_required_statistical_coverage_fails_closed(
             with pytest.raises(CFBDRunError) as exc_info:
                 await team_seasons(client, season=2024)
 
-    assert exc_info.value.node_id.endswith("cfbd.team_seasons.compose@2")
+    assert exc_info.value.node_id.endswith("cfbd.team_seasons.compose@3")
     assert exc_info.value.category == "ValueError"
 
 
@@ -334,6 +369,7 @@ async def test_requested_empty_ppa_is_explicit_without_changing_universe(
             "/ppa/teams": [],
             "/talent": [],
             "/teams/ats": [],
+            "/player/returning": [],
         }
         return web.json_response(payloads[request.path])
 
@@ -351,6 +387,7 @@ async def test_requested_empty_ppa_is_explicit_without_changing_universe(
                 include_ppa=True,
                 include_talent=True,
                 include_ats=True,
+                include_returning_production=True,
             )
 
     assert len(frame) == 1
@@ -360,3 +397,5 @@ async def test_requested_empty_ppa_is_explicit_without_changing_universe(
     assert frame.loc[0, "talent"] is None
     assert frame.loc[0, "ats_coverage"] == TeamSeasonCoverage.empty
     assert frame.loc[0, "ats"] is None
+    assert frame.loc[0, "returning_production_coverage"] == TeamSeasonCoverage.empty
+    assert frame.loc[0, "returning_production"] is None

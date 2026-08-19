@@ -16,6 +16,8 @@ from cfb_data.games.models.pydantic.responses import TeamRecord, TeamRecords
 from cfb_data.games.sources import team_records
 from cfb_data.metrics.models.pydantic.responses import TeamSeasonPredictedPointsAdded
 from cfb_data.metrics.sources import team_season_ppa
+from cfb_data.players.models.pydantic.responses import ReturningProduction
+from cfb_data.players.sources import returning_production
 from cfb_data.stats.models.pydantic.responses import AdvancedSeasonStat, TeamStat
 from cfb_data.stats.sources import advanced_season_stats, team_season_stats
 from cfb_data.teams.models.pydantic.responses import TeamATS, TeamTalent
@@ -94,11 +96,18 @@ class TeamSeason(BaseModel):
         default=None,
         description="Source against-the-spread season record when requested.",
     )
+    returning_production_coverage: TeamSeasonCoverage = Field(
+        description="Explicit returning-production enrichment availability."
+    )
+    returning_production: ReturningProduction | None = Field(
+        default=None,
+        description="Source team returning-production metrics when requested.",
+    )
 
 
 @step(
     id="cfbd.team_seasons.compose",
-    revision=2,
+    revision=3,
     output=TeamSeason,
     deterministic=True,
 )
@@ -110,6 +119,7 @@ def compose_team_seasons(
     ppa: list[TeamSeasonPredictedPointsAdded] | None,
     talent: list[TeamTalent] | None,
     ats: list[TeamATS] | None,
+    returning: list[ReturningProduction] | None,
 ) -> list[TeamSeason]:
     """Attach required season statistics to the records-defined universe.
 
@@ -119,6 +129,7 @@ def compose_team_seasons(
     :param ppa: Requested team-season PPA rows, or ``None`` when omitted.
     :param talent: Requested team-talent rows, or ``None`` when omitted.
     :param ats: Requested against-the-spread rows, or ``None`` when omitted.
+    :param returning: Requested returning-production rows, or ``None``.
     :return: Complete team seasons in stable season/team-ID order.
     :raises ValueError: If identity, coverage, or statistic keys are ambiguous.
     """
@@ -180,6 +191,7 @@ def compose_team_seasons(
 
     talent_by_key = _index_talent(record_keys, talent)
     ats_by_key = _index_ats(record_keys, ats)
+    returning_by_key = _index_returning(record_keys, returning)
 
     rows: list[TeamSeason] = []
     for key, record in record_keys.items():
@@ -222,6 +234,10 @@ def compose_team_seasons(
                 talent=(talent_by_key.get(key) if talent_by_key is not None else None),
                 ats_coverage=_coverage(ats_by_key, key),
                 ats=ats_by_key.get(key) if ats_by_key is not None else None,
+                returning_production_coverage=_coverage(returning_by_key, key),
+                returning_production=(
+                    returning_by_key.get(key) if returning_by_key is not None else None
+                ),
             )
         )
     return sorted(rows, key=lambda row: (row.season, row.team_id))
@@ -229,7 +245,7 @@ def compose_team_seasons(
 
 @dataset(
     id="cfbd.team_seasons",
-    revision=2,
+    revision=3,
     row=TeamSeason,
     grain="one team season established by the records source",
     keys=("season", "team_id"),
@@ -248,6 +264,7 @@ def team_seasons(
     include_ppa: bool = False,
     include_talent: bool = False,
     include_ats: bool = False,
+    include_returning_production: bool = False,
 ) -> RecipeRef[list[TeamSeason]]:
     """Build complete team-season records and core statistics.
 
@@ -261,6 +278,7 @@ def team_seasons(
     :param include_ppa: Request team-season predicted-points-added metrics.
     :param include_talent: Request the season's team-talent composites.
     :param include_ats: Request team against-the-spread records.
+    :param include_returning_production: Request team returning-production metrics.
     :return: A reference to the validated team-seasons dataset.
     """
     return compose_team_seasons(
@@ -296,6 +314,15 @@ def team_seasons(
         ats=(
             team_ats(year=season, team=team, conference=conference)
             if include_ats
+            else None
+        ),
+        returning=(
+            returning_production(
+                year=season,
+                team=team,
+                conference=conference,
+            )
+            if include_returning_production
             else None
         ),
     )
@@ -371,6 +398,35 @@ def _index_ats(
         indexed[key] = item
     if ats and set(indexed) != set(records):
         raise ValueError("Requested team ATS is incomplete")
+    return indexed
+
+
+def _index_returning(
+    records: dict[tuple[int, str], TeamRecords],
+    returning: list[ReturningProduction] | None,
+) -> dict[tuple[int, str], ReturningProduction] | None:
+    """Index returning production inside the records-defined season.
+
+    :param records: Authoritative team-season records keyed within season.
+    :param returning: Requested source rows, or ``None`` when omitted.
+    :return: Matching returning metrics by records identity, or ``None``.
+    :raises ValueError: If identity conflicts, duplicates, or coverage is partial.
+    """
+    if returning is None:
+        return None
+    indexed: dict[tuple[int, str], ReturningProduction] = {}
+    for item in returning:
+        key = (item.season, _identity_text(item.team))
+        record = records.get(key)
+        if record is None:
+            raise ValueError("Returning production falls outside the records universe")
+        if item.conference != record.conference:
+            raise ValueError("Returning production conflicts with record conference")
+        if key in indexed:
+            raise ValueError("Returning production contains duplicate team seasons")
+        indexed[key] = item
+    if returning and set(indexed) != set(records):
+        raise ValueError("Requested returning production is incomplete")
     return indexed
 
 
