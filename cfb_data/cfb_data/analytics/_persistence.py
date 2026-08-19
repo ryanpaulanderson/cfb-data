@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Final, Literal
+from typing import Final, Literal, cast
 
 from platformdirs import user_data_path
 
@@ -149,13 +149,14 @@ def _analytics_root(config: AnalyticsConfig) -> Path:
 class _ArtifactObjectStore:
     """Own immutable content-addressed filesystem objects."""
 
-    def __init__(self, root: Path) -> None:
-        """Create store directories only when execution opens persistence."""
+    def __init__(self, root: Path, *, create: bool = True) -> None:
+        """Open the object store, optionally creating execution directories."""
         self._root = root
         self._objects = root / "objects" / "sha256"
-        _make_private_directory(root)
-        _make_private_directory(root / "objects")
-        _make_private_directory(self._objects)
+        if create:
+            _make_private_directory(root)
+            _make_private_directory(root / "objects")
+            _make_private_directory(self._objects)
 
     @contextmanager
     def staging_directory(self) -> Iterator[Path]:
@@ -280,7 +281,66 @@ class _ArtifactObjectStore:
             raise CFBDPersistenceError(category="staging_ownership")
 
 
-class _RunDatabase:
+class _RunDatabaseQueries:
+    """Share non-mutating run queries across reader and writer connections."""
+
+    _connection: sqlite3.Connection
+    _lock: threading.RLock
+    _sql: AnalyticsSQLiteSQL
+
+    def get_run(self, run_id: str) -> _RunRecord:
+        """Return one safe immutable run with its derived latest state."""
+        with self._lock:
+            row = self._connection.execute(
+                self._sql.render("runs/select_run.sql"),
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            raise CFBDPersistenceError(category="run_missing")
+        return _run_record(row)
+
+    def bindings(self, run_id: str) -> tuple[_NodeArtifactBinding, ...]:
+        """Return successful artifact bindings in commit order."""
+        self.get_run(run_id)
+        with self._lock:
+            rows = self._connection.execute(
+                self._sql.render("nodes/select_bindings.sql"),
+                (run_id,),
+            ).fetchall()
+        return tuple(_binding(row) for row in rows)
+
+    def attempt_count(self, run_id: str) -> int:
+        """Return the exact durable actual-attempt count for one run."""
+        self.get_run(run_id)
+        with self._lock:
+            row = self._connection.execute(
+                self._sql.render("attempts/count_by_run.sql"),
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            raise AssertionError("Attempt reservation count is missing")
+        return int(row["count"])
+
+    def plan_prune(self) -> _PrunePlan:
+        """Return a non-mutating snapshot of eligible registered objects."""
+        with self._lock:
+            rows = self._connection.execute(
+                self._sql.render("artifacts/select_eligible_for_prune.sql")
+            ).fetchall()
+        candidates = tuple(
+            _PruneCandidate(
+                content_digest=str(row["content_digest"]),
+                size_bytes=_manifest_size(str(row["manifest_json"])),
+            )
+            for row in rows
+        )
+        return _PrunePlan(
+            candidates=candidates,
+            validation_digest=_prune_validation_digest(candidates),
+        )
+
+
+class _RunDatabase(_RunDatabaseQueries):
     """Own append-only SQLite run, node, and artifact-binding evidence."""
 
     def __init__(
@@ -303,7 +363,7 @@ class _RunDatabase:
             )
             self._connection.row_factory = sqlite3.Row
             self._connection.execute(self._sql.render("config/enable_foreign_keys.sql"))
-            self._connection.execute(self._sql.render("config/enable_wal.sql"))
+            self._connection.execute(self._sql.render("config/set_journal_delete.sql"))
             self._connection.execute(
                 self._sql.render("config/set_synchronous_full.sql")
             )
@@ -422,17 +482,6 @@ class _RunDatabase:
             ordinal=ordinal,
             reserved_at=reserved_at,
         )
-
-    def attempt_count(self, run_id: str) -> int:
-        """Return the exact durable attempt count for one run."""
-        with self._lock:
-            row = self._connection.execute(
-                self._sql.render("attempts/count_by_run.sql"),
-                (run_id,),
-            ).fetchone()
-        if row is None:
-            raise AssertionError("Attempt reservation count is missing")
-        return int(row["count"])
 
     def transition_run(
         self,
@@ -691,22 +740,6 @@ class _RunDatabase:
                 (content_digest, name, "unpinned", occurred_at.isoformat()),
             )
 
-    def plan_prune(self) -> _PrunePlan:
-        """Return a non-mutating snapshot of currently eligible objects."""
-        with self._lock:
-            rows = self._eligible_artifacts(self._connection)
-        candidates = tuple(
-            _PruneCandidate(
-                content_digest=str(row["content_digest"]),
-                size_bytes=_manifest_size(str(row["manifest_json"])),
-            )
-            for row in rows
-        )
-        return _PrunePlan(
-            candidates=candidates,
-            validation_digest=_prune_validation_digest(candidates),
-        )
-
     def execute_prune(
         self,
         plan: _PrunePlan,
@@ -743,26 +776,6 @@ class _RunDatabase:
                 )
             removed.append(candidate.content_digest)
         return tuple(removed)
-
-    def get_run(self, run_id: str) -> _RunRecord:
-        """Return one safe immutable run with its derived latest state."""
-        with self._lock:
-            row = self._connection.execute(
-                self._sql.render("runs/select_run.sql"),
-                (run_id,),
-            ).fetchone()
-        if row is None:
-            raise CFBDPersistenceError(category="run_missing")
-        return _run_record(row)
-
-    def bindings(self, run_id: str) -> tuple[_NodeArtifactBinding, ...]:
-        """Return successful artifact bindings in commit order."""
-        with self._lock:
-            rows = self._connection.execute(
-                self._sql.render("nodes/select_bindings.sql"),
-                (run_id,),
-            ).fetchall()
-        return tuple(_binding(row) for row in rows)
 
     def find_checkpoint(
         self,
@@ -935,6 +948,112 @@ class _RunDatabase:
                 raise
             if target_version < 4:
                 self._migrate()
+
+
+class _RunDatabaseReader(_RunDatabaseQueries):
+    """Own a non-mutating SQLite connection for public inspection."""
+
+    def __init__(self, path: Path) -> None:
+        """Open an existing analytics database in SQLite read-only mode.
+
+        :param path: Existing analytics run database.
+        :raises CFBDPersistenceError: If the database is absent or incompatible.
+        """
+        if not path.is_file():
+            raise CFBDPersistenceError(category="database_missing")
+        self._lock = threading.RLock()
+        self._sql = AnalyticsSQLiteSQL()
+        try:
+            self._connection = sqlite3.connect(
+                f"{path.resolve().as_uri()}?mode=ro",
+                uri=True,
+                timeout=30,
+                isolation_level=None,
+                check_same_thread=False,
+            )
+            self._connection.row_factory = sqlite3.Row
+            self._connection.execute(self._sql.render("config/set_query_only.sql"))
+            version_row = self._connection.execute(
+                self._sql.render("migrations/get_user_version.sql")
+            ).fetchone()
+            if version_row is None or int(version_row[0]) != 4:
+                raise CFBDPersistenceError(category="database_version")
+        except CFBDPersistenceError:
+            raise
+        except sqlite3.Error as exc:
+            raise CFBDPersistenceError(category="database_open") from exc
+
+    def close(self) -> None:
+        """Close the owned read-only connection."""
+        with self._lock:
+            self._connection.close()
+
+    def list_runs(self, *, limit: int) -> tuple[_RunRecord, ...]:
+        """Return recent runs without exposing parameters or credentials."""
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or not 1 <= limit <= 1000
+        ):
+            raise ValueError("limit must be an integer between 1 and 1000")
+        with self._lock:
+            rows = self._connection.execute(
+                self._sql.render("runs/select_runs.sql"),
+                (limit,),
+            ).fetchall()
+        return tuple(_run_record(row) for row in rows)
+
+    def retention_state(self, run_id: str) -> Literal["active", "retired"]:
+        """Return the latest append-only retention state for one run."""
+        self.get_run(run_id)
+        with self._lock:
+            row = self._connection.execute(
+                self._sql.render("runs/select_retention_state.sql"),
+                (run_id,),
+            ).fetchone()
+        if row is None or row["state"] not in {"active", "retired"}:
+            raise CFBDPersistenceError(category="database_value")
+        return cast(Literal["active", "retired"], row["state"])
+
+    def manifest(self, content_digest: str) -> _ArtifactManifest:
+        """Return one strictly validated registered artifact manifest."""
+        with self._lock:
+            row = self._connection.execute(
+                self._sql.render("artifacts/select_manifest.sql"),
+                (content_digest,),
+            ).fetchone()
+        if row is None:
+            raise CFBDPersistenceError(category="artifact_missing")
+        try:
+            return _ArtifactManifest.model_validate_json(
+                str(row["manifest_json"]),
+                strict=True,
+            )
+        except ValueError as exc:
+            raise CFBDArtifactCorruptionError(
+                content_digest=content_digest,
+                category="database_manifest",
+            ) from exc
+
+    def active_pins(self, content_digest: str) -> tuple[str, ...]:
+        """Return active safe pin names in deterministic order."""
+        self.manifest(content_digest)
+        with self._lock:
+            rows = self._connection.execute(
+                self._sql.render("artifacts/select_active_pins.sql"),
+                (content_digest,),
+            ).fetchall()
+        return tuple(str(row["pin_name"]) for row in rows)
+
+    def referenced_runs(self, content_digest: str) -> tuple[str, ...]:
+        """Return immutable run identities referencing an artifact."""
+        self.manifest(content_digest)
+        with self._lock:
+            rows = self._connection.execute(
+                self._sql.render("artifacts/select_referenced_runs.sql"),
+                (content_digest,),
+            ).fetchall()
+        return tuple(str(row["run_id"]) for row in rows)
 
 
 def _run_record(row: sqlite3.Row) -> _RunRecord:

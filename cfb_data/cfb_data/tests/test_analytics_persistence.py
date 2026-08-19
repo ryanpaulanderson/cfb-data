@@ -29,6 +29,16 @@ from cfb_data.analytics.errors import (
     CFBDAttemptBudgetExceeded,
     CFBDPersistenceError,
 )
+from cfb_data.analytics.maintenance import (
+    execute_artifact_prune,
+    inspect_artifact,
+    inspect_run,
+    list_runs,
+    pin_artifact,
+    plan_artifact_prune,
+    retire_run,
+    unpin_artifact,
+)
 from pydantic import BaseModel, ConfigDict
 
 
@@ -95,6 +105,18 @@ def test_root_resolution_does_not_create_files(tmp_path: Path) -> None:
     resolved = _analytics_root(AnalyticsConfig(root=root))
 
     assert resolved == root
+    assert not root.exists()
+
+
+@pytest.mark.asyncio
+async def test_public_listing_without_a_store_does_not_create_files(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "not-created"
+
+    runs = await list_runs(AnalyticsConfig(root=root))
+
+    assert runs == ()
     assert not root.exists()
 
 
@@ -488,3 +510,71 @@ def test_validated_prune_removes_only_retired_unpinned_content(
         assert exc_info.value.category == "retention_content_missing"
     finally:
         database.close()
+
+
+@pytest.mark.asyncio
+async def test_public_maintenance_inspects_and_prunes_validated_content(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "analytics"
+    config = AnalyticsConfig(root=root)
+    store = _ArtifactObjectStore(root)
+    artifact = _publish(store)
+    database = _RunDatabase(root / "runs.sqlite3", clock=lambda: _NOW)
+    try:
+        run_id = _run_with_artifact(database, artifact)
+    finally:
+        database.close()
+
+    before = {
+        path.relative_to(root): (path.read_bytes(), path.stat().st_mtime_ns)
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+    summaries = await list_runs(config)
+    run = await inspect_run(run_id, config)
+    inspected_artifact = await inspect_artifact(artifact.content_digest, config)
+    after = {
+        path.relative_to(root): (path.read_bytes(), path.stat().st_mtime_ns)
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+
+    assert before == after
+    assert summaries == (run.summary,)
+    assert run.summary.artifact_count == 1
+    assert run.artifacts[0].descriptor == inspected_artifact.descriptor
+    assert inspected_artifact.active_pins == ()
+    assert inspected_artifact.referenced_run_ids == (run_id,)
+
+    await pin_artifact(artifact.content_digest, name="review", config=config)
+    await retire_run(run_id, config)
+    assert (await plan_artifact_prune(config)).candidates == ()
+
+    await unpin_artifact(artifact.content_digest, name="review", config=config)
+    plan = await plan_artifact_prune(config)
+    assert plan.total_bytes == artifact.manifest.body.parts[0].size_bytes
+    result = await execute_artifact_prune(plan, config)
+
+    assert result.removed_digests == (artifact.content_digest,)
+    assert result.removed_bytes == plan.total_bytes
+    assert (await plan_artifact_prune(config)).candidates == ()
+
+
+@pytest.mark.asyncio
+async def test_public_prune_plan_is_bound_to_its_configured_root(
+    tmp_path: Path,
+) -> None:
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_database = _RunDatabase(first_root / "runs.sqlite3")
+    first_database.close()
+    second_database = _RunDatabase(second_root / "runs.sqlite3")
+    second_database.close()
+
+    plan = await plan_artifact_prune(AnalyticsConfig(root=first_root))
+
+    with pytest.raises(CFBDPersistenceError) as exc_info:
+        await execute_artifact_prune(plan, AnalyticsConfig(root=second_root))
+
+    assert exc_info.value.category == "prune_plan_root"

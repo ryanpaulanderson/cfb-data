@@ -65,20 +65,8 @@ class ArtifactRef:
         artifact: _StoredArtifact,
         row_model: type[BaseModel],
     ) -> ArtifactRef:
-        body = artifact.manifest.body
         return cls(
-            descriptor=ArtifactDescriptor(
-                content_digest=artifact.content_digest,
-                kind=body.kind,
-                codec_id=body.codec_id,
-                codec_version=body.codec_version,
-                media_type=body.media_type,
-                output_id=body.output_id,
-                output_revision=body.output_revision,
-                schema_digest=body.schema_digest,
-                row_count=body.row_count,
-                byte_count=sum(part.size_bytes for part in body.parts),
-            ),
+            descriptor=_artifact_descriptor(artifact.manifest),
             _root=root,
             _manifest=artifact.manifest,
             _row_model=row_model,
@@ -151,7 +139,7 @@ class ArtifactRef:
             output_id=self.descriptor.output_id,
             revision=self.descriptor.output_revision,
         )
-        store = _ArtifactObjectStore(self._root)
+        store = _ArtifactObjectStore(self._root, create=False)
         return _TableArtifactCodec().load(
             directory=store.directory(self.descriptor.content_digest),
             manifest=self._manifest,
@@ -173,6 +161,23 @@ class ArtifactRef:
             table=table,
             identity=identity,
         )
+
+
+def _artifact_descriptor(manifest: _ArtifactManifest) -> ArtifactDescriptor:
+    """Project a validated private manifest into its safe public descriptor."""
+    body = manifest.body
+    return ArtifactDescriptor(
+        content_digest=manifest.content_digest,
+        kind=body.kind,
+        codec_id=body.codec_id,
+        codec_version=body.codec_version,
+        media_type=body.media_type,
+        output_id=body.output_id,
+        output_revision=body.output_revision,
+        schema_digest=body.schema_digest,
+        row_count=body.row_count,
+        byte_count=sum(part.size_bytes for part in body.parts),
+    )
 
 
 class WorkflowOutputs[OutputT](Mapping[str, OutputT]):
