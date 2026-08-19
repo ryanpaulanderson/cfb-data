@@ -90,6 +90,23 @@ class CFBDTransformError(CFBDAnalyticsError, ValueError):
     """Report a reusable analytical operation contract violation."""
 
 
+class CFBDExecutorError(CFBDAnalyticsError, RuntimeError):
+    """Report a safe compute-provider lifecycle or execution failure."""
+
+    provider: str
+    category: str
+
+    def __init__(self, *, provider: str, category: str) -> None:
+        """Initialize a redacted executor failure.
+
+        :param provider: Stable configured provider name.
+        :param category: Bounded failure category.
+        """
+        self.provider = provider
+        self.category = category
+        super().__init__(f"{provider} executor failed ({category})")
+
+
 class CFBDRunError(CFBDAnalyticsError):
     """Report a safely identified analytics execution failure."""
 
@@ -117,6 +134,7 @@ __all__ = [
     "CFBDArtifactError",
     "CFBDPersistenceError",
     "CFBDAttemptBudgetExceeded",
+    "CFBDExecutorError",
     "CFBDTransformError",
     "CFBDRecipeCompilationError",
     "CFBDRecipeConfigurationError",
