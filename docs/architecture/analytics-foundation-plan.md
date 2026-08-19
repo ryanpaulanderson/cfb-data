@@ -1,9 +1,9 @@
 # Modular analytics foundation implementation plan
 
 - Architecture: [ADR 0006](0006-modular-analytics-recipes.md)
-- Plan status: Proposed for review
-- Implementation status: Not started
-- Last updated: 2026-08-18
+- Plan status: Approved
+- Implementation status: In progress
+- Last updated: 2026-08-19
 
 ## Goal
 
@@ -27,7 +27,7 @@ Performance, task placement, native DataFrame dtypes, timing, and concurrent
 event interleaving may differ where their meaning is not part of the analytical
 contract.
 
-This is not a general distributed orchestrator. Version one has no daemon,
+This is not a general distributed orchestrator. This foundation has no daemon,
 deployment system, cron service, remote queue, multi-host workers, remote
 artifact store, arbitrary side-effect nodes, PyTorch layer, or visualization
 renderer.
@@ -184,11 +184,14 @@ namespace. A generally reusable analytical product should still be extracted
 as a dataset.
 
 Graph shape may depend on validated plan-time parameters only. Source rows and
-DataFrame contents cannot create new graph nodes. Trusted Python may use one
+DataFrame contents cannot create new graph nodes. A fixed source node may bind
+request values from a validated scalar output of an already-declared upstream
+node; its node count and worst-case request cost remain static, while inspection
+reports its exact cache disposition as deferred. Trusted Python may use one
 engine-owned bounded map/gather primitive over a validated plan-parameter
 sequence with stable unique keys. It expands completely during compilation;
 source-derived keys are prohibited. Every use declares a local expansion limit
-and remains subject to the run-wide limit. YAML version one remains a finite
+and remains subject to the run-wide limit. YAML remains a finite
 static graph.
 
 ### Direct and advanced execution
@@ -501,9 +504,13 @@ win-probability, and broad ``/plays/stats`` fan-out.
 ### Dask executor
 
 The optional ``dask`` extra installs a supported ``dask[distributed]`` release.
-The coordinator starts an asynchronous temporary ``LocalCluster`` only after
-checkpoint inspection proves at least one ready step will run there. A zero-
-work replay does not start Dask.
+The coordinator targets a topology-neutral executor-provider contract. The
+shipped managed-local provider starts an asynchronous temporary
+``LocalCluster`` only after checkpoint inspection proves at least one ready
+step will run there. A zero-work replay does not start Dask. The coordinator
+does not assume scheduler construction, shared worker filesystems, or local
+transport; provider sessions own capability negotiation, bounded Arrow
+transport, cancellation, and resource closure.
 
 Only pure ``@step`` nodes are eligible. Sources, planning, validation authority,
 leases, events, and artifact commits stay in the coordinator. Workers receive
@@ -523,9 +530,9 @@ cancellation it cancels and awaits futures, closes the client and cluster, and
 then records terminal state. Coordinator or worker loss before artifact commit
 may leave reclaimable staging data but cannot create a successful checkpoint.
 
-Version one does not accept an external scheduler address. The executor
-protocol must permit a future remote implementation without changing recipe,
-artifact, lineage, or event contracts.
+This change does not accept an external scheduler address. An adopted-client
+or remote provider can implement the same session contract later without
+changing recipe, graph, artifact, lineage, recovery, or event contracts.
 
 ### Analytics observability
 
@@ -558,7 +565,10 @@ catalog:
 
 - SQLite owns transactional run, node, lease, lineage, recovery, pin, and
   garbage-collection state.
-- The filesystem owns immutable content-addressed objects.
+- The filesystem owns immutable content-addressed objects. Content manifests
+  exclude run-specific timestamps, placement, and correlation evidence; those
+  belong to SQLite run/node bindings so volatile audit data cannot defeat
+  content deduplication.
 - The default root is the operating system's application-data directory,
   resolved through ``platformdirs``, and is created only by execution that
   needs to write. ``AnalyticsConfig`` can override it.
@@ -761,9 +771,11 @@ evidence.
 
 ## Delivery and commit sequence
 
-Implementation begins only after ADR 0006 is accepted. Each stage is a coherent
-reviewable change with its own relevant checks; implementation must not be
-reassembled into one large commit.
+The approved architecture review authorizes a vertical-slice implementation
+while ADR 0006 remains Proposed. The ADR becomes Accepted only after its stated
+authoring, discovery, pooled-source, artifact, and local/Dask parity evidence
+passes. Each stage is a coherent reviewable change with its own relevant
+checks; implementation must not be reassembled into one large commit.
 
 1. **Authoring and discovery**
    - Add decorators, typed wrappers, graph references, transactional discovery,

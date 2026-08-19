@@ -214,12 +214,16 @@ child more than once uses ``child_recipe.as_("alias")(...)``; call ordinals are
 not stable identity. A named workflow output is selected explicitly with
 ``child_workflow(...)["output_name"]``.
 Graph shape may depend on validated plan-time parameters but never on source
-results or DataFrame contents. The bounded map/gather primitive accepts only a
-validated plan-time parameter sequence, requires stable unique keys, and fully
-expands during compilation. Compilation rejects duplicate aliases, recursive
-expansion, cycles, ambiguous output bindings, incompatible schemas, unsupported
-backends, and expansion or attempt plans above their configured limits before
-operational I/O.
+results or DataFrame contents. A fixed source node may bind a request parameter
+to a validated scalar produced by an already-declared upstream node. This does
+not add nodes or alter worst-case cost: the plan records the binding shape and
+inspection reports its exact cache disposition as deferred until the scalar is
+available. The bounded map/gather primitive accepts only a validated plan-time
+parameter sequence, requires stable unique keys, and fully expands during
+compilation. Compilation rejects duplicate aliases, recursive expansion,
+cycles, ambiguous output bindings, incompatible schemas, unsupported backends,
+and expansion or attempt plans above their configured limits before operational
+I/O.
 
 Explicit dataset-to-workflow-output selection narrowly amends ADR 0001's
 default workflow-above-dataset layering. The compiler slices the child workflow
@@ -415,11 +419,14 @@ exception objects.
 ### Dask is a first-class compute executor
 
 Dask will be an optional execution dependency and a fully supported compute
-option, not the owner of source retrieval or analytical persistence. Version
-one will use a coordinator-owned temporary ``distributed.LocalCluster`` with at
-most four worker processes, bounded by available CPUs, and one thread per
-worker by default. The coordinator opens the cluster for one run, cancels and
-awaits outstanding futures during failure or cancellation, and closes the
+option, not the owner of source retrieval or analytical persistence. The
+coordinator depends on a topology-neutral executor-provider and run-session
+contract; it does not assume that it constructed the scheduler, that workers
+share its filesystem, or that worker transport is local. The initially shipped
+Dask provider owns a temporary asynchronous ``distributed.LocalCluster`` with
+at most four worker processes, bounded by available CPUs, and one thread per
+worker by default. That provider opens its resources for one run, cancels and
+awaits outstanding futures during failure or cancellation, and closes its
 client and cluster deterministically.
 
 Both local and Dask modes invoke the same transform-worker contract. Dask
@@ -451,10 +458,13 @@ transport is not a durable format. No checkpoint, manifest, artifact, or
 artifact loader may persist or load pickle. A worker or coordinator failure
 before coordinator validation and commit cannot publish a successful node.
 
-Existing multi-host schedulers and remote clusters are deferred until the
-platform defines remote artifact ownership, worker-environment verification,
-transfer limits, distributed cancellation, and representative acceptance
-infrastructure. The executor interface must not prevent that later addition.
+The provider contract includes resource ownership, capability and environment
+verification, bounded Arrow transport, submission, cancellation, and closure.
+An adopted-client or remote-cluster provider can therefore be added without
+changing recipes, graph identity, the coordinator, artifacts, recovery, or
+events. Support for an external scheduler address is deferred until its
+security and representative multi-host acceptance infrastructure exist; the
+managed-local topology is a provider capability, not a coordinator invariant.
 
 ### Every offered option has runtime parity
 
@@ -494,7 +504,10 @@ component:
 
 - SQLite transactionally stores immutable runs, node outcomes, parent/child
   recovery lineage, cross-process leases, and retention pins.
-- The filesystem stores immutable content-addressed objects.
+- The filesystem stores immutable content-addressed objects. Stable payload
+  identity excludes run-specific timestamps, placement, and correlation data;
+  SQLite run/node bindings own that audit evidence so identical content can be
+  reused without volatile metadata changing its address.
 - Canonical analytics table artifacts use codec v2, ordered Parquet parts, and
   a versioned manifest. Endpoint Parquet-v1 remains readable and unchanged.
 - Bounded modeled control artifacts use canonical Pydantic/JSON with non-finite
