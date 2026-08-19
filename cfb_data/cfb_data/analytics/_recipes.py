@@ -190,6 +190,16 @@ class StepRecipe[**P, R](_Recipe[P, R]):
 
         return _call_in_build_context(self, args, kwargs)
 
+    @property
+    def _is_async(self) -> bool:
+        """Return whether execution must remain on the coordinator loop."""
+        return inspect.iscoroutinefunction(self._function)
+
+    def _execute_step(self, parameters: Mapping[str, object]) -> object:
+        """Invoke the trusted step body with validated resolved parameters."""
+        callable_function = cast(Callable[..., object], self._function)
+        return callable_function(**parameters)
+
 
 class DatasetRecipe[**P, R](_Recipe[P, R]):
     """Represent one directly executable validated tabular recipe."""

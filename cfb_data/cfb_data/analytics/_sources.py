@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
 from typing import cast
 
 import pyarrow as pa
@@ -31,7 +30,8 @@ from ._checkpoints import (
     _SourceBehavior,
 )
 from ._compiler import _digest
-from ._graph import _CompiledNode, _NodeArgument, _ValueRef
+from ._execution import _NodeResult, _resolve_arguments
+from ._graph import _CompiledNode
 from ._observability import _AnalyticsDispatcher
 from ._persistence import (
     _ArtifactObjectStore,
@@ -47,15 +47,6 @@ from .observability import (
     AnalyticsEventType,
     AnalyticsOutcome,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class _NodeResult:
-    """Carry one validated logical value and its immutable artifact."""
-
-    value: object
-    artifact: _StoredArtifact
-    node_fingerprint: str
 
 
 class _EndpointSourceContext:
@@ -172,7 +163,11 @@ class _SourceRunner:
             "ready",
         )
         self._emit(AnalyticsEventType.step_ready, node.node_id)
-        parameters = _resolved_parameters(node.arguments, results)
+        parameters = _resolve_arguments(
+            node.arguments,
+            results,
+            allow_node_values=False,
+        )
         operation = _operation(node)
         identity = _AnalyticsTableIdentity(
             output_id=operation.id,
@@ -284,7 +279,12 @@ class _SourceRunner:
             row_count=len(rows),
             duration=time.monotonic() - started,
         )
-        return node.node_id, _NodeResult(rows, artifact, fingerprint)
+        return node.node_id, _NodeResult(
+            value=rows,
+            artifact=artifact,
+            node_fingerprint=fingerprint,
+            row_model=operation.row_model,
+        )
 
     async def _retrieve(
         self,
@@ -385,6 +385,7 @@ class _SourceRunner:
                 manifest=candidate.manifest,
             ),
             node_fingerprint=fingerprint,
+            row_model=operation.row_model,
         )
 
     def _store_rows(
@@ -464,58 +465,6 @@ class _SourceRunner:
                 duration_seconds=duration,
             )
         )
-
-
-def _resolved_parameters(
-    arguments: Mapping[str, _NodeArgument],
-    results: Mapping[str, _NodeResult],
-) -> dict[str, object]:
-    """Resolve literals and validated scalar references for one ready source."""
-    parameters: dict[str, object] = {}
-    for name, argument in arguments.items():
-        if argument.kind == "literal":
-            parameters[name] = argument.value
-            continue
-        if argument.kind == "node":
-            raise CFBDRecipeCompilationError(
-                "Source parameters cannot consume an entire upstream output"
-            )
-        reference = cast(_ValueRef, argument.value)
-        upstream = results.get(reference.node_id)
-        if upstream is None:
-            raise CFBDRecipeCompilationError(
-                "Late-bound source parameter dependency is not ready"
-            )
-        parameters[name] = _extract_scalar(upstream.value, reference)
-    return parameters
-
-
-def _extract_scalar(value: object, reference: _ValueRef) -> object:
-    """Traverse a structured validated value and require its exact scalar type."""
-    current = value
-    for token in reference.path:
-        if isinstance(token, int):
-            if not isinstance(current, Sequence) or isinstance(current, str | bytes):
-                raise CFBDRecipeCompilationError("Scalar path expected a sequence")
-            try:
-                current = current[token]
-            except IndexError as exc:
-                raise CFBDRecipeCompilationError(
-                    "Scalar path index is unavailable"
-                ) from exc
-        elif isinstance(current, BaseModel):
-            if token not in current.__class__.model_fields:
-                raise CFBDRecipeCompilationError("Scalar path field is unavailable")
-            current = getattr(current, token)
-        elif isinstance(current, Mapping):
-            if token not in current:
-                raise CFBDRecipeCompilationError("Scalar path key is unavailable")
-            current = current[token]
-        else:
-            raise CFBDRecipeCompilationError("Scalar path cannot be traversed")
-    if type(current) is not reference.expected_type:
-        raise CFBDRecipeCompilationError("Scalar path value has the wrong type")
-    return current
 
 
 def _operation(
