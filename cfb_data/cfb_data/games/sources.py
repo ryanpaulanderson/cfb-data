@@ -7,12 +7,14 @@ from typing import Literal
 from cfb_data.analytics import SourceContext, source
 from cfb_data.enums import Classification, PlayoffCompetition, PlayoffRound, SeasonType
 from cfb_data.games._operations import (
+    ADVANCED_BOX_SCORE,
     GAMES_LIST,
     GAMES_PLAYER_STATS,
     GAMES_TEAM_STATS,
     TEAM_RECORDS,
 )
 from cfb_data.games.models.pydantic.responses import (
+    AdvancedBoxScore,
     Game,
     PlayerGameStats,
     TeamGameStats,
@@ -35,6 +37,21 @@ type _CompetitionArgument = PlayoffCompetition | Literal["cfp"]
 type _RoundArgument = (
     PlayoffRound | Literal["first_round", "quarterfinal", "semifinal", "championship"]
 )
+
+
+@source(operation=ADVANCED_BOX_SCORE)
+async def advanced_box_score(
+    context: SourceContext[AdvancedBoxScore],
+    *,
+    game_id: int,
+) -> list[AdvancedBoxScore]:
+    """Return one validated advanced box score as an analytical row list.
+
+    :param context: Engine-owned source execution context.
+    :param game_id: Required exact game identifier.
+    :return: One source-faithful advanced box score.
+    """
+    return await context.retrieve(game_id=game_id)
 
 
 @source(operation=GAMES_LIST)
@@ -176,4 +193,10 @@ async def team_records(
     return await context.retrieve(year=year, team=team, conference=conference)
 
 
-__all__ = ["games", "player_game_stats", "team_game_stats", "team_records"]
+__all__ = [
+    "advanced_box_score",
+    "games",
+    "player_game_stats",
+    "team_game_stats",
+    "team_records",
+]

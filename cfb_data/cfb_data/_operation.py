@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from types import GenericAlias
 from typing import Literal
 
 from pydantic import BaseModel, TypeAdapter
@@ -12,19 +14,17 @@ from cfb_data._executor import _EndpointExecutor, _response_contract, _serialize
 from cfb_data._requests import _resolve_request
 
 
-@dataclass(frozen=True, slots=True)
-class _ManyEndpointOperation[RequestT: BaseModel, RowT: BaseModel]:
-    """Own one validated model-list endpoint contract."""
+class _EndpointOperation[RequestT: BaseModel, RowT: BaseModel](ABC):
+    """Own the common contract for one validated endpoint operation."""
 
     id: str
     revision: int
     endpoint: str
     request_type: type[RequestT]
-    response_adapter: TypeAdapter[list[RowT]]
     row_model: type[RowT]
     access_tier: Literal["free", "tier_1", "tier_2"]
-    documented_limit: int | None = None
-    cost: int = 1
+    documented_limit: int | None
+    cost: int
 
     def resolve(
         self,
@@ -39,6 +39,47 @@ class _ManyEndpointOperation[RequestT: BaseModel, RowT: BaseModel]:
             filters=filters,
         )
 
+    @abstractmethod
+    async def fetch(
+        self,
+        executor: _EndpointExecutor,
+        request: RequestT,
+    ) -> list[RowT]:
+        """Return one normalized row list through the shared executor."""
+
+    @property
+    @abstractmethod
+    def rows_adapter(self) -> TypeAdapter[list[RowT]]:
+        """Return the adapter for the normalized analytical row list."""
+
+    @property
+    @abstractmethod
+    def response_contract(self) -> str:
+        """Return the actual HTTP response schema fingerprint."""
+
+    def serialized_parameters(
+        self, request: RequestT
+    ) -> dict[str, str | int | float | bool]:
+        """Return the exact typed upstream request parameters."""
+        return _serialize_request(self.endpoint, request)
+
+
+@dataclass(frozen=True, slots=True)
+class _ManyEndpointOperation[RequestT: BaseModel, RowT: BaseModel](
+    _EndpointOperation[RequestT, RowT]
+):
+    """Own one endpoint whose HTTP response is a model list."""
+
+    id: str
+    revision: int
+    endpoint: str
+    request_type: type[RequestT]
+    response_adapter: TypeAdapter[list[RowT]]
+    row_model: type[RowT]
+    access_tier: Literal["free", "tier_1", "tier_2"]
+    documented_limit: int | None = None
+    cost: int = 1
+
     async def fetch(
         self,
         executor: _EndpointExecutor,
@@ -50,6 +91,11 @@ class _ManyEndpointOperation[RequestT: BaseModel, RowT: BaseModel]:
             request=request,
             response_adapter=self.response_adapter,
         )
+
+    @property
+    def rows_adapter(self) -> TypeAdapter[list[RowT]]:
+        """Return the HTTP list adapter as the analytical row adapter."""
+        return self.response_adapter
 
     async def fetch_frame[FrameT](
         self,
@@ -72,8 +118,50 @@ class _ManyEndpointOperation[RequestT: BaseModel, RowT: BaseModel]:
         """Return the stable response schema fingerprint used by the cache."""
         return _response_contract(self.response_adapter)
 
-    def serialized_parameters(
-        self, request: RequestT
-    ) -> dict[str, str | int | float | bool]:
-        """Return the exact typed upstream request parameters."""
-        return _serialize_request(self.endpoint, request)
+
+@dataclass(frozen=True, slots=True)
+class _OneEndpointOperation[RequestT: BaseModel, RowT: BaseModel](
+    _EndpointOperation[RequestT, RowT]
+):
+    """Own one endpoint whose HTTP response is one validated model."""
+
+    id: str
+    revision: int
+    endpoint: str
+    request_type: type[RequestT]
+    response_adapter: TypeAdapter[RowT]
+    row_model: type[RowT]
+    access_tier: Literal["free", "tier_1", "tier_2"]
+    documented_limit: int | None = None
+    cost: int = 1
+
+    async def fetch(
+        self,
+        executor: _EndpointExecutor,
+        request: RequestT,
+    ) -> list[RowT]:
+        """Wrap the validated HTTP object in the analytical row list."""
+        return [await self.fetch_one(executor, request)]
+
+    async def fetch_one(
+        self,
+        executor: _EndpointExecutor,
+        request: RequestT,
+    ) -> RowT:
+        """Return the validated object through the shared endpoint executor."""
+        return await executor.fetch_one(
+            endpoint=self.endpoint,
+            request=request,
+            response_adapter=self.response_adapter,
+        )
+
+    @property
+    def rows_adapter(self) -> TypeAdapter[list[RowT]]:
+        """Return the normalized analytical row-list adapter."""
+        annotation = GenericAlias(list, self.row_model)
+        return TypeAdapter(annotation)
+
+    @property
+    def response_contract(self) -> str:
+        """Return the stable single-object response schema fingerprint."""
+        return _response_contract(self.response_adapter)

@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from cfb_data._executor import _EndpointExecutor
 from cfb_data._observability import _analytics_retrieval_context, _failure_category
-from cfb_data._operation import _ManyEndpointOperation
+from cfb_data._operation import _EndpointOperation
 from cfb_data._tabular import (
     _analytics_arrow_table_from_models,
     _analytics_models_from_arrow_table,
@@ -56,7 +56,7 @@ class _EndpointSourceContext:
         self,
         runner: _SourceRunner,
         node: _CompiledNode,
-        operation: _ManyEndpointOperation[BaseModel, BaseModel],
+        operation: _EndpointOperation[BaseModel, BaseModel],
     ) -> None:
         """Bind a source node to its one endpoint operation."""
         self._runner = runner
@@ -233,7 +233,7 @@ class _SourceRunner:
             recipe = cast(SourceRecipe[..., object], node.recipe)
             context = _EndpointSourceContext(self, node, operation)
             value = await recipe._execute_source(context, parameters)
-            rows = operation.response_adapter.validate_python(value)
+            rows = operation.rows_adapter.validate_python(value)
             artifact = await asyncio.to_thread(
                 self._store_and_bind_rows,
                 rows,
@@ -290,7 +290,7 @@ class _SourceRunner:
     async def _retrieve(
         self,
         node: _CompiledNode,
-        operation: _ManyEndpointOperation[BaseModel, BaseModel],
+        operation: _EndpointOperation[BaseModel, BaseModel],
         parameters: Mapping[str, object],
     ) -> list[BaseModel]:
         request = operation.resolve(None, dict(parameters))
@@ -315,7 +315,7 @@ class _SourceRunner:
     async def _retrieve_once(
         self,
         node: _CompiledNode,
-        operation: _ManyEndpointOperation[BaseModel, BaseModel],
+        operation: _EndpointOperation[BaseModel, BaseModel],
         request: BaseModel,
     ) -> list[BaseModel]:
         async def reserve(endpoint: str, attempt: int) -> None:
@@ -345,7 +345,7 @@ class _SourceRunner:
     async def _load_candidate(
         self,
         node: _CompiledNode,
-        operation: _ManyEndpointOperation[BaseModel, BaseModel],
+        operation: _EndpointOperation[BaseModel, BaseModel],
         identity: _AnalyticsTableIdentity,
         fingerprint: str,
         candidate: _CheckpointCandidate,
@@ -430,7 +430,7 @@ class _SourceRunner:
 
     def _load_rows(
         self,
-        operation: _ManyEndpointOperation[BaseModel, BaseModel],
+        operation: _EndpointOperation[BaseModel, BaseModel],
         identity: _AnalyticsTableIdentity,
         candidate: _CheckpointCandidate,
     ) -> list[BaseModel]:
@@ -443,7 +443,7 @@ class _SourceRunner:
         )
         return _analytics_models_from_arrow_table(
             row_model=operation.row_model,
-            response_adapter=operation.response_adapter,
+            response_adapter=operation.rows_adapter,
             table=table,
             identity=identity,
         )
@@ -489,13 +489,13 @@ class _SourceRunner:
 
 def _operation(
     node: _CompiledNode,
-) -> _ManyEndpointOperation[BaseModel, BaseModel]:
+) -> _EndpointOperation[BaseModel, BaseModel]:
     operation = node.declaration.operation
-    if not isinstance(operation, _ManyEndpointOperation):
+    if not isinstance(operation, _EndpointOperation):
         raise CFBDRecipeCompilationError(
             "This source has no executable endpoint operation descriptor"
         )
-    return cast(_ManyEndpointOperation[BaseModel, BaseModel], operation)
+    return cast(_EndpointOperation[BaseModel, BaseModel], operation)
 
 
 async def _cancel_and_await[ValueT](

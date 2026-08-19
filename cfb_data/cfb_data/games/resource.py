@@ -18,6 +18,7 @@ from cfb_data.enums import (
     SeasonType,
 )
 from cfb_data.games._operations import (
+    ADVANCED_BOX_SCORE,
     GAMES_LIST,
     GAMES_PLAYER_STATS,
     GAMES_TEAM_STATS,
@@ -66,7 +67,6 @@ _CALENDAR_ROWS = TypeAdapter(list[CalendarWeek])
 _SCOREBOARD_ROWS = TypeAdapter(list[ScoreboardGame])
 _MEDIA_ROWS = TypeAdapter(list[GameMedia])
 _WEATHER_ROWS = TypeAdapter(list[GameWeather])
-_ADVANCED_BOX = TypeAdapter(AdvancedBoxScore)
 
 
 class GamesResource[FrameT]:
@@ -425,18 +425,8 @@ class GamesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, decode, or validation fails.
         """
-        endpoint = "/game/box/advanced"
-        validated = _resolve_request(
-            endpoint=endpoint,
-            request_type=AdvancedBoxScoreRequest,
-            request=request,
-            filters=filters,
-        )
-        return await self._executor.fetch_one(
-            endpoint=endpoint,
-            request=validated,
-            response_adapter=_ADVANCED_BOX,
-        )
+        validated = ADVANCED_BOX_SCORE.resolve(request, filters)
+        return await ADVANCED_BOX_SCORE.fetch_one(self._executor, validated)
 
     async def _fetch_frame(
         self,

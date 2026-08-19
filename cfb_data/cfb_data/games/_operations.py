@@ -4,18 +4,30 @@ from __future__ import annotations
 
 from pydantic import TypeAdapter
 
-from cfb_data._operation import _ManyEndpointOperation
+from cfb_data._operation import _ManyEndpointOperation, _OneEndpointOperation
 from cfb_data.games.models.pydantic.requests import (
+    AdvancedBoxScoreRequest,
     GamesRequest,
     PlayerGameStatsRequest,
     RecordsRequest,
     TeamGameStatsRequest,
 )
 from cfb_data.games.models.pydantic.responses import (
+    AdvancedBoxScore,
     Game,
     PlayerGameStats,
     TeamGameStats,
     TeamRecords,
+)
+
+ADVANCED_BOX_SCORE = _OneEndpointOperation(
+    id="cfbd.games.advanced_box_score",
+    revision=1,
+    endpoint="/game/box/advanced",
+    request_type=AdvancedBoxScoreRequest,
+    response_adapter=TypeAdapter(AdvancedBoxScore),
+    row_model=AdvancedBoxScore,
+    access_tier="free",
 )
 
 GAMES_LIST = _ManyEndpointOperation(

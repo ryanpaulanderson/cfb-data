@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
 from cfb_data._observability import _failure_category
-from cfb_data._operation import _ManyEndpointOperation
+from cfb_data._operation import _EndpointOperation
 from cfb_data.cache._coordinator import CacheCoordinator
 from cfb_data.cache.config import CacheMode
 
@@ -582,7 +582,7 @@ async def _public_result(
         if node.kind != "source":
             continue
         operation = node.declaration.operation
-        if not isinstance(operation, _ManyEndpointOperation):
+        if not isinstance(operation, _EndpointOperation):
             raise CFBDRecipeCompilationError("Source operation metadata is unavailable")
         row_count = results[node.node_id].artifact.manifest.body.row_count
         if row_count is None:

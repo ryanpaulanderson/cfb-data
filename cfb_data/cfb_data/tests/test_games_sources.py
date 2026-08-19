@@ -2,20 +2,46 @@
 
 from __future__ import annotations
 
-from cfb_data.analytics import RecipeRef, dataset
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
+from pathlib import Path
+
+import pytest
+from aiohttp import web
+from cfb_data.analytics import AnalyticsConfig, RecipeRef, dataset
 from cfb_data.analytics._compiler import _compile_recipe
 from cfb_data.games.models.pydantic.responses import (
+    AdvancedBoxScore,
     Game,
     PlayerGameStats,
     TeamGameStats,
     TeamRecords,
 )
 from cfb_data.games.sources import (
+    advanced_box_score,
     games,
     player_game_stats,
     team_game_stats,
     team_records,
 )
+
+from cfb_data import CFBDClient
+
+ServerFactory = Callable[[Callable[..., object]], AbstractAsyncContextManager[str]]
+
+
+@dataset(
+    id="tests.source_faithful_advanced_box_score",
+    revision=1,
+    row=AdvancedBoxScore,
+    grain="one advanced game box score",
+    keys=(),
+)
+def _source_faithful_advanced_box_score(
+    game_id: int,
+) -> RecipeRef[list[AdvancedBoxScore]]:
+    """Build the one-object Games source through its public callable."""
+    return advanced_box_score(game_id=game_id)
 
 
 @dataset(
@@ -76,6 +102,34 @@ def test_public_games_source_derives_endpoint_owned_identity() -> None:
     assert games.kind == "source"
     assert games.id == "cfbd.games.list"
     assert games.revision == 1
+
+
+@pytest.mark.asyncio
+async def test_one_object_source_shares_resource_contract_and_runtime(
+    api_server: ServerFactory,
+    advanced_box_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Normalize one HTTP object through the ordinary source row path."""
+
+    async def handler(request: web.Request) -> web.Response:
+        assert request.path == "/game/box/advanced"
+        return web.json_response(advanced_box_response)
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "source-fidelity-key",
+            base_url=base_url,
+            analytics=AnalyticsConfig(root=tmp_path / "analytics"),
+        ) as client:
+            endpoint = await client.games.advanced_box_score(game_id=401628347)
+            recipe = await _source_faithful_advanced_box_score(
+                client,
+                game_id=401628347,
+            )
+
+    assert len(recipe) == 1
+    assert recipe.loc[0, "game_info"] == endpoint.game_info.model_dump(mode="python")
 
 
 def test_games_source_compiles_without_endpoint_or_provider_io() -> None:

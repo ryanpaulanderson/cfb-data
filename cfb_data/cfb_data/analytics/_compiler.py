@@ -15,7 +15,7 @@ from typing import Protocol, cast, get_args, get_origin
 
 from pydantic import BaseModel
 
-from cfb_data._operation import _ManyEndpointOperation
+from cfb_data._operation import _EndpointOperation
 from cfb_data.errors import CFBDRequestValidationError
 
 from ._declarations import RecipeKind, _RecipeDeclaration
@@ -257,7 +257,7 @@ def _validate_literal_source_request(
     if any(argument.kind != "literal" for argument in arguments.values()):
         return
     operation = recipe._declaration.operation
-    if not isinstance(operation, _ManyEndpointOperation):
+    if not isinstance(operation, _EndpointOperation):
         return
     try:
         operation.resolve(

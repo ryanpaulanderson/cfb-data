@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from types import MappingProxyType
 from typing import Literal, Protocol, cast
 
-from cfb_data._operation import _ManyEndpointOperation
+from cfb_data._operation import _EndpointOperation
 from cfb_data.cache._coordinator import CacheCoordinator
 from cfb_data.cache._key import response_cache_key
 from cfb_data.cache._models import ResponsePeek, ResponsePeekStatus
@@ -265,7 +265,7 @@ def _checkpoint_nodes(
 def _source_request_key(node: _CompiledNode) -> str:
     """Return a static identity for one exact or identically deferred request."""
     operation = node.declaration.operation
-    if not isinstance(operation, _ManyEndpointOperation):
+    if not isinstance(operation, _EndpointOperation):
         return _digest({"source_node": node.node_id})
     if all(argument.kind == "literal" for argument in node.arguments.values()):
         filters = {name: argument.value for name, argument in node.arguments.items()}
@@ -311,7 +311,7 @@ async def _inspect_recipe(
             dispositions[node.node_id] = "deferred"
             continue
         operation = node.declaration.operation
-        if not isinstance(operation, _ManyEndpointOperation):
+        if not isinstance(operation, _EndpointOperation):
             dispositions[node.node_id] = "unavailable"
             continue
         if not bridge.cache_enabled:
