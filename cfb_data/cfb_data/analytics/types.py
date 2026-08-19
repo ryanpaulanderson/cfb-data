@@ -20,14 +20,14 @@ class SourceContext[RowT](Protocol):
 
 if TYPE_CHECKING:
     type RecipeRef[OutputT] = OutputT
+    type ValueRef[ValueT] = ValueT
 else:
 
     class RecipeRef[OutputT_co](Protocol):
         """Represent a typed recipe output while a graph is being built."""
 
-
-class ValueRef[ValueT_co](Protocol):
-    """Represent a validated scalar bound from an upstream recipe output."""
+    class ValueRef[ValueT_co](Protocol):
+        """Represent a validated scalar bound from an upstream recipe output."""
 
 
 class WorkflowOutputs[OutputT_co](Protocol):

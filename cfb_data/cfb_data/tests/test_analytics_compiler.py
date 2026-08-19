@@ -75,6 +75,36 @@ def _single_game_plays(game_id: int) -> RecipeRef[list[_PlayRow]]:
     )
 
 
+@dataset(
+    id="tests.bound_plays",
+    revision=1,
+    row=_PlayRow,
+    grain="one play",
+    keys=("play_id",),
+)
+def _bound_plays(*, year: int, week: int) -> RecipeRef[list[_PlayRow]]:
+    """Expose late-bound source parameters through an ordinary dataset."""
+    return _plays(year=year, week=week)
+
+
+@dataset(
+    id="tests.single_game_dataset_composition",
+    revision=1,
+    row=_PlayRow,
+    grain="one play",
+    keys=("play_id",),
+)
+def _single_game_dataset_composition(
+    game_id: int,
+) -> RecipeRef[list[_PlayRow]]:
+    """Pass typed upstream scalars through a nested dataset call."""
+    selected_game = require_one(_game_context(game_id=game_id))
+    return _bound_plays(
+        year=value(selected_game, path=("season",), expected_type=int),
+        week=value(selected_game, path=("week",), expected_type=int),
+    )
+
+
 def test_compilation_is_deterministic_and_topological() -> None:
     """Compile nested boundaries in dependency order with stable fingerprints."""
     first = _compile_recipe(_game_analysis, (), {"year": 2024})
@@ -193,6 +223,26 @@ def test_late_bound_source_parameters_keep_a_fixed_graph() -> None:
     plays = graph.nodes[2]
     assert plays.dependencies == (graph.nodes[1].node_id,)
     assert {argument.kind for argument in plays.arguments.values()} == {"value"}
+
+
+def test_late_bound_scalars_compose_through_ordinary_datasets() -> None:
+    """Preserve typed scalar references across a reusable dataset boundary."""
+    graph = _compile_recipe(
+        _single_game_dataset_composition,
+        (),
+        {"game_id": 401628515},
+    )
+
+    assert [node.kind for node in graph.nodes] == [
+        "source",
+        "step",
+        "source",
+        "dataset",
+        "dataset",
+    ]
+    source_node = graph.nodes[2]
+    assert source_node.dependencies == (graph.nodes[1].node_id,)
+    assert {argument.kind for argument in source_node.arguments.values()} == {"value"}
 
 
 def test_late_bound_scalar_types_are_checked_during_compilation() -> None:
