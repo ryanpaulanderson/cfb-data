@@ -187,7 +187,14 @@ class _GraphBuilder:
                 )
                 self._append(node)
                 return _NodeRef(path)
-            built = recipe._call_builder(validated.values)
+            try:
+                built = recipe._call_builder(validated.values)
+            except CFBDRecipeCompilationError:
+                raise
+            except Exception as exc:
+                raise CFBDRecipeCompilationError(
+                    "Recipe builder failed during graph compilation"
+                ) from exc
             if kind == "dataset":
                 upstream = _require_node_ref(built, boundary="Dataset")
                 node = _CompiledNode(

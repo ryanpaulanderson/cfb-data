@@ -152,6 +152,28 @@ def test_recursive_recipe_composition_fails_before_execution() -> None:
         _compile_recipe(recursive, (), {"year": 2024})
 
 
+def test_builder_validation_failures_are_safe_compilation_errors() -> None:
+    """Expose a typed failure while retaining its local cause chain."""
+
+    @dataset(
+        id="tests.invalid_conditional_builder",
+        revision=1,
+        row=_DatasetRow,
+        grain="one game",
+        keys=("game_id",),
+    )
+    def invalid_conditional_builder(enabled: bool) -> RecipeRef[list[_DatasetRow]]:
+        if enabled:
+            raise ValueError("sensitive local builder detail")
+        return _game_summaries(year=2024)
+
+    with pytest.raises(CFBDRecipeCompilationError, match="builder failed") as exc_info:
+        _compile_recipe(invalid_conditional_builder, (), {"enabled": True})
+
+    assert isinstance(exc_info.value.__cause__, ValueError)
+    assert "sensitive local builder detail" not in str(exc_info.value)
+
+
 def test_compiler_enforces_the_expanded_node_limit() -> None:
     """Bound graph expansion before source or transform work can start."""
     with pytest.raises(CFBDRecipeCompilationError, match="node limit"):
