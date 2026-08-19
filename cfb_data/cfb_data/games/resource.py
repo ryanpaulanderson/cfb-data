@@ -17,7 +17,7 @@ from cfb_data.enums import (
     PlayoffRound,
     SeasonType,
 )
-from cfb_data.games._operations import GAMES_LIST
+from cfb_data.games._operations import GAMES_LIST, GAMES_TEAM_STATS
 from cfb_data.games.models.pydantic.requests import (
     AdvancedBoxScoreRequest,
     CalendarRequest,
@@ -36,7 +36,6 @@ from cfb_data.games.models.pydantic.responses import (
     GameWeather,
     PlayerGameStats,
     ScoreboardGame,
-    TeamGameStats,
     TeamRecords,
 )
 
@@ -66,7 +65,6 @@ _SCOREBOARD_ROWS = TypeAdapter(list[ScoreboardGame])
 _MEDIA_ROWS = TypeAdapter(list[GameMedia])
 _WEATHER_ROWS = TypeAdapter(list[GameWeather])
 _PLAYER_STAT_ROWS = TypeAdapter(list[PlayerGameStats])
-_TEAM_STAT_ROWS = TypeAdapter(list[TeamGameStats])
 _ADVANCED_BOX = TypeAdapter(AdvancedBoxScore)
 
 
@@ -393,13 +391,11 @@ class GamesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_frame(
-            endpoint="/games/teams",
-            request_type=TeamGameStatsRequest,
+        return await GAMES_TEAM_STATS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_TEAM_STAT_ROWS,
-            row_model=TeamGameStats,
         )
 
     @overload

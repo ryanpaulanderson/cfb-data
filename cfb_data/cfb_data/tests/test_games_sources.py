@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from cfb_data.analytics import RecipeRef, dataset
 from cfb_data.analytics._compiler import _compile_recipe
-from cfb_data.games.models.pydantic.responses import Game
-from cfb_data.games.sources import games
+from cfb_data.games.models.pydantic.responses import Game, TeamGameStats
+from cfb_data.games.sources import games, team_game_stats
 
 
 @dataset(
@@ -19,6 +19,20 @@ from cfb_data.games.sources import games
 def _source_faithful_games(year: int) -> RecipeRef[list[Game]]:
     """Build one source-faithful Games dataset for contract testing."""
     return games(year=year)
+
+
+@dataset(
+    id="tests.source_faithful_team_game_stats",
+    revision=1,
+    row=TeamGameStats,
+    grain="one game with nested team statistics",
+    keys=("id",),
+)
+def _source_faithful_team_game_stats(
+    game_id: int,
+) -> RecipeRef[list[TeamGameStats]]:
+    """Build the conventional team-stat source through its public callable."""
+    return team_game_stats(game_id=game_id)
 
 
 def test_public_games_source_derives_endpoint_owned_identity() -> None:
@@ -37,3 +51,18 @@ def test_games_source_compiles_without_endpoint_or_provider_io() -> None:
     assert source_node.declaration.operation is not None
     assert source_node.declaration.source_cost == 1
     assert source_node.dependencies == ()
+
+
+def test_team_game_stats_source_uses_its_domain_operation() -> None:
+    """Derive team-stat route identity from the same operation as the resource."""
+    graph = _compile_recipe(
+        _source_faithful_team_game_stats,
+        (),
+        {"game_id": 401628515},
+    )
+
+    assert team_game_stats.id == "cfbd.games.team_stats"
+    assert team_game_stats.revision == 1
+    source_node = graph.nodes[0]
+    assert source_node.declaration.operation is not None
+    assert source_node.declaration.source_cost == 1

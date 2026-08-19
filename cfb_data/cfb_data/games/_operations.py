@@ -5,8 +5,8 @@ from __future__ import annotations
 from pydantic import TypeAdapter
 
 from cfb_data._operation import _ManyEndpointOperation
-from cfb_data.games.models.pydantic.requests import GamesRequest
-from cfb_data.games.models.pydantic.responses import Game
+from cfb_data.games.models.pydantic.requests import GamesRequest, TeamGameStatsRequest
+from cfb_data.games.models.pydantic.responses import Game, TeamGameStats
 
 GAMES_LIST = _ManyEndpointOperation(
     id="cfbd.games.list",
@@ -15,5 +15,15 @@ GAMES_LIST = _ManyEndpointOperation(
     request_type=GamesRequest,
     response_adapter=TypeAdapter(list[Game]),
     row_model=Game,
+    access_tier="free",
+)
+
+GAMES_TEAM_STATS = _ManyEndpointOperation(
+    id="cfbd.games.team_stats",
+    revision=1,
+    endpoint="/games/teams",
+    request_type=TeamGameStatsRequest,
+    response_adapter=TypeAdapter(list[TeamGameStats]),
+    row_model=TeamGameStats,
     access_tier="free",
 )
