@@ -33,6 +33,7 @@ type _NodeState = Literal[
 ]
 type _SourceBehavior = Literal["preserve_snapshot", "normal_freshness", "refresh"]
 type _Placement = Literal["coordinator", "local", "dask"]
+type _CheckpointScope = Literal["none", "parent", "parent_then_global", "global"]
 
 _DIGEST_CHARACTERS: Final = frozenset("0123456789abcdef")
 _RUN_TRANSITIONS: Final[dict[_RunState, frozenset[_RunState]]] = {
@@ -71,6 +72,7 @@ class _RunRecord:
     recipe_kind: _RecipeKind
     parameter_fingerprint: str
     graph_fingerprint: str
+    credential_scope: str
     parent_run_id: str | None
     source_behavior: _SourceBehavior
     created_at: datetime
@@ -88,6 +90,14 @@ class _NodeArtifactBinding:
     content_digest: str
     placement: _Placement
     committed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class _CheckpointCandidate:
+    """Identify one compatible previously committed node output."""
+
+    binding: _NodeArtifactBinding
+    manifest: _ArtifactManifest
 
 
 def _analytics_root(config: AnalyticsConfig) -> Path:
@@ -262,6 +272,7 @@ class _RunDatabase:
         recipe_kind: _RecipeKind,
         parameter_fingerprint: str,
         graph_fingerprint: str,
+        credential_scope: str,
         parent_run_id: str | None = None,
         source_behavior: _SourceBehavior = "normal_freshness",
     ) -> _RunRecord:
@@ -274,8 +285,8 @@ class _RunDatabase:
                 INSERT INTO runs (
                     run_id, recipe_id, recipe_revision, recipe_kind,
                     parameter_fingerprint, graph_fingerprint, parent_run_id,
-                    source_behavior, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    credential_scope, source_behavior, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -285,6 +296,7 @@ class _RunDatabase:
                     parameter_fingerprint,
                     graph_fingerprint,
                     parent_run_id,
+                    credential_scope,
                     source_behavior,
                     created_at.isoformat(),
                 ),
@@ -486,6 +498,83 @@ class _RunDatabase:
             ).fetchall()
         return tuple(_binding(row) for row in rows)
 
+    def find_checkpoint(
+        self,
+        *,
+        node_fingerprint: str,
+        output_name: str,
+        scope: _CheckpointScope,
+        parent_run_id: str | None,
+        credential_scope: str,
+    ) -> _CheckpointCandidate | None:
+        """Find compatible content under an explicit freshness-safe scope."""
+        if scope == "none":
+            return None
+        with self._lock:
+            row: sqlite3.Row | None = None
+            if scope in {"parent", "parent_then_global"}:
+                if parent_run_id is None:
+                    raise CFBDPersistenceError(category="checkpoint_scope")
+                row = self._connection.execute(
+                    """
+                    WITH RECURSIVE ancestry(run_id, parent_run_id, depth) AS (
+                        SELECT run_id, parent_run_id, 0
+                        FROM runs WHERE run_id = ?
+                        UNION ALL
+                        SELECT parent.run_id, parent.parent_run_id, ancestry.depth + 1
+                        FROM runs AS parent
+                        JOIN ancestry ON parent.run_id = ancestry.parent_run_id
+                    )
+                    SELECT binding.*, object.manifest_json
+                    FROM ancestry
+                    JOIN runs AS run ON run.run_id = ancestry.run_id
+                    JOIN node_artifact_bindings AS binding
+                      ON binding.run_id = ancestry.run_id
+                    JOIN artifact_objects AS object
+                      ON object.content_digest = binding.content_digest
+                    WHERE binding.node_fingerprint = ?
+                      AND binding.output_name = ?
+                      AND run.credential_scope = ?
+                    ORDER BY ancestry.depth, binding.binding_id DESC
+                    LIMIT 1
+                    """,
+                    (
+                        parent_run_id,
+                        node_fingerprint,
+                        output_name,
+                        credential_scope,
+                    ),
+                ).fetchone()
+            if row is None and scope in {"global", "parent_then_global"}:
+                row = self._connection.execute(
+                    """
+                    SELECT binding.*, object.manifest_json
+                    FROM node_artifact_bindings AS binding
+                    JOIN runs AS run ON run.run_id = binding.run_id
+                    JOIN artifact_objects AS object
+                      ON object.content_digest = binding.content_digest
+                    WHERE binding.node_fingerprint = ?
+                      AND binding.output_name = ?
+                      AND run.credential_scope = ?
+                    ORDER BY binding.binding_id DESC
+                    LIMIT 1
+                    """,
+                    (node_fingerprint, output_name, credential_scope),
+                ).fetchone()
+        if row is None:
+            return None
+        try:
+            manifest = _ArtifactManifest.model_validate_json(
+                str(row["manifest_json"]),
+                strict=True,
+            )
+        except ValueError as exc:
+            raise CFBDArtifactCorruptionError(
+                content_digest=str(row["content_digest"]),
+                category="database_manifest",
+            ) from exc
+        return _CheckpointCandidate(binding=_binding(row), manifest=manifest)
+
     def node_state(self, run_id: str, node_id: str) -> _NodeState | None:
         """Return the latest node state without mutating durable evidence."""
         with self._lock:
@@ -537,18 +626,23 @@ class _RunDatabase:
     def _migrate(self) -> None:
         with self._lock:
             version = self._connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in {0, 1}:
+            if version not in {0, 1, 2}:
                 raise CFBDPersistenceError(category="database_version")
-            if version == 1:
+            if version == 2:
                 return
+            migration = _SCHEMA_V1 if version == 0 else _SCHEMA_V2
+            target_version = 1 if version == 0 else 2
             try:
                 self._connection.executescript(
-                    f"BEGIN IMMEDIATE;\n{_SCHEMA_V1}\nPRAGMA user_version = 1;\nCOMMIT;"
+                    f"BEGIN IMMEDIATE;\n{migration}\n"
+                    f"PRAGMA user_version = {target_version};\nCOMMIT;"
                 )
             except Exception:
                 if self._connection.in_transaction:
                     self._connection.execute("ROLLBACK")
                 raise
+            if target_version == 1:
+                self._migrate()
 
 
 def _run_record(row: sqlite3.Row) -> _RunRecord:
@@ -561,6 +655,7 @@ def _run_record(row: sqlite3.Row) -> _RunRecord:
         recipe_kind=_recipe_kind(row["recipe_kind"]),
         parameter_fingerprint=str(row["parameter_fingerprint"]),
         graph_fingerprint=str(row["graph_fingerprint"]),
+        credential_scope=str(row["credential_scope"]),
         parent_run_id=(
             None if row["parent_run_id"] is None else str(row["parent_run_id"])
         ),
@@ -744,6 +839,10 @@ BEGIN SELECT RAISE(ABORT, 'bindings are immutable'); END;
 CREATE TRIGGER bindings_are_immutable_delete
 BEFORE DELETE ON node_artifact_bindings
 BEGIN SELECT RAISE(ABORT, 'bindings are immutable'); END;
+"""
+
+_SCHEMA_V2: Final = """
+ALTER TABLE runs ADD COLUMN credential_scope TEXT NOT NULL DEFAULT '';
 """
 
 

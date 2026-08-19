@@ -129,6 +129,7 @@ def test_run_database_commits_artifact_binding_and_success_last(
             recipe_kind="dataset",
             parameter_fingerprint="a" * 64,
             graph_fingerprint="b" * 64,
+            credential_scope="scope-a",
         )
         database.transition_run(run.run_id, "running")
         database.transition_node(run.run_id, "source:games", "ready")
@@ -162,6 +163,7 @@ def test_run_and_transition_rows_are_database_immutable(tmp_path: Path) -> None:
         recipe_kind="dataset",
         parameter_fingerprint="a" * 64,
         graph_fingerprint="b" * 64,
+        credential_scope="scope-a",
     )
     database.close()
 
@@ -190,6 +192,7 @@ def test_recovery_run_is_a_new_immutable_child(tmp_path: Path) -> None:
             recipe_kind="dataset",
             parameter_fingerprint="a" * 64,
             graph_fingerprint="b" * 64,
+            credential_scope="scope-a",
         )
         database.transition_run(parent.run_id, "failed", node_id="step:clean")
         child = database.create_run(
@@ -198,6 +201,7 @@ def test_recovery_run_is_a_new_immutable_child(tmp_path: Path) -> None:
             recipe_kind=parent.recipe_kind,
             parameter_fingerprint=parent.parameter_fingerprint,
             graph_fingerprint=parent.graph_fingerprint,
+            credential_scope=parent.credential_scope,
             parent_run_id=parent.run_id,
             source_behavior="preserve_snapshot",
         )
@@ -219,6 +223,7 @@ def test_invalid_state_transition_rolls_back_without_evidence(tmp_path: Path) ->
             recipe_kind="dataset",
             parameter_fingerprint="a" * 64,
             graph_fingerprint="b" * 64,
+            credential_scope="scope-a",
         )
 
         with pytest.raises(CFBDPersistenceError) as exc_info:
@@ -244,6 +249,7 @@ def test_binding_failure_leaves_published_object_as_unbound_orphan(
             recipe_kind="dataset",
             parameter_fingerprint="a" * 64,
             graph_fingerprint="b" * 64,
+            credential_scope="scope-a",
         )
 
         with pytest.raises(CFBDPersistenceError):
