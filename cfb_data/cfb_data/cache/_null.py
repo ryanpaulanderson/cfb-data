@@ -43,7 +43,7 @@ from cfb_data.cache._identity_codecs import (
     team_identity,
     venue_identity,
 )
-from cfb_data.cache._models import ResponseRecord
+from cfb_data.cache._models import ResponsePeek, ResponsePeekStatus, ResponseRecord
 
 if TYPE_CHECKING:
     from cfb_data.conferences.models.pydantic.identity import ConferenceIdentity
@@ -80,6 +80,10 @@ class NullCacheBackend:
     async def get_response(self, key: str, now: datetime) -> ResponseRecord | None:
         """Return no persisted response record."""
         return None
+
+    async def peek_response(self, key: str, now: datetime) -> ResponsePeek:
+        """Report that disabled response persistence has no record."""
+        return ResponsePeek(ResponsePeekStatus.missing)
 
     async def commit_response(
         self, record: ResponseRecord, projection: CatalogProjection

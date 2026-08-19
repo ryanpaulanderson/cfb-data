@@ -4,7 +4,7 @@ import asyncio
 import json
 import sqlite3
 import stat
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -30,7 +30,7 @@ from cfb_data._catalog.models import (
     VocabularyFact,
 )
 from cfb_data._catalog.projection import CatalogSink, ObservationAuthority
-from cfb_data.cache._models import ResponseRecord
+from cfb_data.cache._models import ResponsePeekStatus, ResponseRecord
 from cfb_data.cache._sqlite import SQLiteCacheBackend
 from cfb_data.cache.config import SQLiteCacheConfig
 from cfb_data.errors import CFBDCacheBackendError
@@ -119,6 +119,38 @@ def _team_observation(
         observed_fields=frozenset(observed),
     )
     return sink.projection()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_peek_reports_expiry_without_deleting_the_record(
+    tmp_path: Path,
+) -> None:
+    """Keep inspection logically read-only for retained and expired records."""
+    path = tmp_path / "peek" / "cache.sqlite3"
+    now = datetime(2026, 8, 19, tzinfo=UTC)
+    retained = _record(now)
+    expired = replace(
+        retained,
+        key="b" * 64,
+        fresh_until=now - timedelta(days=2),
+        retained_until=now - timedelta(days=1),
+    )
+    backend = await SQLiteCacheBackend(SQLiteCacheConfig(path=path)).open()
+    await backend.commit_response(retained, CatalogProjection())
+    await backend.commit_response(expired, CatalogProjection())
+
+    first = await backend.peek_response(expired.key, now)
+    second = await backend.peek_response(expired.key, now)
+    present = await backend.peek_response(retained.key, now)
+    missing = await backend.peek_response("c" * 64, now)
+
+    assert first.status is ResponsePeekStatus.expired
+    assert second == first
+    assert first.record == expired
+    assert present.status is ResponsePeekStatus.retained
+    assert present.record == retained
+    assert missing.status is ResponsePeekStatus.missing
+    await backend.close()
 
 
 def _recruit_observation(

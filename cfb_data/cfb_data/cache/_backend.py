@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Protocol, Self
 
 from cfb_data._catalog.models import CatalogCounts, CatalogProjection
-from cfb_data.cache._models import ResponseRecord
+from cfb_data.cache._models import ResponsePeek, ResponseRecord
 
 if TYPE_CHECKING:
     from cfb_data.conferences.models.pydantic.identity import ConferenceIdentity
@@ -33,6 +33,10 @@ class ResponseStore(Protocol):
 
     async def get_response(self, key: str, now: datetime) -> ResponseRecord | None:
         """Return one retained response or ``None`` after removing expiry."""
+        ...
+
+    async def peek_response(self, key: str, now: datetime) -> ResponsePeek:
+        """Inspect one response without deleting, repairing, or refreshing it."""
         ...
 
     async def delete_response(self, key: str) -> None:
