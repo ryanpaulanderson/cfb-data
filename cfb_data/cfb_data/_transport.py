@@ -60,8 +60,21 @@ _ATTEMPT_RESERVATION: ContextVar[_AttemptReservation | None] = ContextVar(
 def _attempt_reservation_context(
     reservation: _AttemptReservation,
 ) -> Iterator[None]:
-    """Bind a task-local durable reservation immediately before HTTP dispatch."""
-    token = _ATTEMPT_RESERVATION.set(reservation)
+    """Add a task-local durable reservation before each HTTP dispatch.
+
+    Nested owners compose from outermost to innermost so a process-wide quota
+    and a run-scoped budget can independently fail closed before transport.
+    """
+    parent = _ATTEMPT_RESERVATION.get()
+    if parent is None:
+        combined = reservation
+    else:
+
+        async def combined(endpoint: str, attempt: int) -> None:
+            await parent(endpoint, attempt)
+            await reservation(endpoint, attempt)
+
+    token = _ATTEMPT_RESERVATION.set(combined)
     try:
         yield
     finally:

@@ -233,6 +233,38 @@ async def test_each_retry_is_reserved_immediately_before_dispatch(
 
 
 @pytest.mark.asyncio
+async def test_nested_attempt_reservations_compose_before_dispatch(
+    api_server: ServerFactory,
+) -> None:
+    """Reserve global and run-scoped budgets in deterministic order."""
+    sequence: list[str] = []
+
+    async def global_reservation(endpoint: str, attempt: int) -> None:
+        sequence.append(f"global:{endpoint}:{attempt}")
+
+    async def run_reservation(endpoint: str, attempt: int) -> None:
+        sequence.append(f"run:{endpoint}:{attempt}")
+
+    async def handler(request: web.Request) -> web.Response:
+        sequence.append("dispatch")
+        return web.json_response([])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient("key", base_url=base_url) as client:
+            with (
+                _attempt_reservation_context(global_reservation),
+                _attempt_reservation_context(run_reservation),
+            ):
+                await client.games.calendar(year=2024)
+
+    assert sequence == [
+        "global:/calendar:1",
+        "run:/calendar:1",
+        "dispatch",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_failed_attempt_reservation_prevents_dispatch(
     api_server: ServerFactory,
 ) -> None:
