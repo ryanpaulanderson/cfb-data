@@ -60,6 +60,17 @@ class CFBDArtifactCorruptionError(CFBDArtifactError):
         super().__init__(f"Artifact {object_id} is invalid ({category})")
 
 
+class CFBDPersistenceError(CFBDAnalyticsError):
+    """Report a safe analytics persistence failure."""
+
+    category: str
+
+    def __init__(self, *, category: str) -> None:
+        """Initialize a redacted persistence failure."""
+        self.category = category
+        super().__init__(f"Analytics persistence failed ({category})")
+
+
 class CFBDRunError(CFBDAnalyticsError):
     """Report a safely identified analytics execution failure."""
 
@@ -85,6 +96,7 @@ __all__ = [
     "CFBDArtifactCodecError",
     "CFBDArtifactCorruptionError",
     "CFBDArtifactError",
+    "CFBDPersistenceError",
     "CFBDRecipeCompilationError",
     "CFBDRecipeConfigurationError",
     "CFBDRecipeDiscoveryError",

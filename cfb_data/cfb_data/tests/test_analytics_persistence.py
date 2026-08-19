@@ -1,0 +1,271 @@
+"""Test immutable analytics objects and append-only run evidence."""
+
+from __future__ import annotations
+
+import os
+import sqlite3
+import stat
+from datetime import UTC, datetime
+from pathlib import Path
+
+import pyarrow as pa
+import pytest
+from cfb_data._tabular import (
+    _analytics_arrow_table_from_models,
+    _AnalyticsTableIdentity,
+)
+from cfb_data.analytics._artifacts import _TableArtifactCodec
+from cfb_data.analytics._persistence import (
+    _analytics_root,
+    _ArtifactObjectStore,
+    _RunDatabase,
+    _StoredArtifact,
+)
+from cfb_data.analytics.config import AnalyticsConfig
+from cfb_data.analytics.errors import (
+    CFBDArtifactCorruptionError,
+    CFBDPersistenceError,
+)
+from pydantic import BaseModel, ConfigDict
+
+
+class _ArtifactRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    game_id: int
+    score: int | None
+
+
+_IDENTITY = _AnalyticsTableIdentity(output_id="cfbd.persistence_test", revision=1)
+_NOW = datetime(2026, 8, 19, 12, 0, tzinfo=UTC)
+
+
+def _table() -> pa.Table:
+    return _analytics_arrow_table_from_models(
+        row_model=_ArtifactRow,
+        models=[_ArtifactRow(game_id=1, score=28)],
+        identity=_IDENTITY,
+    )
+
+
+def _publish(store: _ArtifactObjectStore) -> _StoredArtifact:
+    with store.staging_directory() as directory:
+        staged = _TableArtifactCodec().stage(
+            directory=directory,
+            table=_table(),
+            row_model=_ArtifactRow,
+            identity=_IDENTITY,
+        )
+        return store.publish(staged)
+
+
+def test_root_resolution_does_not_create_files(tmp_path: Path) -> None:
+    root = tmp_path / "not-created"
+
+    resolved = _analytics_root(AnalyticsConfig(root=root))
+
+    assert resolved == root
+    assert not root.exists()
+
+
+def test_object_store_publishes_and_deduplicates_content(tmp_path: Path) -> None:
+    store = _ArtifactObjectStore(tmp_path / "analytics")
+
+    first = _publish(store)
+    second = _publish(store)
+    directory = store.directory(first.content_digest)
+
+    assert first == second
+    assert store.load_manifest(first.content_digest) == first.manifest
+    assert sorted(path.name for path in directory.iterdir()) == [
+        "manifest.json",
+        "part-00000.parquet",
+    ]
+    assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+    assert all(
+        stat.S_IMODE(path.stat().st_mode) == 0o600 for path in directory.iterdir()
+    )
+    staging = tmp_path / "analytics" / "objects" / "sha256" / "staging"
+    assert not any(staging.iterdir())
+
+
+def test_object_store_cleans_abandoned_staging(tmp_path: Path) -> None:
+    store = _ArtifactObjectStore(tmp_path / "analytics")
+
+    with store.staging_directory() as directory:
+        abandoned = directory
+        (directory / "partial").write_bytes(b"partial")
+
+    assert not abandoned.exists()
+
+
+@pytest.mark.parametrize(
+    "content_digest",
+    ["../escape", "g" * 64, "0" * 63, "/" + "0" * 64],
+)
+def test_object_store_rejects_unsafe_content_identities(
+    tmp_path: Path,
+    content_digest: str,
+) -> None:
+    store = _ArtifactObjectStore(tmp_path / "analytics")
+
+    with pytest.raises(CFBDArtifactCorruptionError) as exc_info:
+        store.load_manifest(content_digest)
+
+    assert exc_info.value.category == "identity"
+
+
+def test_run_database_commits_artifact_binding_and_success_last(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+    artifact = _publish(store)
+    database = _RunDatabase(root / "runs.sqlite3", clock=lambda: _NOW)
+    try:
+        run = database.create_run(
+            recipe_id="cfbd.game_summaries",
+            recipe_revision=1,
+            recipe_kind="dataset",
+            parameter_fingerprint="a" * 64,
+            graph_fingerprint="b" * 64,
+        )
+        database.transition_run(run.run_id, "running")
+        database.transition_node(run.run_id, "source:games", "ready")
+        database.transition_node(run.run_id, "source:games", "running")
+
+        binding = database.bind_completed_node(
+            run_id=run.run_id,
+            node_id="source:games",
+            output_name="value",
+            node_fingerprint="c" * 64,
+            artifact=artifact,
+            placement="coordinator",
+        )
+        completed = database.transition_run(run.run_id, "completed")
+
+        assert binding.content_digest == artifact.content_digest
+        assert database.bindings(run.run_id) == (binding,)
+        assert database.node_state(run.run_id, "source:games") == "completed"
+        assert completed.state == "completed"
+        assert completed.created_at == _NOW
+    finally:
+        database.close()
+
+
+def test_run_and_transition_rows_are_database_immutable(tmp_path: Path) -> None:
+    path = tmp_path / "analytics" / "runs.sqlite3"
+    database = _RunDatabase(path, clock=lambda: _NOW)
+    run = database.create_run(
+        recipe_id="cfbd.game_summaries",
+        recipe_revision=1,
+        recipe_kind="dataset",
+        parameter_fingerprint="a" * 64,
+        graph_fingerprint="b" * 64,
+    )
+    database.close()
+
+    connection = sqlite3.connect(path)
+    try:
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            connection.execute(
+                "UPDATE runs SET recipe_id = 'changed' WHERE run_id = ?",
+                (run.run_id,),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            connection.execute(
+                "DELETE FROM run_transitions WHERE run_id = ?",
+                (run.run_id,),
+            )
+    finally:
+        connection.close()
+
+
+def test_recovery_run_is_a_new_immutable_child(tmp_path: Path) -> None:
+    database = _RunDatabase(tmp_path / "runs.sqlite3", clock=lambda: _NOW)
+    try:
+        parent = database.create_run(
+            recipe_id="cfbd.game_summaries",
+            recipe_revision=1,
+            recipe_kind="dataset",
+            parameter_fingerprint="a" * 64,
+            graph_fingerprint="b" * 64,
+        )
+        database.transition_run(parent.run_id, "failed", node_id="step:clean")
+        child = database.create_run(
+            recipe_id=parent.recipe_id,
+            recipe_revision=parent.recipe_revision,
+            recipe_kind=parent.recipe_kind,
+            parameter_fingerprint=parent.parameter_fingerprint,
+            graph_fingerprint=parent.graph_fingerprint,
+            parent_run_id=parent.run_id,
+            source_behavior="preserve_snapshot",
+        )
+
+        assert child.run_id != parent.run_id
+        assert child.parent_run_id == parent.run_id
+        assert child.source_behavior == "preserve_snapshot"
+        assert database.get_run(parent.run_id).state == "failed"
+    finally:
+        database.close()
+
+
+def test_invalid_state_transition_rolls_back_without_evidence(tmp_path: Path) -> None:
+    database = _RunDatabase(tmp_path / "runs.sqlite3", clock=lambda: _NOW)
+    try:
+        run = database.create_run(
+            recipe_id="cfbd.game_summaries",
+            recipe_revision=1,
+            recipe_kind="dataset",
+            parameter_fingerprint="a" * 64,
+            graph_fingerprint="b" * 64,
+        )
+
+        with pytest.raises(CFBDPersistenceError) as exc_info:
+            database.transition_run(run.run_id, "completed")
+
+        assert exc_info.value.category == "run_transition"
+        assert database.get_run(run.run_id).state == "created"
+    finally:
+        database.close()
+
+
+def test_binding_failure_leaves_published_object_as_unbound_orphan(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+    artifact = _publish(store)
+    database = _RunDatabase(root / "runs.sqlite3", clock=lambda: _NOW)
+    try:
+        run = database.create_run(
+            recipe_id="cfbd.game_summaries",
+            recipe_revision=1,
+            recipe_kind="dataset",
+            parameter_fingerprint="a" * 64,
+            graph_fingerprint="b" * 64,
+        )
+
+        with pytest.raises(CFBDPersistenceError):
+            database.bind_completed_node(
+                run_id=run.run_id,
+                node_id="step:never-started",
+                output_name="value",
+                node_fingerprint="c" * 64,
+                artifact=artifact,
+                placement="local",
+            )
+
+        assert database.bindings(run.run_id) == ()
+        assert database.node_state(run.run_id, "step:never-started") is None
+        assert store.load_manifest(artifact.content_digest) == artifact.manifest
+    finally:
+        database.close()
+
+
+def test_database_file_uses_private_permissions(tmp_path: Path) -> None:
+    path = tmp_path / "runs.sqlite3"
+    database = _RunDatabase(path)
+    database.close()
+
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
