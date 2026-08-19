@@ -308,8 +308,9 @@ independent, Python can overlap the time spent waiting for their responses.
 
 DataFrame calculations sit on the other side of that boundary. Gather the
 endpoint results with the async client, then pass the completed pandas or
-Polars frames into ordinary synchronous analysis—or, as those features are
-added, into cfb-data's synchronous dataset and workflow layers.
+Polars frames into ordinary analysis. A future modular recipe layer is
+[proposed, but not implemented](../architecture/0006-modular-analytics-recipes.md)
+to coordinate the same retrieval and transformation boundary.
 
 ![Timeline comparing three sequential API waits with three overlapping waits started with asyncio gather.](../images/async-overlap.svg)
 

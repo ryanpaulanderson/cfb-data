@@ -78,6 +78,8 @@ architecture/0002-heterogeneous-stat-scalars
 architecture/0003-canonical-arrow-parquet
 architecture/0004-api-cache-identity-catalog
 architecture/0005-client-retrieval-observability
+architecture/0006-modular-analytics-recipes
+architecture/analytics-foundation-plan
 notices-of-decision/README
 notices-of-decision/0001-canonical-nested-tabular-representation
 ```

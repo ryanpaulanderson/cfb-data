@@ -78,15 +78,18 @@ storage implementation.
 ## Not included yet
 
 - Polars `LazyFrame` results.
-- Public dataset or workflow namespaces that join several endpoints for you.
+- A supported modular dataset or workflow recipe layer that joins several
+  endpoints for you.
 - Public save/load methods for the package's internal Parquet format.
 - Automatic flattening, exploding, or feature engineering for nested data.
 - Raw JSON and a generic path-based request method.
 
-Users can already perform these transformations with ordinary synchronous
-pandas or Polars operations. Future dataset and workflow helpers will
-orchestrate completed results on that synchronous side of the retrieval
-boundary, without changing the source-shaped endpoint results underneath them.
+Users can already perform these transformations with ordinary pandas or Polars
+operations. A future modular recipe layer is proposed in [ADR
+0006](architecture/0006-modular-analytics-recipes.md); it will coordinate
+retrieval and transformation above the source-shaped endpoint boundary without
+changing the endpoint results underneath it. That recipe API is not implemented
+or supported yet.
 
 ## Architecture and contributor details
 
