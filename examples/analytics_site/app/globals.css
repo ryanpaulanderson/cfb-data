@@ -1,0 +1,163 @@
+@import "tailwindcss";
+
+:root { --ink: #0a1726; --paper: #f2f0e9; --white: #fbfaf5; --signal: #c7ff3d; --red: #d84f3d; --muted: #647080; --line: rgba(10, 23, 38, 0.16); }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: Arial, Helvetica, sans-serif; }
+a { color: inherit; text-decoration: none; }
+main { min-height: 100vh; overflow: hidden; }
+.site-header { align-items: center; border-bottom: 1px solid var(--line); display: grid; gap: 24px; grid-template-columns: 1fr auto 1fr; margin: 0 auto; max-width: 1480px; padding: 24px 42px; }
+.wordmark { align-items: center; display: flex; font-weight: 800; gap: 12px; letter-spacing: .08em; }
+.wordmark-mark { align-items: center; background: var(--ink); color: var(--signal); display: flex; font: 700 13px/1 "Courier New", monospace; height: 38px; justify-content: center; width: 38px; }
+.wordmark small { display: block; font: 500 10px/1.5 "Courier New", monospace; opacity: .55; }
+.site-header nav { display: flex; font: 600 10px/1 "Courier New", monospace; gap: 24px; letter-spacing: .08em; text-transform: uppercase; }
+.site-header nav a { border-bottom: 1px solid transparent; padding: 8px 0; }
+.site-header nav a:hover, .site-header nav a:focus-visible { border-color: currentColor; }
+.validation-pill { align-items: center; display: flex; font: 600 11px/1 "Courier New", monospace; gap: 9px; justify-self: end; letter-spacing: .03em; }
+.validation-pill span { background: #53a93f; border-radius: 99px; box-shadow: 0 0 0 4px rgba(83,169,63,.13); height: 7px; width: 7px; }
+.hero { display: grid; gap: 60px; grid-template-columns: minmax(0, 1fr) 310px; margin: 0 auto; max-width: 1480px; padding: 100px 42px 88px; }
+.eyebrow { font: 700 11px/1.3 "Courier New", monospace; letter-spacing: .12em; margin: 0 0 22px; text-transform: uppercase; }
+.hero h1 { font: 500 clamp(64px, 8.2vw, 126px)/.84 Georgia, serif; letter-spacing: -.072em; margin: 0; max-width: 1050px; }
+.hero h1 em { background: var(--signal); font-style: normal; padding: 0 .05em; }
+.deck { font: 400 19px/1.5 Georgia, serif; margin: 38px 0 0; max-width: 610px; }
+.hero-aside { align-self: end; background: var(--ink); color: var(--white); padding: 28px; }
+.hero-aside > p { font: 700 12px/1 "Courier New", monospace; letter-spacing: .08em; margin: 0 0 16px; text-transform: uppercase; }
+.hero-aside > strong { color: var(--signal); display: block; font: 500 76px/.9 Georgia, serif; letter-spacing: -.06em; }
+.hero-aside > span { display: block; font-size: 13px; margin-top: 10px; opacity: .68; }
+.hero-rule { background: rgba(255,255,255,.18); height: 1px; margin: 26px 0; }
+.hero-aside dl { display: grid; gap: 20px; grid-template-columns: 1fr 1fr; margin: 0; }
+.hero-aside dt { font: 500 9px/1.4 "Courier New", monospace; opacity: .58; text-transform: uppercase; }
+.hero-aside dd { font: 700 22px/1 Georgia, serif; margin: 6px 0 0; }
+.metric-strip { background: var(--ink); color: var(--white); display: grid; grid-template-columns: repeat(4, 1fr); }
+.metric-strip article { border-right: 1px solid rgba(255,255,255,.14); min-height: 188px; padding: 28px 34px; position: relative; }
+.metric-strip article:last-child { border-right: 0; }
+.metric-strip article > span { font: 400 10px/1 "Courier New", monospace; opacity: .4; position: absolute; right: 22px; top: 22px; }
+.metric-strip strong { color: var(--signal); display: block; font: 500 62px/1 Georgia, serif; letter-spacing: -.055em; margin-top: 26px; }
+.metric-strip p { font: 600 11px/1.2 "Courier New", monospace; margin: 11px 0 0; opacity: .68; text-transform: uppercase; }
+.season-section, .game-detail, .recruiting-section { margin: 0 auto; max-width: 1480px; padding: 110px 42px; }
+.section-heading { align-items: end; display: grid; gap: 60px; grid-template-columns: 1fr 360px; margin-bottom: 64px; }
+.section-heading.compact { margin-bottom: 52px; }
+.section-heading h2, .runtime-intro h2 { font: 500 clamp(42px, 5vw, 72px)/.95 Georgia, serif; letter-spacing: -.05em; margin: 0; }
+.section-heading > p, .runtime-intro > p { color: var(--muted); font: 16px/1.55 Georgia, serif; margin: 0; }
+.schedule-chart { border-top: 1px solid var(--ink); }
+.schedule-row { align-items: center; border-bottom: 1px solid var(--line); display: grid; gap: 18px; grid-template-columns: 52px 190px 1fr 54px; min-height: 45px; }
+.week { font: 600 10px/1 "Courier New", monospace; opacity: .55; }
+.opponent { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { height: 8px; }
+.bar { height: 100%; min-width: 8px; }
+.bar.positive { background: var(--ink); }
+.bar.negative { background: var(--red); }
+.schedule-row > strong { font: 700 12px/1 "Courier New", monospace; text-align: right; }
+.schedule-row > strong.loss { color: var(--red); }
+.season-notes { display: grid; gap: 1px; grid-template-columns: repeat(3, 1fr); margin-top: 56px; }
+.season-notes article { background: var(--white); min-height: 164px; padding: 28px; }
+.season-notes span, .mini-heading, .recipe-proof span, .ledger-proof span { font: 700 10px/1.3 "Courier New", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.season-notes strong { display: block; font: 500 38px/1 Georgia, serif; letter-spacing: -.04em; margin: 20px 0 9px; }
+.season-notes p { color: var(--muted); font: 14px/1.45 Georgia, serif; margin: 0; }
+.game-feature { background: var(--white); display: grid; grid-template-columns: 1.6fr 1fr; }
+.game-score { padding: 90px max(42px, calc((100vw - 1396px) / 2)); }
+.scoreline { align-items: end; display: flex; gap: 28px; margin-top: 36px; }
+.scoreline div { display: flex; flex-direction: column; }
+.scoreline span { font: 700 13px/1 "Courier New", monospace; text-transform: uppercase; }
+.scoreline strong { font: 500 clamp(70px, 8vw, 116px)/.85 Georgia, serif; letter-spacing: -.07em; }
+.scoreline i { font: 400 52px/1 Georgia, serif; margin-bottom: 10px; }
+.game-caption { font: 18px/1.5 Georgia, serif; margin: 38px 0 0; max-width: 620px; }
+.game-numbers { background: var(--signal); display: grid; grid-template-rows: repeat(3, 1fr); padding: 40px; }
+.game-numbers div { align-items: center; border-bottom: 1px solid rgba(10,23,38,.25); display: flex; justify-content: space-between; }
+.game-numbers div:last-child { border-bottom: 0; }
+.game-numbers strong { font: 500 58px/1 Georgia, serif; letter-spacing: -.05em; }
+.game-numbers span { font: 700 10px/1.3 "Courier New", monospace; max-width: 125px; text-align: right; text-transform: uppercase; }
+.team-comparison { display: grid; gap: 18px; grid-template-columns: 1fr 1fr; }
+.team-comparison article { border: 1px solid var(--ink); padding: 32px; }
+.team-comparison h3 { font: 500 40px/1 Georgia, serif; letter-spacing: -.04em; margin: 0 0 32px; }
+.team-comparison dl { display: grid; gap: 1px; grid-template-columns: 1fr 1fr; margin: 0; }
+.team-comparison dl div { background: rgba(10,23,38,.055); padding: 18px; }
+.team-comparison dt { font: 700 9px/1.3 "Courier New", monospace; text-transform: uppercase; }
+.team-comparison dd { font: 500 28px/1 Georgia, serif; margin: 10px 0 0; }
+.detail-grid { display: grid; gap: 18px; grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr); margin-top: 18px; }
+.big-play-list, .market-card { background: var(--white); padding: 32px; }
+.mini-heading { display: flex; justify-content: space-between; }
+.mini-heading span:last-child { color: var(--muted); font-weight: 500; }
+.big-play-list ol { list-style: none; margin: 24px 0 0; padding: 0; }
+.big-play-list li { align-items: start; border-top: 1px solid var(--line); display: grid; gap: 18px; grid-template-columns: 58px 1fr 82px; padding: 19px 0; }
+.big-play-list li > strong { font: 500 36px/1 Georgia, serif; }
+.big-play-list li span { font: 700 9px/1.3 "Courier New", monospace; text-transform: uppercase; }
+.big-play-list li p { font: 14px/1.4 Georgia, serif; margin: 7px 0 0; }
+.big-play-list li em { font: 600 10px/1.2 "Courier New", monospace; text-align: right; }
+.market-card { background: var(--ink); color: var(--white); }
+.market-card h3 { color: var(--signal); font: 500 38px/1 Georgia, serif; letter-spacing: -.04em; margin: 0 0 22px; }
+.market-card > p:not(.eyebrow) { color: rgba(255,255,255,.68); font: 15px/1.5 Georgia, serif; }
+.market-card table { border-collapse: collapse; font: 11px/1.3 "Courier New", monospace; margin-top: 40px; width: 100%; }
+.market-card th, .market-card td { border-bottom: 1px solid rgba(255,255,255,.18); padding: 15px 0; text-align: right; }
+.market-card th:first-child { text-align: left; }
+.market-card thead { color: rgba(255,255,255,.5); text-transform: uppercase; }
+.recruiting-section { padding-top: 42px; }
+.recruit-grid { display: grid; gap: 1px; grid-template-columns: repeat(5, 1fr); }
+.recruit-grid article { background: var(--ink); color: var(--white); min-height: 300px; padding: 24px; }
+.recruit-grid article > span { color: var(--signal); font: 500 30px/1 Georgia, serif; }
+.recruit-grid article > p { font: 600 9px/1.3 "Courier New", monospace; margin: 64px 0 10px; opacity: .55; text-transform: uppercase; }
+.recruit-grid h3 { font: 500 27px/1.05 Georgia, serif; letter-spacing: -.03em; margin: 0; min-height: 62px; }
+.recruit-grid dl { border-top: 1px solid rgba(255,255,255,.2); display: grid; grid-template-columns: 1fr 1fr; margin: 32px 0 0; padding-top: 18px; }
+.recruit-grid dt { font: 500 8px/1 "Courier New", monospace; opacity: .5; text-transform: uppercase; }
+.recruit-grid dd { font: 700 13px/1 "Courier New", monospace; margin: 8px 0 0; }
+.runtime-section { background: var(--ink); color: var(--white); padding: 110px max(42px, calc((100vw - 1396px) / 2)); }
+.runtime-intro { display: grid; gap: 60px; grid-template-columns: 1fr 1fr; }
+.runtime-intro .eyebrow { grid-column: 1 / -1; margin-bottom: -25px; }
+.runtime-intro h2 { color: var(--signal); }
+.runtime-intro > p { color: rgba(255,255,255,.62); max-width: 500px; }
+.runtime-table-wrap { margin-top: 70px; overflow-x: auto; }
+.runtime-table { border-collapse: collapse; font: 12px/1.3 "Courier New", monospace; width: 100%; }
+.runtime-table th, .runtime-table td { border-bottom: 1px solid rgba(255,255,255,.18); padding: 20px 16px; text-align: right; }
+.runtime-table th:first-child { text-align: left; }
+.runtime-table thead { color: rgba(255,255,255,.45); text-transform: uppercase; }
+.match-dot { background: var(--signal); border-radius: 99px; display: inline-block; height: 7px; margin-right: 9px; width: 7px; }
+.runtime-evidence { display: grid; gap: 1px; grid-template-columns: repeat(4, 1fr); margin-top: 56px; }
+.runtime-evidence article { background: rgba(255,255,255,.06); min-height: 160px; padding: 24px; }
+.runtime-evidence strong { color: var(--signal); display: block; font: 500 48px/1 Georgia, serif; }
+.runtime-evidence span { display: block; font: 600 9px/1.4 "Courier New", monospace; margin-top: 30px; max-width: 130px; text-transform: uppercase; }
+.recipe-proof { display: grid; gap: 28px; grid-template-columns: repeat(3, 1fr); margin-top: 76px; }
+.recipe-proof div { border-top: 1px solid rgba(255,255,255,.25); padding-top: 22px; }
+.recipe-proof span { color: rgba(255,255,255,.45); display: block; }
+.recipe-proof code { color: var(--signal); display: block; font: 700 13px/1.4 "Courier New", monospace; margin: 20px 0 10px; }
+.recipe-proof p { color: rgba(255,255,255,.65); font: 14px/1.5 Georgia, serif; margin: 0; }
+footer { align-items: end; background: var(--signal); display: flex; justify-content: space-between; padding: 62px max(42px, calc((100vw - 1396px) / 2)); }
+footer > div > strong { font: 800 14px/1 "Courier New", monospace; letter-spacing: .08em; }
+footer p { font: 13px/1.4 Georgia, serif; margin: 10px 0 0; }
+.ledger-proof { text-align: right; }
+.ledger-proof strong { display: block; font: 500 34px/1 Georgia, serif; margin-top: 8px; }
+@media (max-width: 980px) { .recruit-grid { grid-template-columns: repeat(2, 1fr); } .recruit-grid article:last-child { grid-column: 1 / -1; } .detail-grid { grid-template-columns: 1fr; } }
+@media (max-width: 800px) {
+  .site-header { grid-template-columns: 1fr auto; padding: 18px 20px; }
+  .site-header nav { display: none; }
+  .validation-pill { font-size: 0; }
+  .hero { grid-template-columns: 1fr; padding: 72px 20px 56px; }
+  .hero-aside { width: 100%; }
+  .metric-strip { grid-template-columns: 1fr 1fr; }
+  .metric-strip article:nth-child(2) { border-right: 0; }
+  .metric-strip article { border-bottom: 1px solid rgba(255,255,255,.14); min-height: 150px; padding: 24px; }
+  .metric-strip strong { font-size: 48px; }
+  .season-section, .game-detail, .recruiting-section { padding: 78px 20px; }
+  .section-heading, .runtime-intro { align-items: start; grid-template-columns: 1fr; }
+  .runtime-intro .eyebrow { grid-column: auto; margin-bottom: 0; }
+  .schedule-row { gap: 10px; grid-template-columns: 34px 120px 1fr 40px; }
+  .season-notes, .team-comparison { grid-template-columns: 1fr; }
+  .game-feature { grid-template-columns: 1fr; }
+  .game-score { padding: 72px 20px; }
+  .game-numbers { min-height: 360px; }
+  .recruit-grid { grid-template-columns: 1fr; }
+  .recruit-grid article:last-child { grid-column: auto; }
+  .runtime-section { padding: 78px 20px; }
+  .runtime-evidence, .recipe-proof { grid-template-columns: 1fr 1fr; }
+  footer { align-items: start; flex-direction: column; gap: 32px; padding: 48px 20px; }
+  .ledger-proof { text-align: left; }
+}
+@media (max-width: 520px) {
+  .hero h1 { font-size: 57px; }
+  .scoreline { gap: 14px; }
+  .scoreline strong { font-size: 62px; }
+  .scoreline i { font-size: 30px; }
+  .runtime-evidence, .recipe-proof { grid-template-columns: 1fr; }
+  .big-play-list li { grid-template-columns: 44px 1fr; }
+  .big-play-list li em { grid-column: 2; text-align: left; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
