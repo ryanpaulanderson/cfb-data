@@ -322,6 +322,8 @@ async def _execute_graph(
             recompute_nodes=recompute_nodes,
             backend=bridge.dataframe_backend,
             dispatcher=dispatcher,
+            max_compute_attempts=policy.dask_max_attempts,
+            compute_timeout_seconds=policy.dask_step_timeout_seconds,
         )
         if dask_provider is not None
         else None
@@ -427,6 +429,8 @@ def _transform_runner(
     recompute_nodes: frozenset[str],
     backend: Literal["pandas", "polars"],
     dispatcher: _AnalyticsDispatcher,
+    max_compute_attempts: int = 1,
+    compute_timeout_seconds: float | None = None,
 ) -> _TransformRunner:
     return _TransformRunner(
         provider=provider,
@@ -440,6 +444,8 @@ def _transform_runner(
         recompute_nodes=recompute_nodes,
         backend=backend,
         dispatcher=dispatcher,
+        max_compute_attempts=max_compute_attempts,
+        compute_timeout_seconds=compute_timeout_seconds,
     )
 
 

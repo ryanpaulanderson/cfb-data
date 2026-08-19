@@ -5,11 +5,24 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from pathlib import Path
 
 import pytest
-from cfb_data.analytics import CFBDExecutorError, step
+from cfb_data.analytics import (
+    AnalyticsConfig,
+    AnalyticsEvent,
+    AnalyticsEventType,
+    CFBDExecutorError,
+    CFBDRunError,
+    ExecutionPolicy,
+    RecipeRef,
+    dataset,
+    step,
+)
 from cfb_data.analytics._dask import _DaskTransformProvider
 from pydantic import BaseModel, ConfigDict, TypeAdapter
+
+from cfb_data import CFBDClient
 
 
 class _DaskInputRow(BaseModel):
@@ -51,6 +64,53 @@ def _from_text_on_worker(text: str) -> list[_DaskOutputRow]:
 @step(id="tests.coordinator_only", revision=1, output=_DaskOutputRow, dask=False)
 def _coordinator_only() -> list[_DaskOutputRow]:
     return []
+
+
+@step(id="tests.dask_retry_once", revision=1, output=_DaskOutputRow)
+def _retry_once_on_worker() -> list[_DaskOutputRow]:
+    from distributed import get_worker
+
+    worker = get_worker()
+    marker = "_cfb_data_retry_once_seen"
+    if not getattr(worker, marker, False):
+        setattr(worker, marker, True)
+        raise RuntimeError("transient worker task failure")
+    return [_DaskOutputRow(game_id=1, label="retried", worker_pid=os.getpid())]
+
+
+@dataset(
+    id="tests.dask_retry_dataset",
+    revision=1,
+    row=_DaskOutputRow,
+    grain="one retry result",
+    keys=("game_id",),
+    order_by=("game_id",),
+)
+def _dask_retry_dataset() -> RecipeRef[list[_DaskOutputRow]]:
+    return _retry_once_on_worker()
+
+
+@step(id="tests.dask_timeout", revision=1, output=_DaskOutputRow)
+def _block_on_worker(delay: float) -> list[_DaskOutputRow]:
+    time.sleep(delay)
+    return [_DaskOutputRow(game_id=1, label="late", worker_pid=os.getpid())]
+
+
+@step(id="tests.dask_worker_loss", revision=1, output=_DaskOutputRow)
+def _terminate_worker() -> list[_DaskOutputRow]:
+    os._exit(73)
+
+
+@dataset(
+    id="tests.dask_timeout_dataset",
+    revision=1,
+    row=_DaskOutputRow,
+    grain="one timeout result",
+    keys=("game_id",),
+    order_by=("game_id",),
+)
+def _dask_timeout_dataset(delay: float) -> RecipeRef[list[_DaskOutputRow]]:
+    return _block_on_worker(delay)
 
 
 @pytest.mark.asyncio
@@ -156,5 +216,93 @@ async def test_cancelled_worker_future_is_awaited_before_cleanup() -> None:
 
         with pytest.raises(asyncio.CancelledError):
             await task
+
+    assert not provider.started
+
+
+def test_dask_attempt_and_timeout_controls_are_strict() -> None:
+    """Reject invalid coordinator-owned Dask execution controls."""
+    for kwargs in (
+        {"dask_max_attempts": 0},
+        {"dask_max_attempts": True},
+        {"dask_step_timeout_seconds": 0},
+        {"dask_step_timeout_seconds": float("inf")},
+        {"dask_step_timeout_seconds": True},
+    ):
+        with pytest.raises(ValueError):
+            ExecutionPolicy(**kwargs)
+
+
+@pytest.mark.asyncio
+async def test_coordinator_retries_dask_step_with_observable_attempt(
+    tmp_path: Path,
+) -> None:
+    """Resubmit once outside Dask and expose bounded retry evidence."""
+    pytest.importorskip("distributed")
+    events: list[AnalyticsEvent] = []
+    async with CFBDClient(
+        "dask-retry-key",
+        analytics=AnalyticsConfig(root=tmp_path / "retry", observer=events.append),
+    ) as client:
+        run = await _dask_retry_dataset.run(
+            client,
+            policy=ExecutionPolicy(
+                executor="dask",
+                dask_max_workers=1,
+                dask_max_attempts=2,
+            ),
+        )
+
+    restored = run.artifact.load()
+    assert restored.loc[0, "label"] == "retried"
+    retry_events = [
+        event for event in events if event.event_type is AnalyticsEventType.step_retry
+    ]
+    assert len(retry_events) == 1
+    assert retry_events[0].placement == "dask"
+    assert retry_events[0].attempt_id == "1"
+    assert retry_events[0].failure_category == "RuntimeError"
+
+
+@pytest.mark.asyncio
+async def test_coordinator_times_out_dask_step_and_fails_run(
+    tmp_path: Path,
+) -> None:
+    """Cancel timed-out worker work without publishing a successful artifact."""
+    pytest.importorskip("distributed")
+    async with CFBDClient(
+        "dask-timeout-key",
+        analytics=AnalyticsConfig(root=tmp_path / "timeout"),
+    ) as client:
+        with pytest.raises(CFBDRunError) as exc_info:
+            await _dask_timeout_dataset.run(
+                client,
+                delay=5.0,
+                policy=ExecutionPolicy(
+                    executor="dask",
+                    dask_max_workers=1,
+                    dask_step_timeout_seconds=0.1,
+                ),
+            )
+
+    assert exc_info.value.category == "TimeoutError"
+
+
+@pytest.mark.asyncio
+async def test_worker_loss_fails_closed_without_local_fallback() -> None:
+    """Surface actual process loss and close the managed provider."""
+    pytest.importorskip("distributed")
+    provider = _DaskTransformProvider(
+        max_workers=1,
+        threads_per_worker=1,
+        transfer_limit_bytes=16 * 1024 * 1024,
+    )
+
+    async with provider:
+        with pytest.raises(CFBDExecutorError) as exc_info:
+            await provider.execute(_terminate_worker, {})
+
+        assert exc_info.value.provider == "dask"
+        assert provider.started
 
     assert not provider.started

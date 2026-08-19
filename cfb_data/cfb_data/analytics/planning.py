@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -80,6 +81,8 @@ class ExecutionPolicy:
     dask_max_workers: int = 4
     dask_threads_per_worker: int = 1
     dask_transfer_limit_bytes: int = 512 * 1024 * 1024
+    dask_max_attempts: int = 1
+    dask_step_timeout_seconds: float | None = None
 
     def __post_init__(self) -> None:
         """Reject unbounded or internally inconsistent execution controls."""
@@ -104,12 +107,21 @@ class ExecutionPolicy:
             self.dask_max_workers,
             self.dask_threads_per_worker,
             self.dask_transfer_limit_bytes,
+            self.dask_max_attempts,
         )
         if any(
             not isinstance(value, int) or isinstance(value, bool) or value < 1
             for value in positive
         ):
             raise ValueError("Execution policy limits must be positive integers")
+        timeout = self.dask_step_timeout_seconds
+        if timeout is not None and (
+            not isinstance(timeout, (int, float))
+            or isinstance(timeout, bool)
+            or not math.isfinite(timeout)
+            or timeout <= 0
+        ):
+            raise ValueError("Dask step timeout must be a positive finite number")
 
 
 @dataclass(frozen=True, slots=True)

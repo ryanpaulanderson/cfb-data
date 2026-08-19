@@ -83,6 +83,8 @@ class _TransformRunner:
         recompute_nodes: frozenset[str] = frozenset(),
         backend: _Backend,
         dispatcher: _AnalyticsDispatcher,
+        max_compute_attempts: int = 1,
+        compute_timeout_seconds: float | None = None,
         lease_ttl: timedelta = _DEFAULT_LEASE_TTL,
         lease_poll_seconds: float = _DEFAULT_LEASE_POLL_SECONDS,
     ) -> None:
@@ -91,6 +93,10 @@ class _TransformRunner:
             raise ValueError("Transform lease TTL must be positive")
         if lease_poll_seconds <= 0:
             raise ValueError("Transform lease polling interval must be positive")
+        if max_compute_attempts < 1:
+            raise ValueError("Transform compute attempts must be positive")
+        if compute_timeout_seconds is not None and compute_timeout_seconds <= 0:
+            raise ValueError("Transform timeout must be positive")
         self._provider = provider
         self._database = database
         self._object_store = object_store
@@ -102,6 +108,8 @@ class _TransformRunner:
         self._recompute_nodes = recompute_nodes
         self._backend = backend
         self._dispatcher = dispatcher
+        self._max_compute_attempts = max_compute_attempts
+        self._compute_timeout_seconds = compute_timeout_seconds
         self._lease_ttl = lease_ttl
         self._lease_poll_seconds = lease_poll_seconds
 
@@ -308,7 +316,26 @@ class _TransformRunner:
         if node.kind == "dataset":
             return parameters["value"]
         recipe = cast(StepRecipe[..., object], node.recipe)
-        return await self._provider.execute(recipe, parameters)
+        for attempt in range(1, self._max_compute_attempts + 1):
+            try:
+                if self._compute_timeout_seconds is None:
+                    return await self._provider.execute(recipe, parameters)
+                async with asyncio.timeout(self._compute_timeout_seconds):
+                    return await self._provider.execute(recipe, parameters)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                if attempt >= self._max_compute_attempts:
+                    raise
+                self._emit(
+                    AnalyticsEventType.step_retry,
+                    node.node_id,
+                    placement=self._provider.placement,
+                    outcome=AnalyticsOutcome.error,
+                    failure_category=_failure_category(exc),
+                    attempt_id=str(attempt),
+                )
+        raise RuntimeError("Transform attempt loop exhausted")
 
     def _validate_store_and_bind_table(
         self,
@@ -742,12 +769,14 @@ class _TransformRunner:
         row_count: int | None = None,
         failure_category: str | None = None,
         duration: float | None = None,
+        attempt_id: str | None = None,
     ) -> None:
         self._dispatcher.emit(
             AnalyticsEvent(
                 event_type=event_type,
                 run_id=self._run_id,
                 node_id=node_id,
+                attempt_id=attempt_id,
                 outcome=outcome,
                 placement=placement,
                 artifact_digest=artifact,

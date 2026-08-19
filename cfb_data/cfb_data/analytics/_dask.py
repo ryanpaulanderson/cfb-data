@@ -180,9 +180,16 @@ class _DaskTransformProvider:
                     threads_per_worker=self._threads_per_worker,
                     processes=True,
                     asynchronous=True,
-                    dashboard_address=None,
+                    dashboard_address="127.0.0.1:0",
+                    worker_dashboard_address=None,
+                    services={},
+                    worker_services={},
                     silence_logs=logging.ERROR,
-                    scheduler_kwargs={"allowed_failures": 0},
+                    scheduler_kwargs={
+                        "allowed_failures": 0,
+                        "dashboard": False,
+                        "dashboard_address": "127.0.0.1:0",
+                    },
                 )
                 client = await client_factory(
                     cluster,
@@ -236,6 +243,8 @@ class _DaskClient(Protocol):
 
     async def run(self, function: Callable[[], bytes]) -> Mapping[str, bytes]: ...
 
+    async def shutdown(self) -> None: ...
+
     async def close(self) -> None: ...
 
 
@@ -255,7 +264,10 @@ class _DaskClusterFactory(Protocol):
         threads_per_worker: int,
         processes: bool,
         asynchronous: bool,
-        dashboard_address: None,
+        dashboard_address: str,
+        worker_dashboard_address: None,
+        services: Mapping[str, object],
+        worker_services: Mapping[str, object],
         silence_logs: int,
         scheduler_kwargs: Mapping[str, object],
     ) -> Awaitable[_DaskCluster]: ...
@@ -309,6 +321,10 @@ async def _close_dask_resources(
     """Attempt every owned close and return failures without short-circuiting."""
     failures: list[BaseException] = []
     if client is not None:
+        try:
+            await client.shutdown()
+        except BaseException as exc:
+            failures.append(exc)
         try:
             await client.close()
         except BaseException as exc:

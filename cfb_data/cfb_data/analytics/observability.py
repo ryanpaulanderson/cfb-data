@@ -20,6 +20,7 @@ class AnalyticsEventType(StrEnum):
     run_cancelled = "run_cancelled"
     step_ready = "step_ready"
     step_started = "step_started"
+    step_retry = "step_retry"
     step_reused = "step_reused"
     step_completed = "step_completed"
     step_failed = "step_failed"
