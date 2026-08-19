@@ -19,6 +19,8 @@ from cfb_data.enums import (
 )
 from cfb_data.games._operations import (
     ADVANCED_BOX_SCORE,
+    GAME_MEDIA,
+    GAME_WEATHER,
     GAMES_LIST,
     GAMES_PLAYER_STATS,
     GAMES_TEAM_STATS,
@@ -38,8 +40,6 @@ from cfb_data.games.models.pydantic.requests import (
 from cfb_data.games.models.pydantic.responses import (
     AdvancedBoxScore,
     CalendarWeek,
-    GameMedia,
-    GameWeather,
     ScoreboardGame,
 )
 
@@ -65,8 +65,6 @@ type _RoundArgument = (
 
 _CALENDAR_ROWS = TypeAdapter(list[CalendarWeek])
 _SCOREBOARD_ROWS = TypeAdapter(list[ScoreboardGame])
-_MEDIA_ROWS = TypeAdapter(list[GameMedia])
-_WEATHER_ROWS = TypeAdapter(list[GameWeather])
 
 
 class GamesResource[FrameT]:
@@ -262,13 +260,11 @@ class GamesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_frame(
-            endpoint="/games/media",
-            request_type=GameMediaRequest,
+        return await GAME_MEDIA.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_MEDIA_ROWS,
-            row_model=GameMedia,
         )
 
     @overload
@@ -303,13 +299,11 @@ class GamesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_frame(
-            endpoint="/games/weather",
-            request_type=GameWeatherRequest,
+        return await GAME_WEATHER.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_WEATHER_ROWS,
-            row_model=GameWeather,
         )
 
     @overload

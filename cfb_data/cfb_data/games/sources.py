@@ -5,9 +5,17 @@ from __future__ import annotations
 from typing import Literal
 
 from cfb_data.analytics import SourceContext, source
-from cfb_data.enums import Classification, PlayoffCompetition, PlayoffRound, SeasonType
+from cfb_data.enums import (
+    Classification,
+    MediaType,
+    PlayoffCompetition,
+    PlayoffRound,
+    SeasonType,
+)
 from cfb_data.games._operations import (
     ADVANCED_BOX_SCORE,
+    GAME_MEDIA,
+    GAME_WEATHER,
     GAMES_LIST,
     GAMES_PLAYER_STATS,
     GAMES_TEAM_STATS,
@@ -16,6 +24,8 @@ from cfb_data.games._operations import (
 from cfb_data.games.models.pydantic.responses import (
     AdvancedBoxScore,
     Game,
+    GameMedia,
+    GameWeather,
     PlayerGameStats,
     TeamGameStats,
     TeamRecords,
@@ -33,6 +43,7 @@ type _SeasonTypeArgument = (
     ]
 )
 type _ClassificationArgument = Classification | Literal["fbs", "fcs", "ii", "iii"]
+type _MediaTypeArgument = MediaType | Literal["tv", "radio", "web", "ppv", "mobile"]
 type _CompetitionArgument = PlayoffCompetition | Literal["cfp"]
 type _RoundArgument = (
     PlayoffRound | Literal["first_round", "quarterfinal", "semifinal", "championship"]
@@ -52,6 +63,76 @@ async def advanced_box_score(
     :return: One source-faithful advanced box score.
     """
     return await context.retrieve(game_id=game_id)
+
+
+@source(operation=GAME_MEDIA)
+async def game_media(
+    context: SourceContext[GameMedia],
+    *,
+    year: int,
+    week: int | None = None,
+    season_type: _SeasonTypeArgument | None = None,
+    team: str | None = None,
+    conference: str | None = None,
+    media_type: _MediaTypeArgument | None = None,
+    classification: _ClassificationArgument | None = None,
+) -> list[GameMedia]:
+    """Return validated game-media rows in upstream order.
+
+    :param context: Engine-owned source execution context.
+    :param year: Required media season.
+    :param week: Optional season week.
+    :param season_type: Optional season phase.
+    :param team: Optional team selector.
+    :param conference: Optional conference selector.
+    :param media_type: Optional broadcast-medium selector.
+    :param classification: Optional classification selector.
+    :return: Source-faithful media rows.
+    """
+    return await context.retrieve(
+        year=year,
+        week=week,
+        season_type=season_type,
+        team=team,
+        conference=conference,
+        media_type=media_type,
+        classification=classification,
+    )
+
+
+@source(operation=GAME_WEATHER)
+async def game_weather(
+    context: SourceContext[GameWeather],
+    *,
+    game_id: int | None = None,
+    year: int | None = None,
+    week: int | None = None,
+    season_type: _SeasonTypeArgument | None = None,
+    team: str | None = None,
+    conference: str | None = None,
+    classification: _ClassificationArgument | None = None,
+) -> list[GameWeather]:
+    """Return validated Tier 1 game-weather rows in upstream order.
+
+    :param context: Engine-owned source execution context.
+    :param game_id: Optional exact game identifier.
+    :param year: Season year required when game ID is absent.
+    :param week: Optional season week.
+    :param season_type: Optional season phase.
+    :param team: Optional team selector.
+    :param conference: Optional conference selector.
+    :param classification: Optional classification selector.
+    :return: Source-faithful weather rows.
+    """
+    return await context.retrieve(
+        game_id=game_id,
+        year=year,
+        week=week,
+        season_type=season_type,
+        team=team,
+        conference=conference,
+        classification=classification,
+    )
 
 
 @source(operation=GAMES_LIST)
@@ -195,6 +276,8 @@ async def team_records(
 
 __all__ = [
     "advanced_box_score",
+    "game_media",
+    "game_weather",
     "games",
     "player_game_stats",
     "team_game_stats",

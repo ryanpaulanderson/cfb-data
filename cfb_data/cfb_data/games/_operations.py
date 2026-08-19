@@ -7,7 +7,9 @@ from pydantic import TypeAdapter
 from cfb_data._operation import _ManyEndpointOperation, _OneEndpointOperation
 from cfb_data.games.models.pydantic.requests import (
     AdvancedBoxScoreRequest,
+    GameMediaRequest,
     GamesRequest,
+    GameWeatherRequest,
     PlayerGameStatsRequest,
     RecordsRequest,
     TeamGameStatsRequest,
@@ -15,6 +17,8 @@ from cfb_data.games.models.pydantic.requests import (
 from cfb_data.games.models.pydantic.responses import (
     AdvancedBoxScore,
     Game,
+    GameMedia,
+    GameWeather,
     PlayerGameStats,
     TeamGameStats,
     TeamRecords,
@@ -28,6 +32,26 @@ ADVANCED_BOX_SCORE = _OneEndpointOperation(
     response_adapter=TypeAdapter(AdvancedBoxScore),
     row_model=AdvancedBoxScore,
     access_tier="free",
+)
+
+GAME_MEDIA = _ManyEndpointOperation(
+    id="cfbd.games.media",
+    revision=1,
+    endpoint="/games/media",
+    request_type=GameMediaRequest,
+    response_adapter=TypeAdapter(list[GameMedia]),
+    row_model=GameMedia,
+    access_tier="free",
+)
+
+GAME_WEATHER = _ManyEndpointOperation(
+    id="cfbd.games.weather",
+    revision=1,
+    endpoint="/games/weather",
+    request_type=GameWeatherRequest,
+    response_adapter=TypeAdapter(list[GameWeather]),
+    row_model=GameWeather,
+    access_tier="tier_1",
 )
 
 GAMES_LIST = _ManyEndpointOperation(

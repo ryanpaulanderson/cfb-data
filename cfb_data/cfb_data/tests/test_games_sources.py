@@ -13,17 +13,22 @@ from cfb_data.analytics._compiler import _compile_recipe
 from cfb_data.games.models.pydantic.responses import (
     AdvancedBoxScore,
     Game,
+    GameMedia,
+    GameWeather,
     PlayerGameStats,
     TeamGameStats,
     TeamRecords,
 )
 from cfb_data.games.sources import (
     advanced_box_score,
+    game_media,
+    game_weather,
     games,
     player_game_stats,
     team_game_stats,
     team_records,
 )
+from pandas import DataFrame
 
 from cfb_data import CFBDClient
 
@@ -42,6 +47,30 @@ def _source_faithful_advanced_box_score(
 ) -> RecipeRef[list[AdvancedBoxScore]]:
     """Build the one-object Games source through its public callable."""
     return advanced_box_score(game_id=game_id)
+
+
+@dataset(
+    id="tests.source_faithful_game_media",
+    revision=1,
+    row=GameMedia,
+    grain="one game broadcast outlet",
+    keys=("id", "media_type", "outlet"),
+)
+def _source_faithful_game_media(year: int) -> RecipeRef[list[GameMedia]]:
+    """Build the game-media source through its public callable."""
+    return game_media(year=year)
+
+
+@dataset(
+    id="tests.source_faithful_game_weather",
+    revision=1,
+    row=GameWeather,
+    grain="one game weather observation",
+    keys=("id",),
+)
+def _source_faithful_game_weather(game_id: int) -> RecipeRef[list[GameWeather]]:
+    """Build the game-weather source through its public callable."""
+    return game_weather(game_id=game_id)
 
 
 @dataset(
@@ -123,7 +152,7 @@ async def test_one_object_source_shares_resource_contract_and_runtime(
             analytics=AnalyticsConfig(root=tmp_path / "analytics"),
         ) as client:
             endpoint = await client.games.advanced_box_score(game_id=401628347)
-            recipe = await _source_faithful_advanced_box_score(
+            recipe: DataFrame = await _source_faithful_advanced_box_score(
                 client,
                 game_id=401628347,
             )
@@ -141,6 +170,32 @@ def test_games_source_compiles_without_endpoint_or_provider_io() -> None:
     assert source_node.declaration.operation is not None
     assert source_node.declaration.source_cost == 1
     assert source_node.dependencies == ()
+
+
+def test_game_media_source_uses_its_domain_operation() -> None:
+    """Derive game-media identity from its endpoint operation."""
+    graph = _compile_recipe(_source_faithful_game_media, (), {"year": 2024})
+
+    assert game_media.id == "cfbd.games.media"
+    assert game_media.revision == 1
+    source_node = graph.nodes[0]
+    assert source_node.declaration.operation is not None
+    assert source_node.declaration.source_cost == 1
+
+
+def test_game_weather_source_uses_its_domain_operation() -> None:
+    """Derive game-weather identity from its endpoint operation."""
+    graph = _compile_recipe(
+        _source_faithful_game_weather,
+        (),
+        {"game_id": 401628347},
+    )
+
+    assert game_weather.id == "cfbd.games.weather"
+    assert game_weather.revision == 1
+    source_node = graph.nodes[0]
+    assert source_node.declaration.operation is not None
+    assert source_node.declaration.source_cost == 1
 
 
 def test_team_game_stats_source_uses_its_domain_operation() -> None:
