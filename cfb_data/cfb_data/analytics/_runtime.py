@@ -36,7 +36,13 @@ from ._transforms import _TransformRunner
 from .config import AnalyticsConfig
 from .errors import CFBDRecipeCompilationError, CFBDRunError
 from .observability import AnalyticsEvent, AnalyticsEventType, AnalyticsOutcome
-from .planning import ExecutionPolicy, _expanded_recompute_nodes, _plan_recipe
+from .planning import (
+    ExecutionPolicy,
+    _checkpoint_nodes,
+    _expanded_recompute_nodes,
+    _inspect_recipe,
+    _plan_recipe,
+)
 from .results import ArtifactRef, RecipeRun, RunNodeEvidence, WorkflowOutputs
 
 type SourceBehavior = Literal["preserve_snapshot", "normal_freshness", "refresh"]
@@ -96,7 +102,15 @@ async def _execute_run(
 ) -> RecipeRun[object]:
     """Execute a compiled recipe and return durable public evidence."""
     selected = policy or ExecutionPolicy()
-    _, graph = _plan_recipe(recipe, client, args, kwargs, selected)
+    plan, graph = _plan_recipe(recipe, client, args, kwargs, selected)
+    await _inspect_recipe(
+        recipe,
+        client,
+        args,
+        kwargs,
+        policy=selected,
+        plan=plan,
+    )
     bridge = _runtime_bridge(client)
     config = (
         bridge.config
@@ -504,20 +518,6 @@ async def _commit_workflow_boundary(
             outcome=AnalyticsOutcome.success,
         )
     )
-
-
-def _checkpoint_nodes(
-    graph: _CompiledGraph,
-    mode: Literal["all", "outputs_only", "off"],
-) -> frozenset[str]:
-    """Select bindings eligible for later reuse without dropping run lineage."""
-    if mode == "all":
-        return frozenset(node.node_id for node in graph.nodes)
-    if mode == "off":
-        return frozenset()
-    if not any(node.node_id == graph.root_id for node in graph.nodes):
-        raise CFBDRecipeCompilationError("Compiled recipe has no root boundary")
-    return frozenset((*graph.outputs.values(), graph.root_id))
 
 
 async def _public_result(

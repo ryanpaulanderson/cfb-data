@@ -394,6 +394,51 @@ class _RunDatabaseQueries:
             ).fetchone()
         return None if row is None else _run_record(row)
 
+    def find_checkpoint(
+        self,
+        *,
+        node_fingerprint: str,
+        output_name: str,
+        scope: _CheckpointScope,
+        parent_run_id: str | None,
+        credential_scope: str,
+    ) -> _CheckpointCandidate | None:
+        """Find compatible content under an explicit freshness-safe scope."""
+        if scope == "none":
+            return None
+        with self._lock:
+            row: sqlite3.Row | None = None
+            if scope in {"parent", "parent_then_global"}:
+                if parent_run_id is None:
+                    raise CFBDPersistenceError(category="checkpoint_scope")
+                row = self._connection.execute(
+                    self._sql.render("checkpoints/select_parent.sql"),
+                    (
+                        parent_run_id,
+                        node_fingerprint,
+                        output_name,
+                        credential_scope,
+                    ),
+                ).fetchone()
+            if row is None and scope in {"global", "parent_then_global"}:
+                row = self._connection.execute(
+                    self._sql.render("checkpoints/select_global.sql"),
+                    (node_fingerprint, output_name, credential_scope),
+                ).fetchone()
+        if row is None:
+            return None
+        try:
+            manifest = _ArtifactManifest.model_validate_json(
+                str(row["manifest_json"]),
+                strict=True,
+            )
+        except ValueError as exc:
+            raise CFBDArtifactCorruptionError(
+                content_digest=str(row["content_digest"]),
+                category="database_manifest",
+            ) from exc
+        return _CheckpointCandidate(binding=_binding(row), manifest=manifest)
+
     def plan_prune(self) -> _PrunePlan:
         """Return a non-mutating snapshot of eligible registered objects."""
         with self._lock:
@@ -1041,51 +1086,6 @@ class _RunDatabase(_RunDatabaseQueries):
                 (lease_key, owner_token),
             )
         return cursor.rowcount == 1
-
-    def find_checkpoint(
-        self,
-        *,
-        node_fingerprint: str,
-        output_name: str,
-        scope: _CheckpointScope,
-        parent_run_id: str | None,
-        credential_scope: str,
-    ) -> _CheckpointCandidate | None:
-        """Find compatible content under an explicit freshness-safe scope."""
-        if scope == "none":
-            return None
-        with self._lock:
-            row: sqlite3.Row | None = None
-            if scope in {"parent", "parent_then_global"}:
-                if parent_run_id is None:
-                    raise CFBDPersistenceError(category="checkpoint_scope")
-                row = self._connection.execute(
-                    self._sql.render("checkpoints/select_parent.sql"),
-                    (
-                        parent_run_id,
-                        node_fingerprint,
-                        output_name,
-                        credential_scope,
-                    ),
-                ).fetchone()
-            if row is None and scope in {"global", "parent_then_global"}:
-                row = self._connection.execute(
-                    self._sql.render("checkpoints/select_global.sql"),
-                    (node_fingerprint, output_name, credential_scope),
-                ).fetchone()
-        if row is None:
-            return None
-        try:
-            manifest = _ArtifactManifest.model_validate_json(
-                str(row["manifest_json"]),
-                strict=True,
-            )
-        except ValueError as exc:
-            raise CFBDArtifactCorruptionError(
-                content_digest=str(row["content_digest"]),
-                category="database_manifest",
-            ) from exc
-        return _CheckpointCandidate(binding=_binding(row), manifest=manifest)
 
     def node_state(self, run_id: str, node_id: str) -> _NodeState | None:
         """Return the latest node state without mutating durable evidence."""

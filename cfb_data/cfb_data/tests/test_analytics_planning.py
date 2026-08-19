@@ -14,14 +14,24 @@ from cfb_data.analytics import (
     RecipePlan,
     RecipeRef,
     dataset,
+    step,
     workflow,
 )
 from cfb_data.games.models.pydantic.responses import Game
 from cfb_data.games.sources import games
+from pydantic import BaseModel, ConfigDict
 
 from cfb_data import CFBDClient, RetryPolicy, SQLiteCacheConfig
 
 ServerFactory = Callable[[Callable[[web.Request], object]], object]
+
+
+class _StaticRow(BaseModel):
+    """Represent one deterministic no-source inspection row."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    value: int
 
 
 @dataset(
@@ -35,6 +45,24 @@ ServerFactory = Callable[[Callable[[web.Request], object]], object]
 def _planned_games(year: int, team: str | None = None) -> RecipeRef[list[Game]]:
     """Build one source-faithful dataset for planner tests."""
     return games(year=year, team=team)
+
+
+@step(id="tests.static_inspection_step", revision=1, output=_StaticRow)
+def _static_rows() -> list[_StaticRow]:
+    """Return one deterministic row without an upstream source."""
+    return [_StaticRow(value=1)]
+
+
+@dataset(
+    id="tests.static_inspection_dataset",
+    revision=1,
+    row=_StaticRow,
+    grain="one static row",
+    keys=("value",),
+)
+def _static_dataset() -> RecipeRef[list[_StaticRow]]:
+    """Build one dependency-free checkpoint inspection fixture."""
+    return _static_rows()
 
 
 @pytest.mark.asyncio
@@ -198,6 +226,10 @@ async def test_inspection_reads_an_exact_cached_source_without_mutation(
             )
 
             assert tuple(inspection.source_dispositions.values()) == ("fresh",)
+            assert tuple(inspection.checkpoint_dispositions.values()) == (
+                "disabled",
+                "missing",
+            )
             assert cache_path.read_bytes() == before_bytes
             assert cache_path.stat().st_mtime_ns == before_mtime
             assert not artifact_root.exists()
@@ -224,3 +256,61 @@ async def test_inspection_rejects_a_plan_for_different_parameters_before_lookup(
             plan=plan,
         )
     assert not cache_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_inspection_validates_reusable_checkpoint_without_mutation(
+    tmp_path: Path,
+) -> None:
+    """Distinguish reusable and deferred nodes while preserving store bytes."""
+    root = tmp_path / "analytics"
+    config = AnalyticsConfig(root=root)
+    async with CFBDClient("inspection-key", analytics=config) as client:
+        await _static_dataset.run(client)
+        before = {
+            path.relative_to(root): (path.read_bytes(), path.stat().st_mtime_ns)
+            for path in root.rglob("*")
+            if path.is_file()
+        }
+
+        inspection = await _static_dataset.inspect(client)
+
+        after = {
+            path.relative_to(root): (path.read_bytes(), path.stat().st_mtime_ns)
+            for path in root.rglob("*")
+            if path.is_file()
+        }
+
+    assert tuple(inspection.checkpoint_dispositions.values()) == (
+        "reusable",
+        "deferred",
+    )
+    assert after == before
+
+
+@pytest.mark.asyncio
+async def test_inspection_reports_corrupt_checkpoint_without_repair(
+    tmp_path: Path,
+) -> None:
+    """Fail closed in preflight without deleting or replacing invalid content."""
+    root = tmp_path / "analytics"
+    async with CFBDClient(
+        "inspection-key",
+        analytics=AnalyticsConfig(root=root),
+    ) as client:
+        run = await _static_dataset.run(client)
+        step_id = (await _static_dataset.plan(client)).nodes[0].node_id
+        digest = next(
+            evidence.content_digest
+            for evidence in run.lineage
+            if evidence.node_id == step_id
+        )
+        manifest = root / "objects" / "sha256" / digest[:2] / digest / "manifest.json"
+        manifest.write_bytes(b"{}")
+        before_mtime = manifest.stat().st_mtime_ns
+
+        inspection = await _static_dataset.inspect(client)
+
+    assert inspection.checkpoint_dispositions[step_id] == "corrupt"
+    assert manifest.read_bytes() == b"{}"
+    assert manifest.stat().st_mtime_ns == before_mtime
