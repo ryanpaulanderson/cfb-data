@@ -399,11 +399,12 @@ source artifact exists. Dataset final rows validate through the declared model
 and table-level checks before Arrow persistence or pandas/Polars presentation.
 Intermediate public unvalidated DataFrames are prohibited.
 
-Analytics tables use a distinct codec/storage v2 whose compatibility identity
-is stable output ID, semantic revision, and ordered schema digest. Pydantic
-module and qualified name are provenance, not an analytics-v2 compatibility
-key. This narrowly amends ADR 0003 for analytics-v2 artifacts. The checked-in
-Parquet-v1 format and reader remain unchanged, continue enforcing their
+Analytics tables use Parquet codec version 2, distinct from the existing
+endpoint Parquet codec version 1. Its compatibility identity is stable output
+ID, semantic revision, and ordered schema digest. Pydantic module and qualified
+name are provenance, not an analytics-table compatibility key. This narrowly
+amends ADR 0003 for analytics table artifacts. The checked-in endpoint Parquet
+codec version 1 and reader remain unchanged, continue enforcing their
 module-qualified model identity, and retain full regression coverage.
 
 ### Reusable operation vocabulary

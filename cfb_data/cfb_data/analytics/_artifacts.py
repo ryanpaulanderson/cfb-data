@@ -158,7 +158,7 @@ class _TableArtifactCodec:
         """Write, reread, and validate deterministic Parquet parts.
 
         :param directory: Existing empty staging directory owned by the caller.
-        :param table: Canonical analytics-v2 Arrow table.
+        :param table: Canonical analytics Parquet codec 2 Arrow table.
         :param row_model: Authoritative row model for full logical validation.
         :param identity: Stable output identity and semantic revision.
         :return: Validated staged artifact and content manifest.
@@ -247,7 +247,7 @@ class _TableArtifactCodec:
         :param manifest: Previously inspected manifest, or ``None`` to read it.
         :param row_model: Authoritative expected row model.
         :param identity: Expected stable output identity and revision.
-        :return: Canonical analytics-v2 Arrow table.
+        :return: Canonical analytics Parquet codec 2 Arrow table.
         :raises CFBDArtifactCorruptionError: If any durable invariant fails.
         """
         try:

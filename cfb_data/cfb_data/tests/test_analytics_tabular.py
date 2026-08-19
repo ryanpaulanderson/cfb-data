@@ -1,4 +1,4 @@
-"""Test stable analytics-v2 Arrow table identity and validation."""
+"""Test stable analytics Parquet codec 2 table identity and validation."""
 
 from __future__ import annotations
 

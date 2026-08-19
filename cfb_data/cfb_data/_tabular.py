@@ -243,7 +243,7 @@ def _analytics_arrow_table_from_models[ModelT: BaseModel](
     models: Sequence[ModelT],
     identity: _AnalyticsTableIdentity,
 ) -> pa.Table:
-    """Return a canonical analytics-v2 Arrow table.
+    """Return an Arrow table for analytics Parquet codec version 2.
 
     :param row_model: Authoritative model defining one row.
     :param models: Validated rows in deterministic output order.
@@ -295,11 +295,11 @@ def _analytics_models_from_arrow_table[ModelT: BaseModel](
     table: pa.Table,
     identity: _AnalyticsTableIdentity,
 ) -> list[ModelT]:
-    """Validate and return models decoded from an analytics-v2 table.
+    """Validate models decoded from an analytics Parquet codec 2 table.
 
     :param row_model: Authoritative model defining one row.
     :param response_adapter: Pydantic adapter for a list of expected rows.
-    :param table: Canonical analytics-v2 Arrow table to decode.
+    :param table: Canonical analytics Parquet codec 2 table to decode.
     :param identity: Expected stable recipe-output identity and revision.
     :return: Fully Pydantic-validated rows in table order.
     """
@@ -343,10 +343,10 @@ def _analytics_logical_records_from_arrow_table(
     table: pa.Table,
     identity: _AnalyticsTableIdentity,
 ) -> list[dict[str, object]]:
-    """Decode an analytics-v2 table into backend-neutral logical records.
+    """Decode an analytics Parquet codec 2 table into logical records.
 
     :param row_model: Authoritative model defining one row.
-    :param table: Canonical analytics-v2 Arrow table to decode.
+    :param table: Canonical analytics Parquet codec 2 table to decode.
     :param identity: Expected stable recipe-output identity and revision.
     :return: Python records preserving row and field order.
     :raises _CanonicalTableMetadataError: If metadata is incompatible.
@@ -400,7 +400,7 @@ def _assert_analytics_arrow_table(
     identity: _AnalyticsTableIdentity,
     logical_schema: _LogicalSchema | None = None,
 ) -> None:
-    """Verify an analytics-v2 table against a stable output contract.
+    """Verify an analytics Parquet codec 2 table against its output contract.
 
     :param row_model: Authoritative row model supplying the logical schema.
     :param table: Arrow table to inspect without decoding row values.
@@ -484,12 +484,12 @@ def _analytics_expected_arrow_schema(
     identity: _AnalyticsTableIdentity,
     logical_schema: _LogicalSchema | None = None,
 ) -> pa.Schema:
-    """Return the analytics-v2 physical schema for a stable output contract.
+    """Return the analytics Parquet codec 2 schema for an output contract.
 
     :param row_model: Authoritative model supplying ordered logical fields.
     :param identity: Stable recipe-output identity and revision.
     :param logical_schema: Previously derived schema, if already available.
-    :return: Exact physical schema and analytics-v2 compatibility metadata.
+    :return: Exact physical schema and codec 2 compatibility metadata.
     """
     schema = logical_schema or _logical_schema(row_model)
     return pa.schema(
@@ -779,7 +779,7 @@ def _analytics_storage_metadata(
     identity: _AnalyticsTableIdentity,
     schema: _LogicalSchema,
 ) -> dict[bytes | str, bytes | str]:
-    """Return deterministic metadata for an analytics-v2 table."""
+    """Return deterministic metadata for an analytics Parquet codec 2 table."""
     return {
         _STORAGE_VERSION_KEY: _ANALYTICS_STORAGE_VERSION.encode("ascii"),
         _ANALYTICS_OUTPUT_ID_KEY: identity.output_id.encode("utf-8"),

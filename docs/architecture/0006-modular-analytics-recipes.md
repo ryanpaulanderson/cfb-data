@@ -132,13 +132,16 @@ explicit async-step execution after compilation.
 A dataset combines a colocated Pydantic row model with decorator metadata for
 stable identity and revision, grain, keys, ordering, partitions, optional event
 time, and semantic field information. The runtime derives a private table
-contract from those declarations. Analytics durable compatibility uses a
-distinct analytics table codec v2 keyed by stable recipe/output contract ID,
-semantic revision, and ordered logical schema digest. For analytics-v2
-artifacts, module-qualified Pydantic-model identity is diagnostic provenance
+contract from those declarations. Analytics durable compatibility uses
+Parquet table codec version 2, distinct from the existing endpoint Parquet
+codec version 1. Its compatibility key is the stable recipe/output contract
+ID, semantic revision, and ordered logical schema digest. For artifacts written
+by the analytics Parquet codec, module-qualified Pydantic-model identity is
+diagnostic provenance
 rather than a compatibility key, so moving a recipe module does not by itself
 redefine durable compatibility. This narrowly amends ADR 0003 for
-analytics-v2 artifacts; the existing Parquet-v1 format, reader, and enforced
+analytics table artifacts; the existing endpoint Parquet codec version 1,
+reader, and enforced
 module-qualified identity remain unchanged. Public authoring does not require a
 parallel parameter model or author-constructed definition, catalog, node,
 provider, or table-contract hierarchy. Small immutable framework-owned control
