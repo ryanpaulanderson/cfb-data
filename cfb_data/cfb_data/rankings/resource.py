@@ -4,14 +4,11 @@ from __future__ import annotations
 
 from typing import Literal, overload
 
-from pydantic import TypeAdapter
-
 from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
-from cfb_data._requests import _resolve_request
 from cfb_data.enums import RankingPoll, SeasonType
+from cfb_data.rankings._operations import RANKINGS_LIST
 from cfb_data.rankings.models.pydantic.requests import RankingsRequest
-from cfb_data.rankings.models.pydantic.responses import PollWeek
 
 type _SeasonTypeArgument = (
     SeasonType
@@ -25,8 +22,6 @@ type _SeasonTypeArgument = (
     ]
 )
 type _RankingPollArgument = RankingPoll | Literal["cfp"]
-
-_POLL_WEEK_ROWS = TypeAdapter(list[PollWeek])
 
 
 class RankingsResource[FrameT]:
@@ -69,20 +64,11 @@ class RankingsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        endpoint = "/rankings"
-        validated = _resolve_request(
-            endpoint=endpoint,
-            request_type=RankingsRequest,
+        return await RANKINGS_LIST.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-        )
-        rows = await self._executor.fetch_many(
-            endpoint=endpoint,
-            request=validated,
-            response_adapter=_POLL_WEEK_ROWS,
-        )
-        return self._dataframe_adapter.from_models(
-            endpoint=endpoint, row_model=PollWeek, models=rows
         )
 
 
