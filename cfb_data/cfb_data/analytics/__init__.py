@@ -21,12 +21,26 @@ from .errors import (
     CFBDRecipeUsageError,
     CFBDRunError,
 )
+from .observability import (
+    AnalyticsEvent,
+    AnalyticsEventType,
+    AnalyticsObserver,
+    AnalyticsOutcome,
+    AnalyticsStats,
+    AnalyticsStatsSnapshot,
+)
 from .operations import require_one, value
 from .planning import ExecutionPolicy, RecipeInspection, RecipePlan, RecipePlanNode
 from .types import RecipeRef, SourceContext, ValueRef, WorkflowOutputs
 
 __all__ = [
     "AnalyticsConfig",
+    "AnalyticsEvent",
+    "AnalyticsEventType",
+    "AnalyticsObserver",
+    "AnalyticsOutcome",
+    "AnalyticsStats",
+    "AnalyticsStatsSnapshot",
     "CFBDAnalyticsError",
     "CFBDRecipeCompilationError",
     "CFBDRecipeConfigurationError",

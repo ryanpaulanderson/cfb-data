@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .observability import AnalyticsObserver
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +32,7 @@ class AnalyticsConfig:
     root: Path | None = None
     discover_installed: bool = True
     trusted_providers: tuple[RecipeProviderTrust, ...] = ()
+    observer: AnalyticsObserver | None = None
 
 
 __all__ = ["AnalyticsConfig", "RecipeProviderTrust"]

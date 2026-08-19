@@ -6,7 +6,9 @@ import asyncio
 import logging
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 from cfb_data.observability import (
@@ -16,6 +18,9 @@ from cfb_data.observability import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+_ANALYTICS_CORRELATION: ContextVar[tuple[str, str] | None] = ContextVar(
+    "cfb_data_analytics_retrieval_correlation", default=None
+)
 
 
 @dataclass(slots=True)
@@ -28,6 +33,8 @@ class _OperationContext:
     started_at: float
     source: RetrievalSource = RetrievalSource.unknown
     refresh_id: str | None = None
+    analytics_run_id: str | None = None
+    analytics_node_id: str | None = None
 
 
 class _EventDispatcher:
@@ -62,11 +69,14 @@ class _EventDispatcher:
         """Return a new safe operation context when observation is enabled."""
         if self._observer is None:
             return None
+        correlation = _ANALYTICS_CORRELATION.get()
         return _OperationContext(
             client_id=self._client_id,
             operation_id=uuid.uuid4().hex,
             endpoint=endpoint,
             started_at=self._monotonic(),
+            analytics_run_id=(correlation[0] if correlation is not None else None),
+            analytics_node_id=(correlation[1] if correlation is not None else None),
         )
 
     def new_refresh_id(self) -> str:
@@ -108,4 +118,19 @@ def _failure_category(error: BaseException) -> str:
     return type(error).__name__[:64]
 
 
-__all__ = ["_EventDispatcher", "_OperationContext", "_failure_category"]
+@contextmanager
+def _analytics_retrieval_context(run_id: str, node_id: str) -> Iterator[None]:
+    """Correlate task-local endpoint retrieval events with one analytics node."""
+    token = _ANALYTICS_CORRELATION.set((run_id, node_id))
+    try:
+        yield
+    finally:
+        _ANALYTICS_CORRELATION.reset(token)
+
+
+__all__ = [
+    "_EventDispatcher",
+    "_OperationContext",
+    "_analytics_retrieval_context",
+    "_failure_category",
+]
