@@ -27,6 +27,7 @@ from .errors import (
     CFBDRecipeUsageError,
     CFBDRunError,
     CFBDTransformError,
+    CFBDYamlError,
 )
 from .observability import (
     AnalyticsEvent,
@@ -61,6 +62,7 @@ from .tabular import (
     strict_cast_columns,
 )
 from .types import RecipeRef, SourceContext, ValueRef
+from .yaml import load_recipe_yaml
 
 __all__ = [
     "AnalyticsConfig",
@@ -80,6 +82,7 @@ __all__ = [
     "CFBDAttemptBudgetExceeded",
     "CFBDExecutorError",
     "CFBDTransformError",
+    "CFBDYamlError",
     "CFBDRecipeCompilationError",
     "CFBDRecipeConfigurationError",
     "CFBDRecipeDiscoveryError",
@@ -104,6 +107,7 @@ __all__ = [
     "WorkflowRecipe",
     "dataset",
     "discover_recipes",
+    "load_recipe_yaml",
     "explode_list",
     "flatten_struct",
     "nested_value",

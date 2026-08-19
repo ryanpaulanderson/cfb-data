@@ -167,10 +167,18 @@ def _diagnostic_identity(
     wrapped = getattr(candidate, "__wrapped__", candidate)
     if not callable(wrapped) or not callable(candidate):
         raise CFBDRecipeDiscoveryError("Registered recipe candidate is not callable")
-    try:
-        source = inspect.getsource(wrapped)
-    except (OSError, TypeError):
-        source = repr(inspect.signature(candidate))
+    supplied_diagnostic = getattr(wrapped, "__cfb_recipe_diagnostic__", None)
+    if supplied_diagnostic is not None:
+        if not isinstance(supplied_diagnostic, str):
+            raise CFBDRecipeDiscoveryError(
+                "Registered recipe diagnostic identity must be a string"
+            )
+        source = supplied_diagnostic
+    else:
+        try:
+            source = inspect.getsource(wrapped)
+        except (OSError, TypeError):
+            source = repr(inspect.signature(candidate))
     declaration_text = repr(declaration)
     digest = hashlib.sha256(f"{declaration_text}\0{source}".encode()).hexdigest()
     return module, qualified, digest

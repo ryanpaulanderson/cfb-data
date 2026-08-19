@@ -12,7 +12,17 @@ _LOCK = RLock()
 _STAGING: ContextVar[_RegistrationStage | None] = ContextVar(
     "cfb_data_recipe_registration_stage", default=None
 )
-_CANDIDATES: list[weakref.ReferenceType[object]] = []
+
+
+@dataclass(frozen=True, slots=True)
+class _CandidateReference:
+    """Retain one weak candidate and whether a module must own its name."""
+
+    reference: weakref.ReferenceType[object]
+    require_module_binding: bool
+
+
+_CANDIDATES: list[_CandidateReference] = []
 _QUARANTINED_ROOTS: set[str] = set()
 
 
@@ -24,7 +34,7 @@ class _RegistrationStage:
     candidates: list[object]
 
 
-def _publish_candidate(recipe: object) -> None:
+def _publish_candidate(recipe: object, *, require_module_binding: bool = True) -> None:
     """Stage or record a decorated object without creating a lookup catalog."""
     module = getattr(recipe, "__module__", "")
     with _LOCK:
@@ -34,24 +44,31 @@ def _publish_candidate(recipe: object) -> None:
             return
         if any(_is_within(module, root) for root in _QUARANTINED_ROOTS):
             return
-        _CANDIDATES.append(weakref.ref(recipe))
+        _CANDIDATES.append(
+            _CandidateReference(
+                reference=weakref.ref(recipe),
+                require_module_binding=require_module_binding,
+            )
+        )
 
 
 def _ordinary_candidates() -> tuple[object, ...]:
     """Return stable objects still bound by fully initialized modules."""
     with _LOCK:
         live: list[object] = []
-        retained: list[weakref.ReferenceType[object]] = []
-        for reference in _CANDIDATES:
-            candidate = reference()
+        retained: list[_CandidateReference] = []
+        for registered in _CANDIDATES:
+            candidate = registered.reference()
             if candidate is None:
                 continue
-            retained.append(reference)
+            retained.append(registered)
             module_name = getattr(candidate, "__module__", "")
             if any(_is_within(module_name, root) for root in _QUARANTINED_ROOTS):
                 continue
             module = sys.modules.get(module_name)
-            if module is None or not _is_bound(candidate, module):
+            if registered.require_module_binding and (
+                module is None or not _is_bound(candidate, module)
+            ):
                 continue
             live.append(candidate)
         _CANDIDATES[:] = retained

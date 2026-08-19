@@ -25,6 +25,28 @@ class CFBDRecipeDiscoveryError(CFBDAnalyticsError):
     """Report a provider discovery or stable-identity conflict."""
 
 
+class CFBDYamlError(CFBDRecipeConfigurationError):
+    """Report one redacted YAML boundary failure with safe location evidence."""
+
+    category: str
+    line: int
+    column: int
+
+    def __init__(self, *, category: str, line: int, column: int) -> None:
+        """Initialize a safe YAML diagnostic.
+
+        :param category: Bounded parse or validation failure category.
+        :param line: One-based source line, when available.
+        :param column: One-based source column, when available.
+        """
+        self.category = category
+        self.line = line
+        self.column = column
+        super().__init__(
+            f"YAML recipe rejected ({category}) at line {line}, column {column}"
+        )
+
+
 class CFBDRecipeCompilationError(CFBDAnalyticsError):
     """Report a recipe graph that cannot be compiled safely."""
 
@@ -141,5 +163,6 @@ __all__ = [
     "CFBDRecipeDiscoveryError",
     "CFBDRecipeParameterError",
     "CFBDRecipeUsageError",
+    "CFBDYamlError",
     "CFBDRunError",
 ]

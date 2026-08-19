@@ -560,6 +560,31 @@ def dataset[**Params, Result](
     | Callable[[Callable[Params, Result]], DatasetRecipe[Params, Result]]
 ):
     """Decorate one final tabular analytical product."""
+    declaration = _dataset_declaration(
+        recipe_id=id,
+        revision=revision,
+        row=row,
+        grain=grain,
+        keys=keys,
+        order_by=order_by,
+        partition_by=partition_by,
+        event_time=event_time,
+    )
+    return _decorate(function, declaration, DatasetRecipe)
+
+
+def _dataset_declaration(
+    *,
+    recipe_id: str | None,
+    revision: int | None,
+    row: type[BaseModel],
+    grain: str,
+    keys: tuple[str, ...],
+    order_by: tuple[str, ...],
+    partition_by: tuple[str, ...],
+    event_time: str | None,
+) -> _RecipeDeclaration:
+    """Build the one validated declaration shared by Python and YAML."""
     field_names = frozenset(row.model_fields)
     _require_fields(field_names, keys, "keys")
     _require_fields(field_names, order_by, "order_by")
@@ -568,10 +593,10 @@ def dataset[**Params, Result](
         raise CFBDRecipeConfigurationError("event_time must name a row-model field")
     if not grain.strip():
         raise CFBDRecipeConfigurationError("Datasets require a non-empty grain")
-    declaration = _RecipeDeclaration(
+    return _RecipeDeclaration(
         kind="dataset",
-        recipe_id=_optional_identity(id),
-        revision=_optional_revision(id, revision),
+        recipe_id=_optional_identity(recipe_id),
+        revision=_optional_revision(recipe_id, revision),
         output_type=_validate_row_type(row),
         deterministic=True,
         supported_backends=_BACKENDS,
@@ -582,7 +607,6 @@ def dataset[**Params, Result](
         partition_by=partition_by,
         event_time=event_time,
     )
-    return _decorate(function, declaration, DatasetRecipe)
 
 
 @overload
@@ -613,16 +637,25 @@ def workflow[**Params, Result](
     | Callable[[Callable[Params, Result]], WorkflowRecipe[Params, Result]]
 ):
     """Decorate one ordered named-output analytical composition."""
-    declaration = _RecipeDeclaration(
+    declaration = _workflow_declaration(recipe_id=id, revision=revision)
+    return _decorate(function, declaration, WorkflowRecipe)
+
+
+def _workflow_declaration(
+    *,
+    recipe_id: str | None,
+    revision: int | None,
+) -> _RecipeDeclaration:
+    """Build the one validated workflow declaration for every authoring form."""
+    return _RecipeDeclaration(
         kind="workflow",
-        recipe_id=_optional_identity(id),
-        revision=_optional_revision(id, revision),
+        recipe_id=_optional_identity(recipe_id),
+        revision=_optional_revision(recipe_id, revision),
         output_type=None,
         deterministic=True,
         supported_backends=_BACKENDS,
         dask_eligible=False,
     )
-    return _decorate(function, declaration, WorkflowRecipe)
 
 
 @overload
