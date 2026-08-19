@@ -214,6 +214,30 @@ class WorkflowRecipe[**P, R](_Recipe[P, R]):
         return _execute_direct(self, args[0], args[1:], kwargs)
 
 
+@overload
+def source[**Params, Result](
+    function: Callable[Params, Result],
+    *,
+    operation: object | None = None,
+    id: str | None = None,
+    revision: int | None = None,
+    output: type[object] | None = None,
+    cost: int | None = None,
+) -> SourceRecipe[Params, Result]: ...
+
+
+@overload
+def source[**Params, Result](
+    function: None = None,
+    *,
+    operation: object | None = None,
+    id: str | None = None,
+    revision: int | None = None,
+    output: type[object] | None = None,
+    cost: int | None = None,
+) -> Callable[[Callable[Params, Result]], SourceRecipe[Params, Result]]: ...
+
+
 def source[**Params, Result](
     function: Callable[Params, Result] | None = None,
     *,
