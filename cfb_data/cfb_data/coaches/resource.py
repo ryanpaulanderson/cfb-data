@@ -11,6 +11,7 @@ from pydantic import BaseModel, TypeAdapter
 from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
 from cfb_data._requests import _resolve_request
+from cfb_data.coaches._operations import COACH_SEASONS, COACH_TENURES
 from cfb_data.coaches.models.pydantic.requests import (
     CoachesRequest,
     CoachProfileRequest,
@@ -20,8 +21,6 @@ from cfb_data.coaches.models.pydantic.requests import (
 from cfb_data.coaches.models.pydantic.responses import (
     Coach,
     CoachProfile,
-    CoachTenure,
-    DetailedCoachSeason,
 )
 
 _RequestT = TypeVar("_RequestT", bound=BaseModel)
@@ -29,8 +28,6 @@ _RowT = TypeVar("_RowT", bound=BaseModel)
 
 _COACH_ROWS = TypeAdapter(list[Coach])
 _COACH_PROFILE = TypeAdapter(CoachProfile)
-_COACH_SEASON_ROWS = TypeAdapter(list[DetailedCoachSeason])
-_COACH_TENURE_ROWS = TypeAdapter(list[CoachTenure])
 
 
 class CoachesResource[FrameT]:
@@ -142,13 +139,11 @@ class CoachesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/coaches/seasons",
-            request_type=CoachSeasonsRequest,
+        return await COACH_SEASONS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_COACH_SEASON_ROWS,
-            row_model=DetailedCoachSeason,
         )
 
     @overload
@@ -177,13 +172,11 @@ class CoachesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/coaches/tenures",
-            request_type=CoachTenuresRequest,
+        return await COACH_TENURES.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_COACH_TENURE_ROWS,
-            row_model=CoachTenure,
         )
 
     async def _fetch_many(
