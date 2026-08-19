@@ -9,15 +9,30 @@ typed records rather than being implicitly pivoted into a changing schema.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Protocol
 
 from cfb_data.analytics import RecipeRef, dataset, step
-from cfb_data.enums import Classification
+from cfb_data.enums import Classification, SeasonType
 from cfb_data.games.models.pydantic.responses import TeamRecord, TeamRecords
 from cfb_data.games.sources import team_records
 from cfb_data.metrics.models.pydantic.responses import TeamSeasonPredictedPointsAdded
 from cfb_data.metrics.sources import team_season_ppa
 from cfb_data.players.models.pydantic.responses import ReturningProduction
 from cfb_data.players.sources import returning_production
+from cfb_data.ratings.models.pydantic.responses import (
+    TeamCoreRating,
+    TeamElo,
+    TeamFPI,
+    TeamSP,
+    TeamSRS,
+)
+from cfb_data.ratings.sources import (
+    core_ratings,
+    elo_ratings,
+    fpi_ratings,
+    sp_ratings,
+    srs_ratings,
+)
 from cfb_data.stats.models.pydantic.responses import AdvancedSeasonStat, TeamStat
 from cfb_data.stats.sources import advanced_season_stats, team_season_stats
 from cfb_data.teams.models.pydantic.responses import TeamATS, TeamTalent
@@ -42,6 +57,19 @@ class TeamSeasonCoverage(StrEnum):
     not_requested = "not_requested"
     empty = "empty"
     present = "present"
+
+
+class _TeamRating(Protocol):
+    """Describe identity fields shared by attachable team ratings."""
+
+    @property
+    def year(self) -> int: ...
+
+    @property
+    def team(self) -> str: ...
+
+    @property
+    def conference(self) -> str | None: ...
 
 
 class TeamSeason(BaseModel):
@@ -103,11 +131,46 @@ class TeamSeason(BaseModel):
         default=None,
         description="Source team returning-production metrics when requested.",
     )
+    core_rating_coverage: TeamSeasonCoverage = Field(
+        description="Explicit CORE-rating enrichment availability."
+    )
+    core_rating: TeamCoreRating | None = Field(
+        default=None,
+        description="Source CORE rating when requested.",
+    )
+    sp_rating_coverage: TeamSeasonCoverage = Field(
+        description="Explicit SP+ enrichment availability."
+    )
+    sp_rating: TeamSP | None = Field(
+        default=None,
+        description="Source team SP+ rating when requested.",
+    )
+    srs_rating_coverage: TeamSeasonCoverage = Field(
+        description="Explicit SRS enrichment availability."
+    )
+    srs_rating: TeamSRS | None = Field(
+        default=None,
+        description="Source Simple Rating System result when requested.",
+    )
+    elo_rating_coverage: TeamSeasonCoverage = Field(
+        description="Explicit Elo enrichment availability."
+    )
+    elo_rating: TeamElo | None = Field(
+        default=None,
+        description="Source Elo result for the requested period.",
+    )
+    fpi_rating_coverage: TeamSeasonCoverage = Field(
+        description="Explicit FPI enrichment availability."
+    )
+    fpi_rating: TeamFPI | None = Field(
+        default=None,
+        description="Source Football Power Index result when requested.",
+    )
 
 
 @step(
     id="cfbd.team_seasons.compose",
-    revision=3,
+    revision=4,
     output=TeamSeason,
     deterministic=True,
 )
@@ -120,6 +183,11 @@ def compose_team_seasons(
     talent: list[TeamTalent] | None,
     ats: list[TeamATS] | None,
     returning: list[ReturningProduction] | None,
+    core: list[TeamCoreRating] | None,
+    sp: list[TeamSP] | None,
+    srs: list[TeamSRS] | None,
+    elo: list[TeamElo] | None,
+    fpi: list[TeamFPI] | None,
 ) -> list[TeamSeason]:
     """Attach required season statistics to the records-defined universe.
 
@@ -130,6 +198,11 @@ def compose_team_seasons(
     :param talent: Requested team-talent rows, or ``None`` when omitted.
     :param ats: Requested against-the-spread rows, or ``None`` when omitted.
     :param returning: Requested returning-production rows, or ``None``.
+    :param core: Requested CORE ratings, or ``None`` when omitted.
+    :param sp: Requested team SP+ ratings, or ``None`` when omitted.
+    :param srs: Requested SRS ratings, or ``None`` when omitted.
+    :param elo: Requested Elo ratings, or ``None`` when omitted.
+    :param fpi: Requested FPI ratings, or ``None`` when omitted.
     :return: Complete team seasons in stable season/team-ID order.
     :raises ValueError: If identity, coverage, or statistic keys are ambiguous.
     """
@@ -192,6 +265,11 @@ def compose_team_seasons(
     talent_by_key = _index_talent(record_keys, talent)
     ats_by_key = _index_ats(record_keys, ats)
     returning_by_key = _index_returning(record_keys, returning)
+    core_by_key = _index_rating(record_keys, core, label="CORE ratings")
+    sp_by_key = _index_rating(record_keys, sp, label="SP+ ratings")
+    srs_by_key = _index_rating(record_keys, srs, label="SRS ratings")
+    elo_by_key = _index_rating(record_keys, elo, label="Elo ratings")
+    fpi_by_key = _index_rating(record_keys, fpi, label="FPI ratings")
 
     rows: list[TeamSeason] = []
     for key, record in record_keys.items():
@@ -238,6 +316,16 @@ def compose_team_seasons(
                 returning_production=(
                     returning_by_key.get(key) if returning_by_key is not None else None
                 ),
+                core_rating_coverage=_coverage(core_by_key, key),
+                core_rating=core_by_key.get(key) if core_by_key is not None else None,
+                sp_rating_coverage=_coverage(sp_by_key, key),
+                sp_rating=sp_by_key.get(key) if sp_by_key is not None else None,
+                srs_rating_coverage=_coverage(srs_by_key, key),
+                srs_rating=srs_by_key.get(key) if srs_by_key is not None else None,
+                elo_rating_coverage=_coverage(elo_by_key, key),
+                elo_rating=elo_by_key.get(key) if elo_by_key is not None else None,
+                fpi_rating_coverage=_coverage(fpi_by_key, key),
+                fpi_rating=fpi_by_key.get(key) if fpi_by_key is not None else None,
             )
         )
     return sorted(rows, key=lambda row: (row.season, row.team_id))
@@ -245,7 +333,7 @@ def compose_team_seasons(
 
 @dataset(
     id="cfbd.team_seasons",
-    revision=3,
+    revision=4,
     row=TeamSeason,
     grain="one team season established by the records source",
     keys=("season", "team_id"),
@@ -265,6 +353,13 @@ def team_seasons(
     include_talent: bool = False,
     include_ats: bool = False,
     include_returning_production: bool = False,
+    include_core_rating: bool = False,
+    include_sp_rating: bool = False,
+    include_srs_rating: bool = False,
+    include_elo_rating: bool = False,
+    elo_week: int | None = None,
+    elo_season_type: SeasonType | None = None,
+    include_fpi_rating: bool = False,
 ) -> RecipeRef[list[TeamSeason]]:
     """Build complete team-season records and core statistics.
 
@@ -279,8 +374,18 @@ def team_seasons(
     :param include_talent: Request the season's team-talent composites.
     :param include_ats: Request team against-the-spread records.
     :param include_returning_production: Request team returning-production metrics.
+    :param include_core_rating: Request the CORE rating.
+    :param include_sp_rating: Request the team SP+ rating.
+    :param include_srs_rating: Request the Simple Rating System result.
+    :param include_elo_rating: Request Elo for the declared period.
+    :param elo_week: Optional week cutoff for requested Elo.
+    :param elo_season_type: Optional season phase for requested Elo.
+    :param include_fpi_rating: Request the Football Power Index result.
     :return: A reference to the validated team-seasons dataset.
+    :raises ValueError: If Elo period selectors are supplied without Elo.
     """
+    if (elo_week is not None or elo_season_type is not None) and not include_elo_rating:
+        raise ValueError("Elo period selectors require include_elo_rating=True")
     return compose_team_seasons(
         team_records(year=season, team=team, conference=conference),
         team_season_stats(
@@ -323,6 +428,33 @@ def team_seasons(
                 conference=conference,
             )
             if include_returning_production
+            else None
+        ),
+        core=(
+            core_ratings(year=season, team=team, conference=conference)
+            if include_core_rating
+            else None
+        ),
+        sp=sp_ratings(year=season, team=team) if include_sp_rating else None,
+        srs=(
+            srs_ratings(year=season, team=team, conference=conference)
+            if include_srs_rating
+            else None
+        ),
+        elo=(
+            elo_ratings(
+                year=season,
+                week=elo_week,
+                season_type=elo_season_type,
+                team=team,
+                conference=conference,
+            )
+            if include_elo_rating
+            else None
+        ),
+        fpi=(
+            fpi_ratings(year=season, team=team, conference=conference)
+            if include_fpi_rating
             else None
         ),
     )
@@ -427,6 +559,42 @@ def _index_returning(
         indexed[key] = item
     if returning and set(indexed) != set(records):
         raise ValueError("Requested returning production is incomplete")
+    return indexed
+
+
+def _index_rating[RatingT: _TeamRating](
+    records: dict[tuple[int, str], TeamRecords],
+    ratings: list[RatingT] | None,
+    *,
+    label: str,
+) -> dict[tuple[int, str], RatingT] | None:
+    """Index one rating type within the records-defined season.
+
+    Rating endpoints may return aggregate or other-team rows even with a team
+    selector. Those are an explicit unmatched right side and cannot alter the
+    records universe.
+
+    :param records: Authoritative team-season records keyed within season.
+    :param ratings: Requested source rows, or ``None`` when omitted.
+    :param label: Safe rating label for validation errors.
+    :return: Matching ratings by records identity, or ``None`` when omitted.
+    :raises ValueError: If identity conflicts, duplicates, or coverage is partial.
+    """
+    if ratings is None:
+        return None
+    indexed: dict[tuple[int, str], RatingT] = {}
+    for item in ratings:
+        key = (item.year, _identity_text(item.team))
+        record = records.get(key)
+        if record is None:
+            continue
+        if item.conference is not None and item.conference != record.conference:
+            raise ValueError(f"{label} conflict with record conference")
+        if key in indexed:
+            raise ValueError(f"{label} contain duplicate team seasons")
+        indexed[key] = item
+    if ratings and set(indexed) != set(records):
+        raise ValueError(f"Requested {label} are incomplete")
     return indexed
 
 
