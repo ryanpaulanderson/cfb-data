@@ -6,8 +6,16 @@ from typing import Literal
 
 from cfb_data.analytics import SourceContext, source
 from cfb_data.enums import Classification, PlayoffCompetition, PlayoffRound, SeasonType
-from cfb_data.games._operations import GAMES_LIST, GAMES_TEAM_STATS
-from cfb_data.games.models.pydantic.responses import Game, TeamGameStats
+from cfb_data.games._operations import (
+    GAMES_LIST,
+    GAMES_PLAYER_STATS,
+    GAMES_TEAM_STATS,
+)
+from cfb_data.games.models.pydantic.responses import (
+    Game,
+    PlayerGameStats,
+    TeamGameStats,
+)
 
 type _SeasonTypeArgument = (
     SeasonType
@@ -109,4 +117,42 @@ async def team_game_stats(
     )
 
 
-__all__ = ["games", "team_game_stats"]
+@source(operation=GAMES_PLAYER_STATS)
+async def player_game_stats(
+    context: SourceContext[PlayerGameStats],
+    *,
+    year: int | None = None,
+    week: int | None = None,
+    season_type: _SeasonTypeArgument | None = None,
+    team: str | None = None,
+    conference: str | None = None,
+    category: str | None = None,
+    game_id: int | None = None,
+    classification: _ClassificationArgument | None = None,
+) -> list[PlayerGameStats]:
+    """Return validated nested player-game statistics.
+
+    :param context: Engine-owned source execution context.
+    :param year: Season year used for grouped retrieval.
+    :param week: Optional season week.
+    :param season_type: Optional season phase.
+    :param team: Optional team selector.
+    :param conference: Optional conference selector.
+    :param category: Optional source statistic-category selector.
+    :param game_id: Optional exact game identifier.
+    :param classification: Optional classification selector.
+    :return: Validated game/team/category/type/athlete nesting.
+    """
+    return await context.retrieve(
+        year=year,
+        week=week,
+        season_type=season_type,
+        team=team,
+        conference=conference,
+        category=category,
+        game_id=game_id,
+        classification=classification,
+    )
+
+
+__all__ = ["games", "player_game_stats", "team_game_stats"]
