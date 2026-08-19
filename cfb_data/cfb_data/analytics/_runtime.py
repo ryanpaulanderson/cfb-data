@@ -76,6 +76,7 @@ def _execute_direct(
             policy=None,
             resume_from=None,
             source_behavior=None,
+            automatic_recovery=True,
         )
         return run.value
 
@@ -91,6 +92,7 @@ async def _execute_run(
     policy: ExecutionPolicy | None,
     resume_from: str | None,
     source_behavior: SourceBehavior | None,
+    automatic_recovery: bool = False,
 ) -> RecipeRun[object]:
     """Execute a compiled recipe and return durable public evidence."""
     selected = policy or ExecutionPolicy()
@@ -105,13 +107,22 @@ async def _execute_run(
     database = await asyncio.to_thread(_RunDatabase, root / "runs.sqlite3")
     try:
         store = await asyncio.to_thread(_ArtifactObjectStore, root)
+        parent_run_id = await asyncio.to_thread(
+            _resolve_recovery_parent,
+            database,
+            graph,
+            recipe,
+            bridge.credential_scope,
+            resume_from,
+            automatic_recovery,
+        )
         resolved_source_behavior = await asyncio.to_thread(
             _validate_recovery,
             database,
             graph,
             recipe,
             bridge.credential_scope,
-            resume_from,
+            parent_run_id,
             source_behavior,
         )
         run = await asyncio.to_thread(
@@ -123,7 +134,7 @@ async def _execute_run(
             graph_fingerprint=graph.graph_fingerprint,
             credential_scope=bridge.credential_scope,
             max_http_attempts=selected.max_http_attempts,
-            parent_run_id=resume_from,
+            parent_run_id=parent_run_id,
             source_behavior=resolved_source_behavior,
         )
         dispatcher = _AnalyticsDispatcher(config.observer)
@@ -131,7 +142,7 @@ async def _execute_run(
             AnalyticsEvent(
                 event_type=AnalyticsEventType.run_planned,
                 run_id=run.run_id,
-                parent_run_id=resume_from,
+                parent_run_id=parent_run_id,
             )
         )
         await asyncio.to_thread(database.transition_run, run.run_id, "running")
@@ -139,7 +150,7 @@ async def _execute_run(
             AnalyticsEvent(
                 event_type=AnalyticsEventType.run_started,
                 run_id=run.run_id,
-                parent_run_id=resume_from,
+                parent_run_id=parent_run_id,
             )
         )
         started = time.monotonic()
@@ -156,7 +167,7 @@ async def _execute_run(
                     database=database,
                     store=store,
                     run_id=run.run_id,
-                    parent_run_id=resume_from,
+                    parent_run_id=parent_run_id,
                     source_behavior=resolved_source_behavior,
                     policy=selected,
                     dispatcher=dispatcher,
@@ -168,7 +179,7 @@ async def _execute_run(
                 database=database,
                 root=root,
                 run_id=run.run_id,
-                parent_run_id=resume_from,
+                parent_run_id=parent_run_id,
             )
         except asyncio.CancelledError:
             await asyncio.to_thread(database.transition_run, run.run_id, "cancelled")
@@ -176,7 +187,7 @@ async def _execute_run(
                 AnalyticsEvent(
                     event_type=AnalyticsEventType.run_cancelled,
                     run_id=run.run_id,
-                    parent_run_id=resume_from,
+                    parent_run_id=parent_run_id,
                     outcome=AnalyticsOutcome.cancelled,
                     duration_seconds=time.monotonic() - started,
                 )
@@ -201,7 +212,7 @@ async def _execute_run(
                 AnalyticsEvent(
                     event_type=AnalyticsEventType.run_failed,
                     run_id=run.run_id,
-                    parent_run_id=resume_from,
+                    parent_run_id=parent_run_id,
                     node_id=node_id,
                     outcome=AnalyticsOutcome.error,
                     failure_category=category,
@@ -218,7 +229,7 @@ async def _execute_run(
             AnalyticsEvent(
                 event_type=AnalyticsEventType.run_completed,
                 run_id=run.run_id,
-                parent_run_id=resume_from,
+                parent_run_id=parent_run_id,
                 outcome=AnalyticsOutcome.success,
                 duration_seconds=time.monotonic() - started,
             )
@@ -562,6 +573,29 @@ async def _public_result(
     )
 
 
+def _resolve_recovery_parent(
+    database: _RunDatabase,
+    graph: _CompiledGraph,
+    recipe: _CompilableRecipe,
+    credential_scope: str,
+    requested_parent: str | None,
+    automatic_recovery: bool,
+) -> str | None:
+    """Select an explicit parent or the newest compatible failed simple run."""
+    if requested_parent is not None or not automatic_recovery:
+        return requested_parent
+    candidate = database.newest_compatible_run(
+        recipe_id=recipe.id or graph.root_id,
+        recipe_revision=recipe.revision,
+        recipe_kind=cast(Literal["dataset", "workflow"], graph.root_kind),
+        parameter_fingerprint=graph.parameter_fingerprint,
+        credential_scope=credential_scope,
+    )
+    if candidate is None or candidate.state not in {"failed", "cancelled"}:
+        return None
+    return candidate.run_id
+
+
 def _validate_recovery(
     database: _RunDatabase,
     graph: _CompiledGraph,
@@ -589,7 +623,6 @@ def _validate_recovery(
         recipe.revision,
         graph.root_kind,
         graph.parameter_fingerprint,
-        graph.graph_fingerprint,
         credential_scope,
     )
     actual = (
@@ -597,7 +630,6 @@ def _validate_recovery(
         parent.recipe_revision,
         parent.recipe_kind,
         parent.parameter_fingerprint,
-        parent.graph_fingerprint,
         parent.credential_scope,
     )
     if actual != expected or parent.state not in {"failed", "cancelled"}:

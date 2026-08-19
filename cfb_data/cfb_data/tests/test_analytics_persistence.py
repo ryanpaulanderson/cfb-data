@@ -268,6 +268,66 @@ def test_recovery_run_is_a_new_immutable_child(tmp_path: Path) -> None:
         database.close()
 
 
+def test_newest_compatible_run_includes_success_but_ignores_other_parameters(
+    tmp_path: Path,
+) -> None:
+    """Select the latest state for only the exact root parameter identity."""
+    current = [_NOW]
+    database = _RunDatabase(
+        tmp_path / "runs.sqlite3",
+        clock=lambda: current[0],
+    )
+    try:
+        expected = database.create_run(
+            recipe_id="cfbd.game_summaries",
+            recipe_revision=1,
+            recipe_kind="dataset",
+            parameter_fingerprint="a" * 64,
+            graph_fingerprint="b" * 64,
+            credential_scope="scope-a",
+        )
+        database.transition_run(expected.run_id, "failed", node_id="step:clean")
+        current[0] += timedelta(seconds=1)
+        successful = database.create_run(
+            recipe_id=expected.recipe_id,
+            recipe_revision=expected.recipe_revision,
+            recipe_kind=expected.recipe_kind,
+            parameter_fingerprint=expected.parameter_fingerprint,
+            graph_fingerprint="c" * 64,
+            credential_scope=expected.credential_scope,
+        )
+        database.transition_run(successful.run_id, "running")
+        database.transition_run(successful.run_id, "completed")
+        current[0] += timedelta(seconds=1)
+        other_parameters = database.create_run(
+            recipe_id=expected.recipe_id,
+            recipe_revision=expected.recipe_revision,
+            recipe_kind=expected.recipe_kind,
+            parameter_fingerprint="d" * 64,
+            graph_fingerprint="e" * 64,
+            credential_scope=expected.credential_scope,
+        )
+        database.transition_run(
+            other_parameters.run_id,
+            "failed",
+            node_id="step:clean",
+        )
+
+        selected = database.newest_compatible_run(
+            recipe_id=expected.recipe_id,
+            recipe_revision=expected.recipe_revision,
+            recipe_kind=expected.recipe_kind,
+            parameter_fingerprint=expected.parameter_fingerprint,
+            credential_scope=expected.credential_scope,
+        )
+
+        assert selected is not None
+        assert selected.run_id == successful.run_id
+        assert selected.state == "completed"
+    finally:
+        database.close()
+
+
 def test_invalid_state_transition_rolls_back_without_evidence(tmp_path: Path) -> None:
     database = _RunDatabase(tmp_path / "runs.sqlite3", clock=lambda: _NOW)
     try:

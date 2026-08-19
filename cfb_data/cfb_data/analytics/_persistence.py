@@ -371,6 +371,29 @@ class _RunDatabaseQueries:
             raise AssertionError("Attempt reservation count is missing")
         return int(row["count"])
 
+    def newest_compatible_run(
+        self,
+        *,
+        recipe_id: str,
+        recipe_revision: int | None,
+        recipe_kind: _RecipeKind,
+        parameter_fingerprint: str,
+        credential_scope: str,
+    ) -> _RunRecord | None:
+        """Return the newest execution with the same root compatibility."""
+        with self._lock:
+            row = self._connection.execute(
+                self._sql.render("runs/select_newest_compatible_run.sql"),
+                (
+                    recipe_id,
+                    recipe_revision,
+                    recipe_kind,
+                    parameter_fingerprint,
+                    credential_scope,
+                ),
+            ).fetchone()
+        return None if row is None else _run_record(row)
+
     def plan_prune(self) -> _PrunePlan:
         """Return a non-mutating snapshot of eligible registered objects."""
         with self._lock:

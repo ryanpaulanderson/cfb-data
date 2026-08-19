@@ -12,10 +12,13 @@ from cfb_data.analytics import (
     AnalyticsConfig,
     ArtifactRef,
     CFBDRecipeCompilationError,
+    CFBDRunError,
     ExecutionPolicy,
     RecipeRef,
     RecipeRun,
     dataset,
+    list_runs,
+    step,
     workflow,
 )
 from cfb_data.games.models.pydantic.responses import Game
@@ -250,6 +253,128 @@ async def test_workflow_returns_named_frames_and_aliases_existing_content(
 
     assert tuple(outputs) == ("games",)
     assert isinstance(outputs["games"], pd.DataFrame)
+
+
+@pytest.mark.asyncio
+async def test_explicit_recovery_reuses_sources_after_downstream_revision_change(
+    api_server: ServerFactory,
+    game_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Use Merkle compatibility instead of requiring an identical whole graph."""
+    calls = 0
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        return web.json_response([game_response])
+
+    @step(id="tests.revised_recovery_step", revision=1, output=Game)
+    def failing(rows: list[Game]) -> list[Game]:
+        raise RuntimeError("injected downstream failure")
+
+    @step(id="tests.revised_recovery_step", revision=2, output=Game)
+    def fixed(rows: list[Game]) -> list[Game]:
+        return rows
+
+    selected_step = failing
+
+    @dataset(
+        id="tests.revised_recovery_dataset",
+        revision=1,
+        row=Game,
+        grain="one game",
+        keys=("id",),
+        order_by=("season", "week", "id"),
+    )
+    def recoverable(*, year: int, team: str) -> RecipeRef[list[Game]]:
+        return selected_step(games(year=year, team=team))
+
+    root = tmp_path / "analytics"
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "revised-recovery-key",
+            base_url=base_url,
+            retry_policy=RetryPolicy(max_attempts=1),
+            analytics=AnalyticsConfig(root=root),
+        ) as client:
+            with pytest.raises(CFBDRunError) as exc_info:
+                await recoverable.run(client, year=2024, team="Penn State")
+
+            selected_step = fixed
+            recovered = await recoverable.run(
+                client,
+                year=2024,
+                team="Penn State",
+                resume_from=exc_info.value.run_id,
+            )
+
+    assert recovered.parent_run_id == exc_info.value.run_id
+    assert recovered.actual_http_attempts == 0
+    assert recovered.reused_nodes >= 1
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_direct_call_recovers_from_newest_compatible_failed_run(
+    api_server: ServerFactory,
+    game_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Make the simple path preserve a failed run's validated source snapshot."""
+    calls = 0
+    attempts = 0
+
+    async def handler(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        return web.json_response([game_response])
+
+    @step(
+        id="tests.intermittent_recovery_step",
+        revision=1,
+        output=Game,
+        deterministic=False,
+    )
+    def intermittent(rows: list[Game]) -> list[Game]:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("injected transient failure")
+        return rows
+
+    @dataset(
+        id="tests.automatic_recovery_dataset",
+        revision=1,
+        row=Game,
+        grain="one game",
+        keys=("id",),
+        order_by=("season", "week", "id"),
+    )
+    def recoverable(*, year: int, team: str) -> RecipeRef[list[Game]]:
+        return intermittent(games(year=year, team=team))
+
+    config = AnalyticsConfig(root=tmp_path / "analytics")
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "automatic-recovery-key",
+            base_url=base_url,
+            retry_policy=RetryPolicy(max_attempts=1),
+            analytics=config,
+        ) as client:
+            with pytest.raises(CFBDRunError) as exc_info:
+                await recoverable(client, year=2024, team="Penn State")
+
+            frame = await recoverable(client, year=2024, team="Penn State")
+            fresh_frame = await recoverable(client, year=2024, team="Penn State")
+
+    runs = await list_runs(config)
+    assert isinstance(frame, pd.DataFrame)
+    assert isinstance(fresh_frame, pd.DataFrame)
+    assert runs[0].state == "completed"
+    assert runs[0].parent_run_id is None
+    assert runs[1].parent_run_id == exc_info.value.run_id
+    assert calls == 2
 
 
 @pytest.mark.asyncio
