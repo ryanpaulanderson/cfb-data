@@ -8,10 +8,14 @@ typed records rather than being implicitly pivoted into a changing schema.
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from cfb_data.analytics import RecipeRef, dataset, step
 from cfb_data.enums import Classification
 from cfb_data.games.models.pydantic.responses import TeamRecord, TeamRecords
 from cfb_data.games.sources import team_records
+from cfb_data.metrics.models.pydantic.responses import TeamSeasonPredictedPointsAdded
+from cfb_data.metrics.sources import team_season_ppa
 from cfb_data.stats.models.pydantic.responses import AdvancedSeasonStat, TeamStat
 from cfb_data.stats.sources import advanced_season_stats, team_season_stats
 from pydantic import BaseModel, ConfigDict, Field
@@ -26,6 +30,14 @@ class TeamSeasonStatistic(BaseModel):
     value: str | int | float = Field(json_schema_extra={"semantic_type": "measure"})
     source_conference: str = Field(json_schema_extra={"semantic_type": "dimension"})
     source_ordinal: int = Field(ge=0)
+
+
+class TeamSeasonCoverage(StrEnum):
+    """Describe whether an optional team-season enrichment produced evidence."""
+
+    not_requested = "not_requested"
+    empty = "empty"
+    present = "present"
 
 
 class TeamSeason(BaseModel):
@@ -59,6 +71,13 @@ class TeamSeason(BaseModel):
     advanced: AdvancedSeasonStat = Field(
         description="Validated nested advanced offense and defense metrics."
     )
+    ppa_coverage: TeamSeasonCoverage = Field(
+        description="Explicit team-season PPA enrichment availability."
+    )
+    ppa: TeamSeasonPredictedPointsAdded | None = Field(
+        default=None,
+        description="Source team-season PPA metrics when requested.",
+    )
 
 
 @step(
@@ -71,12 +90,15 @@ def compose_team_seasons(
     records: list[TeamRecords],
     statistics: list[TeamStat],
     advanced: list[AdvancedSeasonStat],
+    *,
+    ppa: list[TeamSeasonPredictedPointsAdded] | None,
 ) -> list[TeamSeason]:
     """Attach required season statistics to the records-defined universe.
 
     :param records: Validated authoritative team-season rows.
     :param statistics: Validated dynamic conventional statistics.
     :param advanced: Validated nested advanced season metrics.
+    :param ppa: Requested team-season PPA rows, or ``None`` when omitted.
     :return: Complete team seasons in stable season/team-ID order.
     :raises ValueError: If identity, coverage, or statistic keys are ambiguous.
     """
@@ -120,6 +142,22 @@ def compose_team_seasons(
             raise ValueError("Advanced statistics contain duplicate team seasons")
         advanced_by_key[key] = advanced_statistic
 
+    ppa_by_key: dict[tuple[int, str], TeamSeasonPredictedPointsAdded] | None = None
+    if ppa is not None:
+        ppa_by_key = {}
+        for ppa_statistic in ppa:
+            key = (ppa_statistic.season, _identity_text(ppa_statistic.team))
+            if key not in record_keys:
+                raise ValueError("Team-season PPA falls outside the records universe")
+            if key in ppa_by_key:
+                raise ValueError("Team-season PPA contains duplicate team seasons")
+            record = record_keys[key]
+            if ppa_statistic.conference != record.conference:
+                raise ValueError("Team-season PPA conflicts with record conference")
+            ppa_by_key[key] = ppa_statistic
+        if ppa_by_key and set(ppa_by_key) != set(record_keys):
+            raise ValueError("Requested team-season PPA is incomplete")
+
     rows: list[TeamSeason] = []
     for key, record in record_keys.items():
         if not conventional[key]:
@@ -147,6 +185,16 @@ def compose_team_seasons(
                 postseason=record.postseason,
                 statistics=conventional[key],
                 advanced=attached_advanced,
+                ppa_coverage=(
+                    TeamSeasonCoverage.not_requested
+                    if ppa_by_key is None
+                    else (
+                        TeamSeasonCoverage.present
+                        if key in ppa_by_key
+                        else TeamSeasonCoverage.empty
+                    )
+                ),
+                ppa=ppa_by_key.get(key) if ppa_by_key is not None else None,
             )
         )
     return sorted(rows, key=lambda row: (row.season, row.team_id))
@@ -170,6 +218,7 @@ def team_seasons(
     start_week: int | None = None,
     end_week: int | None = None,
     exclude_garbage_time: bool | None = None,
+    include_ppa: bool = False,
 ) -> RecipeRef[list[TeamSeason]]:
     """Build complete team-season records and core statistics.
 
@@ -180,6 +229,7 @@ def team_seasons(
     :param start_week: Optional inclusive statistics starting week.
     :param end_week: Optional inclusive statistics ending week.
     :param exclude_garbage_time: Optional advanced-statistics source policy.
+    :param include_ppa: Request team-season predicted-points-added metrics.
     :return: A reference to the validated team-seasons dataset.
     """
     return compose_team_seasons(
@@ -200,6 +250,17 @@ def team_seasons(
             end_week=end_week,
             classification=classification,
         ),
+        ppa=(
+            team_season_ppa(
+                year=season,
+                team=team,
+                conference=conference,
+                exclude_garbage_time=exclude_garbage_time,
+                classification=classification,
+            )
+            if include_ppa
+            else None
+        ),
     )
 
 
@@ -207,4 +268,9 @@ def _identity_text(value: str) -> str:
     return " ".join(value.split()).casefold()
 
 
-__all__ = ["TeamSeason", "TeamSeasonStatistic", "team_seasons"]
+__all__ = [
+    "TeamSeason",
+    "TeamSeasonCoverage",
+    "TeamSeasonStatistic",
+    "team_seasons",
+]

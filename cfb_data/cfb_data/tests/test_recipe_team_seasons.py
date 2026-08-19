@@ -11,7 +11,11 @@ import pandas as pd
 import pytest
 from aiohttp import web
 from cfb_data.analytics import AnalyticsConfig, CFBDRunError, ExecutionPolicy, RecipeRun
-from cfb_data_recipes.team_seasons import TeamSeason, team_seasons
+from cfb_data_recipes.team_seasons import (
+    TeamSeason,
+    TeamSeasonCoverage,
+    team_seasons,
+)
 
 from cfb_data import CFBDClient, DataFrameBackend, RetryPolicy
 
@@ -125,6 +129,26 @@ def _statistics() -> list[dict[str, object]]:
     ]
 
 
+def _ppa() -> dict[str, object]:
+    """Return one complete team-season PPA enrichment row."""
+    unit = {
+        "overall": 0.2,
+        "passing": 0.3,
+        "rushing": 0.1,
+        "firstDown": 0.2,
+        "secondDown": 0.1,
+        "thirdDown": 0.3,
+        "cumulative": {"total": 100.0, "passing": 60.0, "rushing": 40.0},
+    }
+    return {
+        "season": 2024,
+        "conference": "Big Ten",
+        "team": "Michigan",
+        "offense": unit,
+        "defense": unit,
+    }
+
+
 @pytest.mark.asyncio
 async def test_recipe_uses_records_universe_and_preserves_ordered_statistics(
     api_server: ServerFactory,
@@ -162,6 +186,8 @@ async def test_recipe_uses_records_universe_and_preserves_ordered_statistics(
     ]
     assert [item["value"] for item in frame.loc[0, "statistics"]] == [210, "22041"]
     assert frame.loc[0, "advanced"]["defense"]["passing_downs"]["total_ppa"] == 12.5
+    assert frame.loc[0, "ppa_coverage"] == TeamSeasonCoverage.not_requested
+    assert frame.loc[0, "ppa"] is None
 
 
 @pytest.mark.asyncio
@@ -176,6 +202,7 @@ async def test_recipe_has_four_way_canonical_parity(
         "/records": 0,
         "/stats/season": 0,
         "/stats/season/advanced": 0,
+        "/ppa/teams": 0,
     }
 
     async def handler(request: web.Request) -> web.Response:
@@ -184,6 +211,7 @@ async def test_recipe_has_four_way_canonical_parity(
             "/records": [_record()],
             "/stats/season": _statistics(),
             "/stats/season/advanced": [_advanced()],
+            "/ppa/teams": [_ppa()],
         }
         return web.json_response(payloads[request.path])
 
@@ -207,15 +235,20 @@ async def test_recipe_has_four_way_canonical_parity(
                 run: RecipeRun[pd.DataFrame] = await team_seasons.run(
                     client,
                     season=2024,
+                    include_ppa=True,
                     policy=ExecutionPolicy(executor=executor, dask_max_workers=1),
                 )
             digests.append(run.artifact.descriptor.content_digest)
-            records.append(run.artifact.load().to_dict(orient="records"))
+            restored = run.artifact.load()
+            records.append(restored.to_dict(orient="records"))
+            assert restored.loc[0, "ppa_coverage"] == TeamSeasonCoverage.present
+            assert restored.loc[0, "ppa"]["offense"]["overall"] == 0.2
 
     assert calls == {
         "/records": 4,
         "/stats/season": 4,
         "/stats/season/advanced": 4,
+        "/ppa/teams": 4,
     }
     assert len(set(digests)) == 1
     assert all(result == records[0] for result in records[1:])
@@ -248,3 +281,38 @@ async def test_required_statistical_coverage_fails_closed(
 
     assert exc_info.value.node_id.endswith("cfbd.team_seasons.compose@1")
     assert exc_info.value.category == "ValueError"
+
+
+@pytest.mark.asyncio
+async def test_requested_empty_ppa_is_explicit_without_changing_universe(
+    api_server: ServerFactory,
+    tmp_path: Path,
+) -> None:
+    """Preserve a records row when optional PPA is valid-empty."""
+
+    async def handler(request: web.Request) -> web.Response:
+        payloads: dict[str, object] = {
+            "/records": [_record()],
+            "/stats/season": _statistics(),
+            "/stats/season/advanced": [_advanced()],
+            "/ppa/teams": [],
+        }
+        return web.json_response(payloads[request.path])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "team-seasons-key",
+            base_url=base_url,
+            retry_policy=RetryPolicy(max_attempts=1),
+            analytics=AnalyticsConfig(root=tmp_path / "analytics"),
+        ) as client:
+            frame = await team_seasons(
+                client,
+                season=2024,
+                team="Michigan",
+                include_ppa=True,
+            )
+
+    assert len(frame) == 1
+    assert frame.loc[0, "ppa_coverage"] == TeamSeasonCoverage.empty
+    assert frame.loc[0, "ppa"] is None
