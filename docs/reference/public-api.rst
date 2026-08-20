@@ -55,6 +55,45 @@ Retrieval observability
 
 .. autodata:: cfb_data.RetrievalEvent
 
+Analytics recipes
+-----------------
+
+.. autoclass:: cfb_data.analytics.AnalyticsConfig
+   :members:
+
+.. autoclass:: cfb_data.analytics.ExecutionPolicy
+   :members:
+
+.. autoclass:: cfb_data.analytics.RecipePlan
+   :members:
+
+.. autoclass:: cfb_data.analytics.RecipeInspection
+   :members:
+
+.. autoclass:: cfb_data.analytics.RecipeRun
+   :members:
+
+.. autoclass:: cfb_data.analytics.WorkflowOutputs
+   :members:
+
+.. autoclass:: cfb_data.analytics.ArtifactRef
+   :members:
+
+.. autoclass:: cfb_data.analytics.AnalyticsStats
+   :members:
+
+.. autofunction:: cfb_data.analytics.dataset
+
+.. autofunction:: cfb_data.analytics.workflow
+
+.. autofunction:: cfb_data.analytics.source
+
+.. autofunction:: cfb_data.analytics.step
+
+.. autofunction:: cfb_data.analytics.discover_recipes
+
+.. autofunction:: cfb_data.analytics.load_recipe_yaml
+
 Identity results
 ----------------
 

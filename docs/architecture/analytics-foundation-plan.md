@@ -2,7 +2,7 @@
 
 - Architecture: [ADR 0006](0006-modular-analytics-recipes.md)
 - Plan status: Approved
-- Implementation status: In progress
+- Implementation status: Complete on ``feat/modular-analytics-foundation``
 - Last updated: 2026-08-19
 
 ## Goal
@@ -775,9 +775,8 @@ evidence.
 The approved architecture review authorized a vertical-slice implementation
 while ADR 0006 remained Proposed. ADR 0006 was accepted on August 19, 2026
 after its stated authoring, discovery, pooled-source, artifact, and local/Dask
-parity evidence passed. The remaining stages stay in progress. Each stage is a
-coherent reviewable change with its own relevant checks; implementation must
-not be reassembled into one large commit.
+parity evidence passed. All six stages are complete in dependency-ordered,
+individually verified Conventional Commits.
 
 1. **Authoring and discovery**
    - Add decorators, typed wrappers, graph references, transactional discovery,
@@ -807,9 +806,9 @@ not be reassembled into one large commit.
    - Complete failure injection, packaging matrices, Redis integration, bounded
      live acceptance, README/status documentation, and operational guidance.
 
-After the architecture-only PR is accepted, implementation should proceed in
-dependency-ordered PRs so authoring/discovery, durability, Dask parity, recipe
-semantics, and public documentation can be reviewed independently.
+The branch preserves dependency order so authoring/discovery, durability, Dask
+parity, recipe semantics, and public documentation remain reviewable without a
+centralized implementation commit.
 
 ## Deterministic acceptance
 
@@ -908,10 +907,9 @@ semantics, and public documentation can be reviewed independently.
 
 ## Redis and bounded live acceptance
 
-The live ledger is cumulative and currently records **651 of 1,000** absolute
-attempts, leaving 349 absolute attempts and 149 before the repository's
-operational stop at 800. Documentation and architecture review make zero live
-calls.
+The live ledger is cumulative and recorded **651 of 1,000** absolute attempts
+before this acceptance run. The completed harness ended at **655**, consuming
+four attempts and retaining 120 before the operational stop at 800.
 
 The implementation harness must read the current value immediately before
 planning and refuse a reservation unless at least 25 attempts remain below 800
@@ -924,7 +922,7 @@ At the current ledger, a 90-attempt reservation would end at 741 and retain a
 59-attempt operational cushion. If the ledger advances, the matrix shrinks
 before dispatch.
 
-Acceptance will:
+Acceptance completed the following sequence:
 
 1. Compile and plan all twelve datasets and three workflows with zero HTTP
    attempts and zero artifact writes.
@@ -946,7 +944,17 @@ Acceptance will:
    reuse, quality results, warnings, skips, and redacted retrieval/analytics
    statistics in the ignored live-report area.
 
-Paid enrichments are not required by the base live matrix. Unavailable or
+The live run planned all fifteen recipes with zero I/O, inspected nineteen
+source candidates, and computed a 48-attempt worst case. The narrow warm phase
+made four actual HTTP attempts and reused twelve fresh Redis responses. All
+four pandas/Polars by local/Dask replays then ran under ``local_only`` with zero
+additional attempts and equal canonical outputs. Dask executed sixteen nodes
+per Dask run; checkpoint replay started no Dask cluster. Child recovery reused
+a compatible source ancestor with zero attempts, and a distinct new run
+consulted one fresh Redis response rather than an analytics source checkpoint.
+The redacted report recorded no warning or skip.
+
+Paid enrichments were not required by the base live matrix. Unavailable or
 skipped enrichments remain explicit in coverage evidence.
 
 Final release evidence runs ``make format``, ``make check``, deterministic

@@ -302,15 +302,16 @@ the exact partitions, freshness rules, and resume behavior.
 
 ## Gather independent results concurrently
 
-The client is async because its job is gathering and validating data, not
-performing analytical calculations. When several endpoint calls are
+The endpoint client is async because its job is gathering and validating data,
+not performing analytical calculations. When several endpoint calls are
 independent, Python can overlap the time spent waiting for their responses.
 
 DataFrame calculations sit on the other side of that boundary. Gather the
 endpoint results with the async client, then pass the completed pandas or
-Polars frames into ordinary analysis. A future modular recipe layer is
-[proposed, but not implemented](../architecture/0006-modular-analytics-recipes.md)
-to coordinate the same retrieval and transformation boundary.
+Polars frames into ordinary analysis. For a repeatable multi-source product,
+the supported [modular recipe layer](modular-analytics.md) coordinates the same
+boundary: independent source nodes overlap on the one pooled client, while
+pure transforms execute locally or through Dask after validation.
 
 ![Timeline comparing three sequential API waits with three overlapping waits started with asyncio gather.](../images/async-overlap.svg)
 

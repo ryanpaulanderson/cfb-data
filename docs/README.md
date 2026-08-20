@@ -24,6 +24,8 @@ deployment.
 - [`index.md`](index.md) — Sphinx site entry point and navigation.
 - [`getting-started.md`](getting-started.md) — installation, authentication,
   first request, backend selection, and basic error handling.
+- [`guides/modular-analytics.md`](guides/modular-analytics.md) — callable
+  datasets and workflows, planning, durability, Dask, YAML, and user authoring.
 - [`guides/common-recipes.md`](guides/common-recipes.md) — notebook examples for
   common data, IDs, minimal hydration, joins, and async concurrency.
 - [`guides/`](guides/) — request rules and allowed values, result shapes,
@@ -45,6 +47,8 @@ deployment.
 - [`architecture/0004-api-cache-identity-catalog.md`](architecture/0004-api-cache-identity-catalog.md)
   — accepted API response-cache, identity-catalog, coverage, hydration, and
   identity-routing architecture.
+- [`architecture/0006-modular-analytics-recipes.md`](architecture/0006-modular-analytics-recipes.md)
+  — accepted modular recipe, discovery, durable execution, and Dask boundary.
 - [`notices-of-decision/`](notices-of-decision/README.md) — decision notices
   explaining the evidence, alternatives, and reasoning behind consequential
   project choices.

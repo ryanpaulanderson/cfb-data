@@ -633,10 +633,15 @@ tests and 21 correctly gated Redis/live tests. The separately gated Redis suite
 passed all 19 tests against the preserved local container using isolated test
 prefixes. No live API request was made for architecture acceptance.
 
-Acceptance fixes the modular recipe and topology-neutral executor direction.
-The implementation plan remains in progress until all twelve datasets, three
-workflows, Python/YAML parity, packaging matrices, operational documentation,
-and bounded live validation are complete.
+The remaining foundation gates subsequently passed on August 19, 2026: all
+twelve datasets and three workflows, Python/YAML canonical graph parity, the
+Python 3.12/3.13 base and optional-extra package matrix, Redis replay, durable
+recovery hardening, operational documentation, and bounded live validation.
+The live ledger moved from 651 to 655; all four pandas/Polars by local/Dask
+cache-only executions added zero attempts and produced equal canonical
+results. Acceptance fixes the modular recipe and topology-neutral executor
+direction; future modeling, visualization, remote execution, and new datasets
+must build on these boundaries rather than creating privileged paths.
 
 ## Alternatives considered
 
