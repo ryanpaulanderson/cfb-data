@@ -39,7 +39,12 @@ from cfb_data.cache._identity_codecs import (
     team_identity,
     venue_identity,
 )
-from cfb_data.cache._models import MAX_RESPONSE_BODY_BYTES, ResponseRecord
+from cfb_data.cache._models import (
+    MAX_RESPONSE_BODY_BYTES,
+    ResponsePeek,
+    ResponsePeekStatus,
+    ResponseRecord,
+)
 from cfb_data.cache._sqlite_sql import SQLiteSQL
 from cfb_data.cache.config import SQLiteCacheConfig
 from cfb_data.errors import CFBDCacheBackendError, CFBDClientStateError
@@ -170,6 +175,37 @@ class SQLiteCacheBackend:
                 )
                 return None
             return record
+
+    async def peek_response(self, key: str, now: datetime) -> ResponsePeek:
+        """Inspect one SQLite response without changing database state."""
+        async with self._operation_lock:
+            connection = self._active_connection()
+            size_cursor = await connection.execute(
+                self._sql.render("get_response_size.sql"), (key,)
+            )
+            size_row = await size_cursor.fetchone()
+            await size_cursor.close()
+            if size_row is None:
+                return ResponsePeek(ResponsePeekStatus.missing)
+            if _row_int(size_row, 0) > MAX_RESPONSE_BODY_BYTES:
+                return ResponsePeek(ResponsePeekStatus.corrupt)
+            cursor = await connection.execute(
+                self._sql.render("get_response.sql"), (key,)
+            )
+            row = await cursor.fetchone()
+            await cursor.close()
+            if row is None:
+                return ResponsePeek(ResponsePeekStatus.missing)
+            try:
+                record = _response_from_row(row)
+            except Exception:
+                return ResponsePeek(ResponsePeekStatus.corrupt)
+            status = (
+                ResponsePeekStatus.expired
+                if record.retained_until <= now
+                else ResponsePeekStatus.retained
+            )
+            return ResponsePeek(status, record)
 
     async def commit_response(
         self, record: ResponseRecord, projection: CatalogProjection

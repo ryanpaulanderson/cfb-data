@@ -22,7 +22,9 @@ dependencies = [
     "aiohttp>=3.13,<4",
     "aiosqlite>=0.22,<1",
     "jinja2>=3.1,<4",
+    "narwhals>=2.24,<3",
     "pandas>=3.0,<4",
+    "platformdirs>=4.11,<5",
     "pydantic>=2.12,<3",
     "pyarrow>=25,<26",
 ]
@@ -34,6 +36,12 @@ polars = [
 redis = [
     "redis>=7.1,<9",
 ]
+dask = [
+    "dask[distributed]>=2026.7.1,<2027",
+]
+yaml = [
+    "PyYAML>=6.0.3,<7",
+]
 dev = [
     "build>=1.5,<2",
     "furo>=2025.12.19",
@@ -44,9 +52,15 @@ dev = [
     "pytest>=9,<10",
     "pytest-asyncio>=1.3,<2",
     "ruff>=0.15.22,<0.17",
+    "setuptools>=80,<82",
     "sphinx>=9.1,<10",
     "twine>=7,<8",
+    "types-PyYAML>=6.0.12.20260815,<6.1",
+    "wheel>=0.46,<1",
 ]
+
+[project.entry-points."cfb_data.recipes"]
+official = "cfb_data_recipes"
 
 [project.urls]
 Documentation = "https://ryanpaulanderson.github.io/cfb-data/"
@@ -55,6 +69,7 @@ Issues = "https://github.com/ryanpaulanderson/cfb-data/issues"
 
 [tool.setuptools]
 package-dir = { "" = "cfb_data" }
+include-package-data = false
 
 [tool.setuptools.packages.find]
 where = ["cfb_data"]
@@ -62,7 +77,8 @@ include = ["cfb_data*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-cfb_data = ["py.typed", "cache/sql/*.sql"]
+cfb_data = ["py.typed", "cache/sql/*.sql", "analytics/sql/*/*.sql"]
+cfb_data_recipes = ["py.typed"]
 
 [tool.ruff]
 line-length = 88
@@ -101,7 +117,7 @@ docstring-code-format = true
 [tool.mypy]
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["cfb_data/cfb_data"]
+files = ["cfb_data/cfb_data", "cfb_data/cfb_data_recipes"]
 exclude = ["^cfb_data/cfb_data/tests/"]
 pretty = true
 show_error_codes = true
@@ -121,4 +137,5 @@ testpaths = ["cfb_data/cfb_data/tests"]
 markers = [
     "redis: requires an explicitly configured disposable Redis integration service",
     "live_api: requires CFBD_API_KEY and makes bounded calls to the real API",
+    "live_analytics: requires CFBD_API_KEY, persistent Redis, and a durable call ledger",
 ]

@@ -14,7 +14,7 @@ HTTP client or cleaning up inconsistent response shapes.
 - Pull games, plays, drives, ratings, rosters, recruiting, betting, draft, and
   other CFBD data into Python.
 - Explore one team or season in a notebook.
-- Build repeatable pandas or Polars analyses across several endpoints.
+- Run or author durable pandas or Polars recipes across several endpoints.
 - Cache responses locally so rerunning an analysis does not repeat every API
   call.
 - Resolve team, venue, game, and athlete names and IDs when joining data.
@@ -44,6 +44,12 @@ python -m pip install "cfb-data[redis]"
 ```
 
 SQLite caching is included in the normal installation.
+
+For local Dask execution or safe declarative YAML recipes:
+
+```shell
+python -m pip install "cfb-data[dask,yaml]"
+```
 
 ## Make a first request
 
@@ -82,6 +88,32 @@ asyncio.run(main())
 The `async with` block lets related calls share one HTTP session and closes it
 when the block ends. Async is limited to gathering and validating data; the
 pandas calculation starts synchronously after the completed frame is returned.
+
+## Run a modular analytics recipe
+
+First-party datasets and workflows are ordinary independently importable
+recipe modules. They use the same authoring and execution surface available to
+your own package:
+
+```python
+from cfb_data_recipes.team_seasons import team_seasons
+
+async with CFBDClient() as client:
+    season = await team_seasons(
+        client,
+        season=2024,
+        team="Penn State",
+    )
+
+print(season[["team", "season", "expected_wins", "total"]])
+```
+
+Use ``.plan()`` for a pure no-I/O execution plan and ``.run()`` for durable
+artifacts, lineage, source coverage, quality results, and recovery evidence.
+Workflows return explicit named outputs rather than choosing a hidden primary
+table. See [Build durable analyses with modular
+recipes](docs/guides/modular-analytics.md) for the twelve included datasets,
+three workflows, Dask execution, safe YAML, recovery, and user authoring.
 
 ## Find the data you need
 
@@ -230,8 +262,9 @@ The [complete documentation](https://ryanpaulanderson.github.io/cfb-data/)
 is organized in layers:
 
 - **Start and use:** installation, examples, requests, results, caching, and
-  troubleshooting, including [common notebook
-  recipes](docs/guides/common-recipes.md).
+  troubleshooting, including [modular analytics
+  recipes](docs/guides/modular-analytics.md) and [common notebook
+  patterns](docs/guides/common-recipes.md).
 - **Advanced details:** exact enum values, dtypes, TTLs, retries, and storage
   behavior.
 - **Project internals:** architecture decisions and contributor-facing design.

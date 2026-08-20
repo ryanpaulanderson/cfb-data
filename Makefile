@@ -5,7 +5,7 @@ PRE_COMMIT := $(VENV)/bin/pre-commit
 RUFF := $(VENV)/bin/ruff
 SPHINXBUILD := $(VENV)/bin/sphinx-build
 
-.PHONY: help install hooks format docs check test build update-reference-enums redis-up redis-down test-redis test-live test-live-all
+.PHONY: help install hooks format docs check test build update-reference-enums redis-up redis-down test-redis test-live test-live-all test-live-analytics
 
 help:
 	@echo "make install  Create .venv and install runtime + development dependencies"
@@ -21,11 +21,12 @@ help:
 	@echo "make test-redis Run integration tests against the local Redis service"
 	@echo "make test-live Spend one real API call using CFBD_API_KEY from .env"
 	@echo "make test-live-all Run the quota-ledgered exhaustive SQLite/Redis live matrix"
+	@echo "make test-live-analytics Run quota-ledgered modular recipe acceptance"
 
 install:
 	test -d $(VENV) || $(PYTHON) -m venv $(VENV)
 	$(VENV_PYTHON) -m pip install --upgrade pip
-	$(VENV_PYTHON) -m pip install --editable ".[dev,polars,redis]"
+	$(VENV_PYTHON) -m pip install --editable ".[dev,polars,redis,dask,yaml]"
 
 hooks:
 	$(PRE_COMMIT) install
@@ -59,6 +60,9 @@ test-live:
 
 test-live-all:
 	set -a; . ./.env; set +a; CFB_DATA_RUN_LIVE_API_ALL=1 CFB_DATA_TEST_REDIS_URL=redis://127.0.0.1:6379/0 $(VENV_PYTHON) -m pytest cfb_data/cfb_data/tests/test_live_api_all.py -q
+
+test-live-analytics:
+	set -a; . ./.env; set +a; CFB_DATA_RUN_LIVE_ANALYTICS=1 CFB_DATA_TEST_REDIS_URL=redis://127.0.0.1:6379/0 $(VENV_PYTHON) -m pytest cfb_data/cfb_data/tests/test_live_analytics.py -q
 
 build:
 	$(VENV_PYTHON) -m build

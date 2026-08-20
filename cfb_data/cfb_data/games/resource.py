@@ -17,6 +17,15 @@ from cfb_data.enums import (
     PlayoffRound,
     SeasonType,
 )
+from cfb_data.games._operations import (
+    ADVANCED_BOX_SCORE,
+    GAME_MEDIA,
+    GAME_WEATHER,
+    GAMES_LIST,
+    GAMES_PLAYER_STATS,
+    GAMES_TEAM_STATS,
+    TEAM_RECORDS,
+)
 from cfb_data.games.models.pydantic.requests import (
     AdvancedBoxScoreRequest,
     CalendarRequest,
@@ -31,13 +40,7 @@ from cfb_data.games.models.pydantic.requests import (
 from cfb_data.games.models.pydantic.responses import (
     AdvancedBoxScore,
     CalendarWeek,
-    Game,
-    GameMedia,
-    GameWeather,
-    PlayerGameStats,
     ScoreboardGame,
-    TeamGameStats,
-    TeamRecords,
 )
 
 _RequestT = TypeVar("_RequestT", bound=BaseModel)
@@ -60,15 +63,8 @@ type _RoundArgument = (
     PlayoffRound | Literal["first_round", "quarterfinal", "semifinal", "championship"]
 )
 
-_GAME_ROWS = TypeAdapter(list[Game])
-_RECORD_ROWS = TypeAdapter(list[TeamRecords])
 _CALENDAR_ROWS = TypeAdapter(list[CalendarWeek])
 _SCOREBOARD_ROWS = TypeAdapter(list[ScoreboardGame])
-_MEDIA_ROWS = TypeAdapter(list[GameMedia])
-_WEATHER_ROWS = TypeAdapter(list[GameWeather])
-_PLAYER_STAT_ROWS = TypeAdapter(list[PlayerGameStats])
-_TEAM_STAT_ROWS = TypeAdapter(list[TeamGameStats])
-_ADVANCED_BOX = TypeAdapter(AdvancedBoxScore)
 
 
 class GamesResource[FrameT]:
@@ -119,22 +115,11 @@ class GamesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        endpoint = "/games"
-        validated = _resolve_request(
-            endpoint=endpoint,
-            request_type=GamesRequest,
-            request=request,
-            filters=filters,
-        )
-        rows = await self._executor.fetch_many(
-            endpoint=endpoint,
-            request=validated,
-            response_adapter=_GAME_ROWS,
-        )
-        return self._dataframe_adapter.from_models(
-            endpoint=endpoint,
-            row_model=Game,
-            models=rows,
+        return await GAMES_LIST.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
+            request,
+            filters,
         )
 
     @overload
@@ -165,13 +150,11 @@ class GamesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_frame(
-            endpoint="/records",
-            request_type=RecordsRequest,
+        return await TEAM_RECORDS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_RECORD_ROWS,
-            row_model=TeamRecords,
         )
 
     @overload
@@ -277,13 +260,11 @@ class GamesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_frame(
-            endpoint="/games/media",
-            request_type=GameMediaRequest,
+        return await GAME_MEDIA.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_MEDIA_ROWS,
-            row_model=GameMedia,
         )
 
     @overload
@@ -318,13 +299,11 @@ class GamesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_frame(
-            endpoint="/games/weather",
-            request_type=GameWeatherRequest,
+        return await GAME_WEATHER.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_WEATHER_ROWS,
-            row_model=GameWeather,
         )
 
     @overload
@@ -364,13 +343,11 @@ class GamesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_frame(
-            endpoint="/games/players",
-            request_type=PlayerGameStatsRequest,
+        return await GAMES_PLAYER_STATS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_PLAYER_STAT_ROWS,
-            row_model=PlayerGameStats,
         )
 
     @overload
@@ -405,13 +382,11 @@ class GamesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_frame(
-            endpoint="/games/teams",
-            request_type=TeamGameStatsRequest,
+        return await GAMES_TEAM_STATS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_TEAM_STAT_ROWS,
-            row_model=TeamGameStats,
         )
 
     @overload
@@ -444,18 +419,8 @@ class GamesResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, decode, or validation fails.
         """
-        endpoint = "/game/box/advanced"
-        validated = _resolve_request(
-            endpoint=endpoint,
-            request_type=AdvancedBoxScoreRequest,
-            request=request,
-            filters=filters,
-        )
-        return await self._executor.fetch_one(
-            endpoint=endpoint,
-            request=validated,
-            response_adapter=_ADVANCED_BOX,
-        )
+        validated = ADVANCED_BOX_SCORE.resolve(request, filters)
+        return await ADVANCED_BOX_SCORE.fetch_one(self._executor, validated)
 
     async def _fetch_frame(
         self,

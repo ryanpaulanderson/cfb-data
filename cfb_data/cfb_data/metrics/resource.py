@@ -11,6 +11,13 @@ from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
 from cfb_data._requests import _resolve_request
 from cfb_data.enums import Classification, SeasonType
+from cfb_data.metrics._operations import (
+    PLAY_WIN_PROBABILITIES,
+    PLAYER_GAME_PPA,
+    PLAYER_SEASON_PPA,
+    TEAM_GAME_PPA,
+    TEAM_SEASON_PPA,
+)
 from cfb_data.metrics.models.pydantic.requests import (
     PlayerGamePPARequest,
     PlayerSeasonPPARequest,
@@ -22,13 +29,8 @@ from cfb_data.metrics.models.pydantic.requests import (
 )
 from cfb_data.metrics.models.pydantic.responses import (
     FieldGoalExpectedPoints,
-    PlayerGamePredictedPointsAdded,
-    PlayerSeasonPredictedPointsAdded,
-    PlayWinProbability,
     PredictedPointsValue,
     PregameWinProbability,
-    TeamGamePredictedPointsAdded,
-    TeamSeasonPredictedPointsAdded,
 )
 
 _RequestT = TypeVar("_RequestT", bound=BaseModel)
@@ -47,11 +49,6 @@ type _SeasonTypeArgument = (
 )
 
 _PREDICTED_POINTS_ROWS = TypeAdapter(list[PredictedPointsValue])
-_TEAM_SEASON_PPA_ROWS = TypeAdapter(list[TeamSeasonPredictedPointsAdded])
-_TEAM_GAME_PPA_ROWS = TypeAdapter(list[TeamGamePredictedPointsAdded])
-_PLAYER_GAME_PPA_ROWS = TypeAdapter(list[PlayerGamePredictedPointsAdded])
-_PLAYER_SEASON_PPA_ROWS = TypeAdapter(list[PlayerSeasonPredictedPointsAdded])
-_WIN_PROBABILITY_ROWS = TypeAdapter(list[PlayWinProbability])
 _PREGAME_WIN_PROBABILITY_ROWS = TypeAdapter(list[PregameWinProbability])
 _FIELD_GOAL_EP_ROWS = TypeAdapter(list[FieldGoalExpectedPoints])
 
@@ -132,13 +129,11 @@ class MetricsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/ppa/teams",
-            request_type=TeamSeasonPPARequest,
+        return await TEAM_SEASON_PPA.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_TEAM_SEASON_PPA_ROWS,
-            row_model=TeamSeasonPredictedPointsAdded,
         )
 
     @overload
@@ -170,13 +165,11 @@ class MetricsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/ppa/games",
-            request_type=TeamGamePPARequest,
+        return await TEAM_GAME_PPA.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_TEAM_GAME_PPA_ROWS,
-            row_model=TeamGamePredictedPointsAdded,
         )
 
     @overload
@@ -209,13 +202,11 @@ class MetricsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/ppa/players/games",
-            request_type=PlayerGamePPARequest,
+        return await PLAYER_GAME_PPA.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_PLAYER_GAME_PPA_ROWS,
-            row_model=PlayerGamePredictedPointsAdded,
         )
 
     @overload
@@ -247,13 +238,11 @@ class MetricsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/ppa/players/season",
-            request_type=PlayerSeasonPPARequest,
+        return await PLAYER_SEASON_PPA.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_PLAYER_SEASON_PPA_ROWS,
-            row_model=PlayerSeasonPredictedPointsAdded,
         )
 
     @overload
@@ -275,13 +264,11 @@ class MetricsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/metrics/wp",
-            request_type=WinProbabilityRequest,
+        return await PLAY_WIN_PROBABILITIES.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_WIN_PROBABILITY_ROWS,
-            row_model=PlayWinProbability,
         )
 
     @overload

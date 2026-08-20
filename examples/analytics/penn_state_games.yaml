@@ -1,0 +1,32 @@
+api_version: cfb_data.analytics/v1
+kind: workflow
+id: example.penn_state_games
+revision: 1
+parameters:
+  - name: year
+    type:
+      kind: integer
+      nullable: true
+    default: null
+  - name: team
+    type:
+      kind: string
+      nullable: true
+    default: null
+nodes:
+  - name: game_summaries
+    recipe:
+      kind: dataset
+      id: cfbd.game_summaries
+      revision: 3
+    arguments:
+      year:
+        kind: parameter
+        name: year
+      team:
+        kind: parameter
+        name: team
+outputs:
+  game_summaries:
+    kind: node
+    name: game_summaries

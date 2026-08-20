@@ -15,15 +15,16 @@ _PACKAGE_ROOT = Path(__file__).parents[1]
 def test_live_manifest_contains_each_public_rest_route_once() -> None:
     """Fail when a resource route is missing from or duplicated in the manifest."""
     implemented: set[str] = set()
-    for path in _PACKAGE_ROOT.glob("*/resource.py"):
-        tree = ast.parse(path.read_text())
-        implemented.update(
-            node.value
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Constant)
-            and isinstance(node.value, str)
-            and node.value.startswith("/")
-        )
+    for pattern in ("*/resource.py", "*/_operations.py"):
+        for path in _PACKAGE_ROOT.glob(pattern):
+            tree = ast.parse(path.read_text())
+            implemented.update(
+                node.value
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and node.value.startswith("/")
+            )
     manifested = [case.endpoint for case in LIVE_ENDPOINT_CASES]
     assert len(manifested) == 74
     assert len(manifested) == len(set(manifested))

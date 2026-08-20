@@ -1,9 +1,9 @@
 # Modular analytics foundation implementation plan
 
 - Architecture: [ADR 0006](0006-modular-analytics-recipes.md)
-- Plan status: Proposed for review
-- Implementation status: Not started
-- Last updated: 2026-08-18
+- Plan status: Approved
+- Implementation status: Complete on ``feat/modular-analytics-foundation``
+- Last updated: 2026-08-19
 
 ## Goal
 
@@ -27,7 +27,7 @@ Performance, task placement, native DataFrame dtypes, timing, and concurrent
 event interleaving may differ where their meaning is not part of the analytical
 contract.
 
-This is not a general distributed orchestrator. Version one has no daemon,
+This is not a general distributed orchestrator. This foundation has no daemon,
 deployment system, cron service, remote queue, multi-host workers, remote
 artifact store, arbitrary side-effect nodes, PyTorch layer, or visualization
 renderer.
@@ -184,11 +184,14 @@ namespace. A generally reusable analytical product should still be extracted
 as a dataset.
 
 Graph shape may depend on validated plan-time parameters only. Source rows and
-DataFrame contents cannot create new graph nodes. Trusted Python may use one
+DataFrame contents cannot create new graph nodes. A fixed source node may bind
+request values from a validated scalar output of an already-declared upstream
+node; its node count and worst-case request cost remain static, while inspection
+reports its exact cache disposition as deferred. Trusted Python may use one
 engine-owned bounded map/gather primitive over a validated plan-parameter
 sequence with stable unique keys. It expands completely during compilation;
 source-derived keys are prohibited. Every use declares a local expansion limit
-and remains subject to the run-wide limit. YAML version one remains a finite
+and remains subject to the run-wide limit. YAML remains a finite
 static graph.
 
 ### Direct and advanced execution
@@ -396,11 +399,12 @@ source artifact exists. Dataset final rows validate through the declared model
 and table-level checks before Arrow persistence or pandas/Polars presentation.
 Intermediate public unvalidated DataFrames are prohibited.
 
-Analytics tables use a distinct codec/storage v2 whose compatibility identity
-is stable output ID, semantic revision, and ordered schema digest. Pydantic
-module and qualified name are provenance, not an analytics-v2 compatibility
-key. This narrowly amends ADR 0003 for analytics-v2 artifacts. The checked-in
-Parquet-v1 format and reader remain unchanged, continue enforcing their
+Analytics tables use Parquet codec version 2, distinct from the existing
+endpoint Parquet codec version 1. Its compatibility identity is stable output
+ID, semantic revision, and ordered schema digest. Pydantic module and qualified
+name are provenance, not an analytics-table compatibility key. This narrowly
+amends ADR 0003 for analytics table artifacts. The checked-in endpoint Parquet
+codec version 1 and reader remain unchanged, continue enforcing their
 module-qualified model identity, and retain full regression coverage.
 
 ### Reusable operation vocabulary
@@ -501,9 +505,13 @@ win-probability, and broad ``/plays/stats`` fan-out.
 ### Dask executor
 
 The optional ``dask`` extra installs a supported ``dask[distributed]`` release.
-The coordinator starts an asynchronous temporary ``LocalCluster`` only after
-checkpoint inspection proves at least one ready step will run there. A zero-
-work replay does not start Dask.
+The coordinator targets a topology-neutral executor-provider contract. The
+shipped managed-local provider starts an asynchronous temporary
+``LocalCluster`` only after checkpoint inspection proves at least one ready
+step will run there. A zero-work replay does not start Dask. The coordinator
+does not assume scheduler construction, shared worker filesystems, or local
+transport; provider sessions own capability negotiation, bounded Arrow
+transport, cancellation, and resource closure.
 
 Only pure ``@step`` nodes are eligible. Sources, planning, validation authority,
 leases, events, and artifact commits stay in the coordinator. Workers receive
@@ -523,9 +531,9 @@ cancellation it cancels and awaits futures, closes the client and cluster, and
 then records terminal state. Coordinator or worker loss before artifact commit
 may leave reclaimable staging data but cannot create a successful checkpoint.
 
-Version one does not accept an external scheduler address. The executor
-protocol must permit a future remote implementation without changing recipe,
-artifact, lineage, or event contracts.
+This change does not accept an external scheduler address. An adopted-client
+or remote provider can implement the same session contract later without
+changing recipe, graph, artifact, lineage, recovery, or event contracts.
 
 ### Analytics observability
 
@@ -558,7 +566,10 @@ catalog:
 
 - SQLite owns transactional run, node, lease, lineage, recovery, pin, and
   garbage-collection state.
-- The filesystem owns immutable content-addressed objects.
+- The filesystem owns immutable content-addressed objects. Content manifests
+  exclude run-specific timestamps, placement, and correlation evidence; those
+  belong to SQLite run/node bindings so volatile audit data cannot defeat
+  content deduplication.
 - The default root is the operating system's application-data directory,
   resolved through ``platformdirs``, and is created only by execution that
   needs to write. ``AnalyticsConfig`` can override it.
@@ -761,9 +772,11 @@ evidence.
 
 ## Delivery and commit sequence
 
-Implementation begins only after ADR 0006 is accepted. Each stage is a coherent
-reviewable change with its own relevant checks; implementation must not be
-reassembled into one large commit.
+The approved architecture review authorized a vertical-slice implementation
+while ADR 0006 remained Proposed. ADR 0006 was accepted on August 19, 2026
+after its stated authoring, discovery, pooled-source, artifact, and local/Dask
+parity evidence passed. All six stages are complete in dependency-ordered,
+individually verified Conventional Commits.
 
 1. **Authoring and discovery**
    - Add decorators, typed wrappers, graph references, transactional discovery,
@@ -793,9 +806,9 @@ reassembled into one large commit.
    - Complete failure injection, packaging matrices, Redis integration, bounded
      live acceptance, README/status documentation, and operational guidance.
 
-After the architecture-only PR is accepted, implementation should proceed in
-dependency-ordered PRs so authoring/discovery, durability, Dask parity, recipe
-semantics, and public documentation can be reviewed independently.
+The branch preserves dependency order so authoring/discovery, durability, Dask
+parity, recipe semantics, and public documentation remain reviewable without a
+centralized implementation commit.
 
 ## Deterministic acceptance
 
@@ -894,10 +907,9 @@ semantics, and public documentation can be reviewed independently.
 
 ## Redis and bounded live acceptance
 
-The live ledger is cumulative and currently records **651 of 1,000** absolute
-attempts, leaving 349 absolute attempts and 149 before the repository's
-operational stop at 800. Documentation and architecture review make zero live
-calls.
+The live ledger is cumulative and recorded **651 of 1,000** absolute attempts
+before this acceptance run. The completed harness ended at **655**, consuming
+four attempts and retaining 120 before the operational stop at 800.
 
 The implementation harness must read the current value immediately before
 planning and refuse a reservation unless at least 25 attempts remain below 800
@@ -910,7 +922,7 @@ At the current ledger, a 90-attempt reservation would end at 741 and retain a
 59-attempt operational cushion. If the ledger advances, the matrix shrinks
 before dispatch.
 
-Acceptance will:
+Acceptance completed the following sequence:
 
 1. Compile and plan all twelve datasets and three workflows with zero HTTP
    attempts and zero artifact writes.
@@ -932,13 +944,43 @@ Acceptance will:
    reuse, quality results, warnings, skips, and redacted retrieval/analytics
    statistics in the ignored live-report area.
 
-Paid enrichments are not required by the base live matrix. Unavailable or
+The live run planned all fifteen recipes with zero I/O, inspected nineteen
+source candidates, and computed a 48-attempt worst case. The narrow warm phase
+made four actual HTTP attempts and reused twelve fresh Redis responses. All
+four pandas/Polars by local/Dask replays then ran under ``local_only`` with zero
+additional attempts and equal canonical outputs. Dask executed sixteen nodes
+per Dask run; checkpoint replay started no Dask cluster. Child recovery reused
+a compatible source ancestor with zero attempts, and a distinct new run
+consulted one fresh Redis response rather than an analytics source checkpoint.
+The redacted report recorded no warning or skip.
+
+Paid enrichments were not required by the base live matrix. Unavailable or
 skipped enrichments remain explicit in coverage evidence.
 
 Final release evidence runs ``make format``, ``make check``, deterministic
 Redis integration, the separately gated bounded live harness, distribution
 build/metadata validation, and ``git diff --check``. Every failure, skip,
 warning, and environment limitation is reported.
+
+### Final release evidence
+
+The completed branch passed the following release gates on August 19, 2026:
+
+- ``make format`` completed with all 324 files already formatted.
+- ``make check`` passed with 651 tests and 23 intentionally gated Redis/live
+  tests skipped in the default suite. Its strict typing, lint, documentation,
+  dependency, and package-boundary checks all passed.
+- The separately enabled Redis integration suite passed all 20 tests against
+  the preserved container volume.
+- Clean-wheel capability testing passed all 12 Python 3.12 and 3.13
+  combinations: base, each of Polars, Redis, YAML, and Dask independently, and
+  all optional capabilities together.
+- The source distribution and wheel built successfully and passed strict
+  metadata validation. Both ``cfb_data`` and ``cfb_data_recipes``, their
+  typing markers, and analytics SQL resources were present.
+- The separately gated live analytics harness passed once. It moved the
+  cumulative ledger from 651 to 655 attempts and was not rerun after success.
+- ``git diff --check`` passed after the evidence was recorded.
 
 ## Future integration boundary
 

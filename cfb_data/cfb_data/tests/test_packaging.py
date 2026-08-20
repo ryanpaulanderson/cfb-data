@@ -1,6 +1,8 @@
 """Tests for the installable package boundary."""
 
-from importlib.metadata import metadata, version
+import subprocess
+import sys
+from importlib.metadata import entry_points, metadata, version
 from importlib.resources import files as resource_files
 from pathlib import Path
 
@@ -24,6 +26,35 @@ def test_distribution_and_package_are_importable() -> None:
     assert version("cfb-data") == "0.8.0"
     assert resource_files(cfb_data).joinpath("py.typed").is_file()
     assert resource_files("cfb_data.cache").joinpath("sql", "schema.sql").is_file()
+
+
+def test_official_recipe_provider_is_separate_and_discoverable() -> None:
+    """Verify the distribution advertises a typed, independently loaded provider."""
+    providers = entry_points(group="cfb_data.recipes")
+    official = [provider for provider in providers if provider.name == "official"]
+
+    assert len(official) == 1
+    assert official[0].value == "cfb_data_recipes"
+    assert resource_files("cfb_data_recipes").joinpath("py.typed").is_file()
+
+
+def test_core_import_does_not_load_official_recipes() -> None:
+    """Keep endpoint-only use independent from first-party recipe imports."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; import cfb_data; "
+                "assert 'cfb_data_recipes' not in sys.modules"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_distribution_advertises_supported_python_and_beta_status() -> None:

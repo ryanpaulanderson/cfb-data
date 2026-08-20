@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Literal, TypeVar, overload
-
-from pydantic import BaseModel, TypeAdapter
+from typing import Literal, overload
 
 from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
-from cfb_data._requests import _resolve_request
 from cfb_data.enums import Classification, SeasonType
+from cfb_data.ratings._operations import (
+    CONFERENCE_SP_RATINGS,
+    CORE_RATINGS,
+    ELO_RATINGS,
+    EXPANDED_SRS_RATINGS,
+    FPI_RATINGS,
+    SP_RATINGS,
+    SRS_RATINGS,
+)
 from cfb_data.ratings.models.pydantic.requests import (
     ConferenceSPRatingsRequest,
     CoreRatingsRequest,
@@ -20,18 +25,7 @@ from cfb_data.ratings.models.pydantic.requests import (
     SPRatingsRequest,
     SRSRatingsRequest,
 )
-from cfb_data.ratings.models.pydantic.responses import (
-    ConferenceSP,
-    ExpandedTeamSRS,
-    TeamCoreRating,
-    TeamElo,
-    TeamFPI,
-    TeamSP,
-    TeamSRS,
-)
 
-_RequestT = TypeVar("_RequestT", bound=BaseModel)
-_RowT = TypeVar("_RowT", bound=BaseModel)
 type _ClassificationArgument = Classification | Literal["fbs", "fcs", "ii", "iii"]
 type _SeasonTypeArgument = (
     SeasonType
@@ -44,14 +38,6 @@ type _SeasonTypeArgument = (
         "spring_postseason",
     ]
 )
-
-_CORE_ROWS = TypeAdapter(list[TeamCoreRating])
-_SP_ROWS = TypeAdapter(list[TeamSP])
-_CONFERENCE_SP_ROWS = TypeAdapter(list[ConferenceSP])
-_SRS_ROWS = TypeAdapter(list[TeamSRS])
-_EXPANDED_SRS_ROWS = TypeAdapter(list[ExpandedTeamSRS])
-_ELO_ROWS = TypeAdapter(list[TeamElo])
-_FPI_ROWS = TypeAdapter(list[TeamFPI])
 
 
 class RatingsResource[FrameT]:
@@ -91,13 +77,11 @@ class RatingsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/ratings/core",
-            request_type=CoreRatingsRequest,
+        return await CORE_RATINGS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_CORE_ROWS,
-            row_model=TeamCoreRating,
         )
 
     @overload
@@ -124,13 +108,11 @@ class RatingsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/ratings/sp",
-            request_type=SPRatingsRequest,
+        return await SP_RATINGS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_SP_ROWS,
-            row_model=TeamSP,
         )
 
     @overload
@@ -161,13 +143,11 @@ class RatingsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/ratings/sp/conferences",
-            request_type=ConferenceSPRatingsRequest,
+        return await CONFERENCE_SP_RATINGS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_CONFERENCE_SP_ROWS,
-            row_model=ConferenceSP,
         )
 
     @overload
@@ -195,13 +175,11 @@ class RatingsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/ratings/srs",
-            request_type=SRSRatingsRequest,
+        return await SRS_RATINGS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_SRS_ROWS,
-            row_model=TeamSRS,
         )
 
     @overload
@@ -233,13 +211,11 @@ class RatingsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/ratings/srs/expanded",
-            request_type=ExpandedSRSRatingsRequest,
+        return await EXPANDED_SRS_RATINGS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_EXPANDED_SRS_ROWS,
-            row_model=ExpandedTeamSRS,
         )
 
     @overload
@@ -269,13 +245,11 @@ class RatingsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/ratings/elo",
-            request_type=EloRatingsRequest,
+        return await ELO_RATINGS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_ELO_ROWS,
-            row_model=TeamElo,
         )
 
     @overload
@@ -303,39 +277,11 @@ class RatingsResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        return await self._fetch_many(
-            endpoint="/ratings/fpi",
-            request_type=FPIRatingsRequest,
+        return await FPI_RATINGS.fetch_frame(
+            self._executor,
+            self._dataframe_adapter,
             request=request,
             filters=filters,
-            response_adapter=_FPI_ROWS,
-            row_model=TeamFPI,
-        )
-
-    async def _fetch_many(
-        self,
-        *,
-        endpoint: str,
-        request_type: type[_RequestT],
-        request: _RequestT | None,
-        filters: Mapping[str, object],
-        response_adapter: TypeAdapter[list[_RowT]],
-        row_model: type[_RowT],
-    ) -> FrameT:
-        """Resolve, validate, fetch, and tabularize one list endpoint."""
-        validated = _resolve_request(
-            endpoint=endpoint,
-            request_type=request_type,
-            request=request,
-            filters=filters,
-        )
-        rows = await self._executor.fetch_many(
-            endpoint=endpoint,
-            request=validated,
-            response_adapter=response_adapter,
-        )
-        return self._dataframe_adapter.from_models(
-            endpoint=endpoint, row_model=row_model, models=rows
         )
 
 

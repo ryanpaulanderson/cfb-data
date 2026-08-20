@@ -5,12 +5,15 @@
 eager pandas DataFrames that are ready for analysis; Polars is available as an
 optional backend, and a few naturally nested results return Pydantic models.
 
-The usual path is short:
+Two paths stay deliberately short:
 
 ```text
 pick a football question → call an endpoint → get a DataFrame → analyze it
                                   │
                                   └── optionally reuse data from SQLite or Redis
+
+pick a reusable product → call a dataset/workflow recipe → validated outputs
+                                                       └── durable artifacts
 ```
 
 Start with the [installation and first-request guide](getting-started.md). Use
@@ -24,6 +27,7 @@ signatures.
 | I want to... | Start here |
 | --- | --- |
 | Fetch games, plays, ratings, or another dataset | [Getting started](getting-started.md) |
+| Run, compose, or author a durable analytics recipe | [Modular analytics recipes](guides/modular-analytics.md) |
 | Copy a notebook recipe for a common question | [Common notebook recipes](guides/common-recipes.md) |
 | Understand a method's filters | [Requests and allowed values](guides/requests.md) |
 | Work with pandas, Polars, or nested results | [Work with results](guides/results.md) |
@@ -36,6 +40,7 @@ signatures.
 :caption: Use cfb-data
 
 getting-started
+guides/modular-analytics
 guides/common-recipes
 guides/requests
 guides/results
@@ -98,6 +103,9 @@ notices-of-decision/0001-canonical-nested-tabular-representation
 - Optional SQLite or Redis caching can reduce repeated API calls and keep a
   locally queryable identity catalog. Both are useful on a single computer;
   Redis can also be shared by several scripts or machines.
+- Callable datasets and workflows coordinate validated sources, pure
+  transformations, canonical artifacts, recovery, and observation without
+  changing the source-shaped endpoint results beneath them.
 
 This is an enthusiast-focused beta project. Its core retrieval, validation,
 DataFrame, caching, and identity workflows are usable and carefully tested.

@@ -26,7 +26,12 @@ from cfb_data.base.types import QueryParameters
 from cfb_data.cache._backend import CacheBackend
 from cfb_data.cache._catalog import canonical_filters, project_catalog
 from cfb_data.cache._key import response_cache_key
-from cfb_data.cache._models import MAX_RESPONSE_BODY_BYTES, ResponseRecord
+from cfb_data.cache._models import (
+    MAX_RESPONSE_BODY_BYTES,
+    ResponsePeek,
+    ResponsePeekStatus,
+    ResponseRecord,
+)
 from cfb_data.cache._null import NullCacheBackend
 from cfb_data.cache.config import CacheMode, CachePolicyConfig, CacheProfile
 from cfb_data.cache.policy import cache_profile, resolve_ttl
@@ -475,6 +480,23 @@ class CacheCoordinator:
             "response_cleanup",
             self._backend.cleanup_responses(self._utc_now()),
             default=0,
+            strict=True,
+        )
+
+    async def peek_response(self, key: str) -> ResponsePeek:
+        """Inspect an exact response record without mutating cache state.
+
+        :param key: Complete opaque response-cache key digest.
+        :return: Non-mutating record disposition and safe metadata.
+        :raises CFBDCacheBackendError: If a configured backend cannot answer.
+        """
+        self.ensure_active()
+        if not self._enabled:
+            return ResponsePeek(ResponsePeekStatus.missing)
+        return await self._identity_backend_call(
+            "response_peek",
+            self._backend.peek_response(key, self._utc_now()),
+            default=ResponsePeek(ResponsePeekStatus.missing),
             strict=True,
         )
 

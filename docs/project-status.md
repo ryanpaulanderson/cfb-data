@@ -9,8 +9,8 @@ documentation continue to be shaped around what is most useful in real
 analyses.
 
 The current package version is 0.8.0 and the endpoint reference was checked
-against CFBD API v5.24.0 on August 13, 2026. The Python API and local cache
-format may still change before 1.0.
+against CFBD API v5.24.0 on August 13, 2026. The Python API, cache formats, and
+analytics artifact formats may still change before 1.0.
 
 ## What works today
 
@@ -31,6 +31,38 @@ result schemas are preserved across the pandas and Polars backends.
 The [endpoint reference](cfbd_api/README.md) lists every available method and
 its filters. [Getting started](getting-started.md) shows the shortest path from
 installation to a DataFrame.
+
+## Modular analytics is available
+
+The separate ``cfb_data_recipes`` package ships twelve independently authored
+dataset modules and three workflow modules. They are callable directly,
+compose through ordinary function calls, and use the same public decorators,
+discovery, compiler, scheduler, persistence, and events as user recipes. There
+is no client dataset/workflow manager or central recipe index.
+
+Recipes provide pure no-I/O planning, read-only cache/checkpoint inspection,
+bounded asynchronous source overlap, local or Dask transform execution,
+canonical pandas/Polars parity, immutable Parquet artifacts, SQLite run
+lineage, checkpoint recovery, maintenance operations, and a hardened optional
+YAML composition boundary. Redis remains only the API response cache.
+
+The included datasets cover game summaries, team games, player-game stats,
+drives, plays, rosters, team seasons, player seasons, rankings, betting lines,
+recruiting classes, and coach seasons. The workflows cover a team season, one
+game, and bounded program history. See [Build durable analyses with modular
+recipes](guides/modular-analytics.md) for usage and authoring.
+
+Retrieval remains source-faithful. Filtering, joining, flattening, missing-data
+policy, and derived metrics live in each visible versioned recipe or in user
+code. Optional enrichments never change a base dataset's declared row universe.
+
+The foundation's release evidence includes 651 default-suite tests, 20
+separately enabled Redis tests, a 12-combination clean-wheel matrix across
+Python 3.12 and 3.13, all four pandas/Polars by local/Dask execution paths, and
+a bounded live run that consumed four attempts from the cumulative ledger.
+The complete evidence and disclosed environment limitations are recorded in
+the [foundation implementation
+plan](architecture/analytics-foundation-plan.md).
 
 ## Caching is optional
 
@@ -78,18 +110,16 @@ storage implementation.
 ## Not included yet
 
 - Polars `LazyFrame` results.
-- A supported modular dataset or workflow recipe layer that joins several
-  endpoints for you.
-- Public save/load methods for the package's internal Parquet format.
-- Automatic flattening, exploding, or feature engineering for nested data.
+- Remote or adopted multi-host Dask clusters and remote artifact stores.
+- Cron, deployments, daemon workers, queues, or side-effecting recipe nodes.
+- PyTorch training/inference and visualization rendering layers.
 - Raw JSON and a generic path-based request method.
 
-Users can already perform these transformations with ordinary pandas or Polars
-operations. A future modular recipe layer is proposed in [ADR
-0006](architecture/0006-modular-analytics-recipes.md); it will coordinate
-retrieval and transformation above the source-shaped endpoint boundary without
-changing the endpoint results underneath it. That recipe API is not implemented
-or supported yet.
+Users can perform additional transformations with ordinary pandas or Polars,
+compose the reusable operations, or author another module through the public
+recipe decorators. [ADR 0006](architecture/0006-modular-analytics-recipes.md)
+records the accepted boundary and the [foundation implementation
+plan](architecture/analytics-foundation-plan.md) records its release evidence.
 
 ## Architecture and contributor details
 

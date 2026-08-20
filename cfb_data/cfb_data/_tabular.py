@@ -40,6 +40,9 @@ _STORAGE_VERSION_KEY: Final = b"cfb_data.storage_version"
 _ROW_MODEL_KEY: Final = b"cfb_data.row_model"
 _SCHEMA_DIGEST_KEY: Final = b"cfb_data.logical_schema_sha256"
 _WRITER_VERSION_KEY: Final = b"cfb_data.writer_version"
+_ANALYTICS_STORAGE_VERSION: Final = "2"
+_ANALYTICS_OUTPUT_ID_KEY: Final = b"cfb_data.analytics.output_id"
+_ANALYTICS_OUTPUT_REVISION_KEY: Final = b"cfb_data.analytics.output_revision"
 _SCALAR_ENCODING: Final = "tagged_struct_v1"
 _SCALAR_FIELDS: Final = (
     "kind",
@@ -72,6 +75,26 @@ class _LogicalSchema:
     """Preserve the declared field order of one Pydantic row model."""
 
     fields: tuple[_LogicalField, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _AnalyticsTableIdentity:
+    """Identify an analytics table independently of its Python model location."""
+
+    output_id: str
+    revision: int
+
+    def __post_init__(self) -> None:
+        """Validate the durable output identity."""
+        if not isinstance(self.output_id, str):
+            raise TypeError("Analytics output IDs must be strings")
+        namespace, separator, name = self.output_id.partition(".")
+        if not separator or not namespace or not name:
+            raise ValueError("Analytics output IDs must be namespaced")
+        if not isinstance(self.revision, int) or isinstance(self.revision, bool):
+            raise TypeError("Analytics output revisions must be integers")
+        if self.revision < 1:
+            raise ValueError("Analytics output revisions must be positive")
 
 
 class _UnsupportedTableAnnotationError(TypeError):
@@ -214,6 +237,36 @@ def _arrow_table_from_models[ModelT: BaseModel](
     )
 
 
+def _analytics_arrow_table_from_models[ModelT: BaseModel](
+    *,
+    row_model: type[ModelT],
+    models: Sequence[ModelT],
+    identity: _AnalyticsTableIdentity,
+) -> pa.Table:
+    """Return an Arrow table for analytics Parquet codec version 2.
+
+    :param row_model: Authoritative model defining one row.
+    :param models: Validated rows in deterministic output order.
+    :param identity: Stable recipe-output identity and semantic revision.
+    :return: Arrow table whose compatibility is independent of model location.
+    :raises TypeError: If a row or value violates the logical model type.
+    :raises ValueError: If a value violates a logical table invariant.
+    """
+    logical_schema = _logical_schema(row_model)
+    records = _records_from_models(models, row_model, logical_schema)
+    storage_records = [
+        _encode_storage_struct(record, logical_schema.fields) for record in records
+    ]
+    return pa.Table.from_pylist(
+        storage_records,
+        schema=_analytics_expected_arrow_schema(
+            row_model,
+            identity=identity,
+            logical_schema=logical_schema,
+        ),
+    )
+
+
 def _models_from_arrow_table[ModelT: BaseModel](
     *,
     row_model: type[ModelT],
@@ -232,6 +285,29 @@ def _models_from_arrow_table[ModelT: BaseModel](
     :raises pydantic.ValidationError: If decoded rows violate the model contract.
     """
     records = _logical_records_from_arrow_table(row_model=row_model, table=table)
+    return response_adapter.validate_python(records)
+
+
+def _analytics_models_from_arrow_table[ModelT: BaseModel](
+    *,
+    row_model: type[ModelT],
+    response_adapter: TypeAdapter[list[ModelT]],
+    table: pa.Table,
+    identity: _AnalyticsTableIdentity,
+) -> list[ModelT]:
+    """Validate models decoded from an analytics Parquet codec 2 table.
+
+    :param row_model: Authoritative model defining one row.
+    :param response_adapter: Pydantic adapter for a list of expected rows.
+    :param table: Canonical analytics Parquet codec 2 table to decode.
+    :param identity: Expected stable recipe-output identity and revision.
+    :return: Fully Pydantic-validated rows in table order.
+    """
+    records = _analytics_logical_records_from_arrow_table(
+        row_model=row_model,
+        table=table,
+        identity=identity,
+    )
     return response_adapter.validate_python(records)
 
 
@@ -261,6 +337,35 @@ def _logical_records_from_arrow_table(
     ]
 
 
+def _analytics_logical_records_from_arrow_table(
+    *,
+    row_model: type[BaseModel],
+    table: pa.Table,
+    identity: _AnalyticsTableIdentity,
+) -> list[dict[str, object]]:
+    """Decode an analytics Parquet codec 2 table into logical records.
+
+    :param row_model: Authoritative model defining one row.
+    :param table: Canonical analytics Parquet codec 2 table to decode.
+    :param identity: Expected stable recipe-output identity and revision.
+    :return: Python records preserving row and field order.
+    :raises _CanonicalTableMetadataError: If metadata is incompatible.
+    :raises _CanonicalTableSchemaError: If the physical schema differs.
+    :raises _ScalarEncodingError: If a tagged scalar is malformed.
+    """
+    logical_schema = _logical_schema(row_model)
+    _assert_analytics_arrow_table(
+        row_model=row_model,
+        table=table,
+        identity=identity,
+        logical_schema=logical_schema,
+    )
+    return [
+        _decode_storage_struct(record, logical_schema.fields)
+        for record in table.to_pylist()
+    ]
+
+
 def _assert_canonical_arrow_table(
     *,
     row_model: type[BaseModel],
@@ -277,6 +382,58 @@ def _assert_canonical_arrow_table(
     """
     schema = logical_schema or _logical_schema(row_model)
     expected = _expected_arrow_schema(row_model, logical_schema=schema)
+    _assert_table_schema_and_metadata(
+        table=table,
+        expected=expected,
+        compatibility_keys=(
+            _STORAGE_VERSION_KEY,
+            _ROW_MODEL_KEY,
+            _SCHEMA_DIGEST_KEY,
+        ),
+    )
+
+
+def _assert_analytics_arrow_table(
+    *,
+    row_model: type[BaseModel],
+    table: pa.Table,
+    identity: _AnalyticsTableIdentity,
+    logical_schema: _LogicalSchema | None = None,
+) -> None:
+    """Verify an analytics Parquet codec 2 table against its output contract.
+
+    :param row_model: Authoritative row model supplying the logical schema.
+    :param table: Arrow table to inspect without decoding row values.
+    :param identity: Expected stable recipe-output identity and revision.
+    :param logical_schema: Previously derived schema, if already available.
+    :raises _CanonicalTableMetadataError: If metadata is incompatible.
+    :raises _CanonicalTableSchemaError: If the physical schema differs.
+    """
+    schema = logical_schema or _logical_schema(row_model)
+    expected = _analytics_expected_arrow_schema(
+        row_model,
+        identity=identity,
+        logical_schema=schema,
+    )
+    _assert_table_schema_and_metadata(
+        table=table,
+        expected=expected,
+        compatibility_keys=(
+            _STORAGE_VERSION_KEY,
+            _ANALYTICS_OUTPUT_ID_KEY,
+            _ANALYTICS_OUTPUT_REVISION_KEY,
+            _SCHEMA_DIGEST_KEY,
+        ),
+    )
+
+
+def _assert_table_schema_and_metadata(
+    *,
+    table: pa.Table,
+    expected: pa.Schema,
+    compatibility_keys: tuple[bytes, ...],
+) -> None:
+    """Verify physical schema and selected compatibility metadata."""
     if not table.schema.remove_metadata().equals(expected.remove_metadata()):
         raise _CanonicalTableSchemaError(
             "Arrow table does not match the expected physical schema"
@@ -289,7 +446,7 @@ def _assert_canonical_arrow_table(
     expected_metadata = expected.metadata
     if expected_metadata is None:
         raise AssertionError("Expected Arrow schema metadata is missing")
-    for key in (_STORAGE_VERSION_KEY, _ROW_MODEL_KEY, _SCHEMA_DIGEST_KEY):
+    for key in compatibility_keys:
         if metadata.get(key) != expected_metadata[key]:
             raise _CanonicalTableMetadataError(
                 "Arrow table has incompatible cfb-data metadata"
@@ -318,6 +475,26 @@ def _expected_arrow_schema(
     return pa.schema(
         [_arrow_field(field) for field in schema.fields],
         metadata=_storage_metadata(row_model, schema),
+    )
+
+
+def _analytics_expected_arrow_schema(
+    row_model: type[BaseModel],
+    *,
+    identity: _AnalyticsTableIdentity,
+    logical_schema: _LogicalSchema | None = None,
+) -> pa.Schema:
+    """Return the analytics Parquet codec 2 schema for an output contract.
+
+    :param row_model: Authoritative model supplying ordered logical fields.
+    :param identity: Stable recipe-output identity and revision.
+    :param logical_schema: Previously derived schema, if already available.
+    :return: Exact physical schema and codec 2 compatibility metadata.
+    """
+    schema = logical_schema or _logical_schema(row_model)
+    return pa.schema(
+        [_arrow_field(field) for field in schema.fields],
+        metadata=_analytics_storage_metadata(identity, schema),
     )
 
 
@@ -593,6 +770,20 @@ def _storage_metadata(
     return {
         _STORAGE_VERSION_KEY: _STORAGE_VERSION.encode("ascii"),
         _ROW_MODEL_KEY: _row_model_identifier(row_model).encode("utf-8"),
+        _SCHEMA_DIGEST_KEY: _logical_schema_digest(schema).encode("ascii"),
+        _WRITER_VERSION_KEY: _installed_package_version().encode("utf-8"),
+    }
+
+
+def _analytics_storage_metadata(
+    identity: _AnalyticsTableIdentity,
+    schema: _LogicalSchema,
+) -> dict[bytes | str, bytes | str]:
+    """Return deterministic metadata for an analytics Parquet codec 2 table."""
+    return {
+        _STORAGE_VERSION_KEY: _ANALYTICS_STORAGE_VERSION.encode("ascii"),
+        _ANALYTICS_OUTPUT_ID_KEY: identity.output_id.encode("utf-8"),
+        _ANALYTICS_OUTPUT_REVISION_KEY: str(identity.revision).encode("ascii"),
         _SCHEMA_DIGEST_KEY: _logical_schema_digest(schema).encode("ascii"),
         _WRITER_VERSION_KEY: _installed_package_version().encode("utf-8"),
     }

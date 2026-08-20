@@ -1,0 +1,564 @@
+"""Test local transform execution, validation, reuse, and cancellation."""
+
+from __future__ import annotations
+
+import asyncio
+import threading
+import time
+from datetime import timedelta
+from pathlib import Path
+
+import pytest
+from cfb_data.analytics import RecipeRef, dataset, require_one, step, workflow
+from cfb_data.analytics._compiler import _compile_recipe
+from cfb_data.analytics._compute import _LocalTransformProvider
+from cfb_data.analytics._observability import _AnalyticsDispatcher
+from cfb_data.analytics._persistence import _ArtifactObjectStore, _RunDatabase
+from cfb_data.analytics._transforms import _TransformRunner
+from cfb_data.analytics.observability import (
+    AnalyticsEvent,
+    AnalyticsEventType,
+    AnalyticsObserver,
+)
+from pydantic import BaseModel, ConfigDict
+
+
+class _RawRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    label: str
+
+
+class _CleanRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    label: str
+
+
+class _EventCollector:
+    """Collect redacted analytics events through the observer contract."""
+
+    def __init__(self) -> None:
+        """Initialize an empty event sequence."""
+        self.events: list[AnalyticsEvent] = []
+
+    def __call__(self, event: AnalyticsEvent) -> None:
+        """Append one immutable analytics event."""
+        self.events.append(event)
+
+
+def _run(database: _RunDatabase, *, parent_run_id: str | None = None) -> str:
+    run = database.create_run(
+        recipe_id="tests.cleaned_rows",
+        recipe_revision=1,
+        recipe_kind="dataset",
+        parameter_fingerprint="a" * 64,
+        graph_fingerprint="b" * 64,
+        credential_scope="scope-a",
+        parent_run_id=parent_run_id,
+    )
+    database.transition_run(run.run_id, "running")
+    return run.run_id
+
+
+def _runner(
+    database: _RunDatabase,
+    store: _ArtifactObjectStore,
+    *,
+    run_id: str,
+    concurrency: int = 1,
+    parent_run_id: str | None = None,
+    checkpoint_nodes: frozenset[str] | None = None,
+    observer: AnalyticsObserver | None = None,
+    lease_ttl: timedelta = timedelta(seconds=30),
+) -> _TransformRunner:
+    return _TransformRunner(
+        provider=_LocalTransformProvider(concurrency=concurrency),
+        database=database,
+        object_store=store,
+        run_id=run_id,
+        credential_scope="scope-a",
+        parent_run_id=parent_run_id,
+        source_behavior=(
+            "preserve_snapshot" if parent_run_id is not None else "normal_freshness"
+        ),
+        checkpoint_nodes=checkpoint_nodes,
+        backend="pandas",
+        dispatcher=_AnalyticsDispatcher(observer),
+        lease_ttl=lease_ttl,
+        lease_poll_seconds=0.005,
+    )
+
+
+@pytest.mark.asyncio
+async def test_sync_step_runs_off_loop_and_dataset_validates_contract(
+    tmp_path: Path,
+) -> None:
+    execution_threads: list[int] = []
+
+    @step(id="tests.normalize_rows", revision=1, output=_CleanRow)
+    def normalize(rows: list[_RawRow]) -> list[_CleanRow]:
+        execution_threads.append(threading.get_ident())
+        return [_CleanRow(id=row.id, label=row.label.strip()) for row in rows]
+
+    @dataset(
+        id="tests.cleaned_rows",
+        revision=1,
+        row=_CleanRow,
+        grain="one row",
+        keys=("id",),
+        order_by=("id",),
+    )
+    def cleaned_rows() -> RecipeRef[list[_CleanRow]]:
+        return normalize(
+            [
+                _RawRow(id=1, label=" first "),
+                _RawRow(id=2, label=" second "),
+            ]
+        )
+
+    graph = _compile_recipe(cleaned_rows, (), {})
+    step_node, dataset_node = graph.nodes
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+    database = _RunDatabase(root / "runs.sqlite3")
+    try:
+        run_id = _run(database)
+        runner = _runner(database, store, run_id=run_id)
+        transformed = await runner.run_batch((step_node,), {})
+        final = await runner.run_batch((dataset_node,), transformed)
+
+        rows = final[dataset_node.node_id].value
+        assert rows == [
+            _CleanRow(id=1, label="first"),
+            _CleanRow(id=2, label="second"),
+        ]
+        assert execution_threads != [threading.get_ident()]
+        assert len(database.bindings(run_id)) == 2
+        placements = {
+            binding.node_id: binding.placement for binding in database.bindings(run_id)
+        }
+        assert placements[step_node.node_id] == "local"
+        assert placements[dataset_node.node_id] == "coordinator"
+    finally:
+        database.close()
+
+
+@pytest.mark.asyncio
+async def test_generic_control_step_uses_json_and_reuses_its_checkpoint(
+    tmp_path: Path,
+) -> None:
+    """Persist a typed scalar boundary without treating it as a table."""
+    source_calls = 0
+
+    @step(id="tests.control_source_rows", revision=1, output=_RawRow)
+    def source_rows() -> list[_RawRow]:
+        nonlocal source_calls
+        source_calls += 1
+        return [_RawRow(id=1, label="selected")]
+
+    @step(id="tests.wrap_selected_row", revision=1, output=_CleanRow)
+    def wrap_selected(row: _RawRow) -> list[_CleanRow]:
+        return [_CleanRow(id=row.id, label=row.label)]
+
+    @dataset(
+        id="tests.control_dataset",
+        revision=1,
+        row=_CleanRow,
+        grain="one selected row",
+        keys=("id",),
+    )
+    def control_dataset() -> RecipeRef[list[_CleanRow]]:
+        return wrap_selected(require_one(source_rows()))
+
+    graph = _compile_recipe(control_dataset, (), {})
+    source_node, control_node, wrap_node, dataset_node = graph.nodes
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+    database = _RunDatabase(root / "runs.sqlite3")
+    try:
+        first_run = _run(database)
+        first_runner = _runner(database, store, run_id=first_run)
+        source_result = await first_runner.run_batch((source_node,), {})
+        control_result = await first_runner.run_batch((control_node,), source_result)
+        wrapped_result = await first_runner.run_batch(
+            (wrap_node,),
+            {**source_result, **control_result},
+        )
+        await first_runner.run_batch(
+            (dataset_node,),
+            {**source_result, **control_result, **wrapped_result},
+        )
+
+        selected = control_result[control_node.node_id]
+        assert selected.value == _RawRow(id=1, label="selected")
+        assert selected.row_model is None
+        assert selected.artifact.manifest.body.kind == "json"
+
+        second_run = _run(database)
+        second_runner = _runner(database, store, run_id=second_run)
+        reused_source = await second_runner.run_batch((source_node,), {})
+        reused_control = await second_runner.run_batch((control_node,), reused_source)
+
+        assert reused_control[control_node.node_id].value == selected.value
+        bindings = {
+            binding.node_id: binding for binding in database.bindings(second_run)
+        }
+        assert bindings[control_node.node_id].content_digest == (
+            selected.artifact.content_digest
+        )
+        assert source_calls == 1
+    finally:
+        database.close()
+
+
+@pytest.mark.asyncio
+async def test_local_compute_concurrency_is_exact(tmp_path: Path) -> None:
+    active = 0
+    maximum = 0
+    lock = threading.Lock()
+
+    @step(id="tests.slow_rows", revision=1, output=_CleanRow)
+    def slow(rows: list[_CleanRow]) -> list[_CleanRow]:
+        nonlocal active, maximum
+        with lock:
+            active += 1
+            maximum = max(maximum, active)
+        time.sleep(0.03)
+        with lock:
+            active -= 1
+        return rows
+
+    @workflow(id="tests.parallel_transforms", revision=1)
+    def parallel_transforms() -> dict[str, RecipeRef[list[_CleanRow]]]:
+        return {
+            "first": slow.as_("first")([_CleanRow(id=1, label="a")]),
+            "second": slow.as_("second")([_CleanRow(id=2, label="b")]),
+            "third": slow.as_("third")([_CleanRow(id=3, label="c")]),
+        }
+
+    graph = _compile_recipe(parallel_transforms, (), {})
+    nodes = tuple(node for node in graph.nodes if node.kind == "step")
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+    database = _RunDatabase(root / "runs.sqlite3")
+    try:
+        run_id = _run(database)
+        await _runner(
+            database,
+            store,
+            run_id=run_id,
+            concurrency=2,
+        ).run_batch(nodes, {})
+
+        assert maximum == 2
+    finally:
+        database.close()
+
+
+@pytest.mark.asyncio
+async def test_dataset_duplicate_keys_fail_without_successful_binding(
+    tmp_path: Path,
+) -> None:
+    @step(id="tests.duplicate_rows", revision=1, output=_CleanRow)
+    def duplicates() -> list[_CleanRow]:
+        return [
+            _CleanRow(id=1, label="first"),
+            _CleanRow(id=1, label="second"),
+        ]
+
+    @dataset(
+        id="tests.duplicate_dataset",
+        revision=1,
+        row=_CleanRow,
+        grain="one row",
+        keys=("id",),
+    )
+    def duplicate_dataset() -> RecipeRef[list[_CleanRow]]:
+        return duplicates()
+
+    graph = _compile_recipe(duplicate_dataset, (), {})
+    step_node, dataset_node = graph.nodes
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+    database = _RunDatabase(root / "runs.sqlite3")
+    try:
+        run_id = _run(database)
+        runner = _runner(database, store, run_id=run_id)
+        transformed = await runner.run_batch((step_node,), {})
+
+        with pytest.raises(ValueError, match="not unique"):
+            await runner.run_batch((dataset_node,), transformed)
+
+        assert database.node_state(run_id, dataset_node.node_id) == "failed"
+        assert len(database.bindings(run_id)) == 1
+    finally:
+        database.close()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_transform_awaits_started_thread_work(tmp_path: Path) -> None:
+    worker_finished = threading.Event()
+
+    @step(id="tests.cancellable_rows", revision=1, output=_CleanRow)
+    def slow() -> list[_CleanRow]:
+        time.sleep(0.05)
+        worker_finished.set()
+        return [_CleanRow(id=1, label="done")]
+
+    @dataset(
+        id="tests.cancellable_dataset",
+        revision=1,
+        row=_CleanRow,
+        grain="one row",
+        keys=("id",),
+    )
+    def cancellable_dataset() -> RecipeRef[list[_CleanRow]]:
+        return slow()
+
+    graph = _compile_recipe(cancellable_dataset, (), {})
+    node = graph.nodes[0]
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+    database = _RunDatabase(root / "runs.sqlite3")
+    try:
+        run_id = _run(database)
+        task = asyncio.create_task(
+            _runner(
+                database,
+                store,
+                run_id=run_id,
+                lease_ttl=timedelta(seconds=0.2),
+            ).run_batch((node,), {})
+        )
+        await asyncio.sleep(0.01)
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert worker_finished.is_set()
+        assert database.node_state(run_id, node.node_id) == "cancelled"
+        assert database.bindings(run_id) == ()
+
+        observer = _EventCollector()
+        second_run = _run(database)
+        result = await _runner(
+            database,
+            store,
+            run_id=second_run,
+            observer=observer,
+            lease_ttl=timedelta(seconds=0.2),
+        ).run_batch((node,), {})
+
+        assert result[node.node_id].value == [_CleanRow(id=1, label="done")]
+        assert all(
+            event.event_type is not AnalyticsEventType.resource_wait
+            for event in observer.events
+        )
+    finally:
+        database.close()
+
+
+@pytest.mark.asyncio
+async def test_deterministic_transform_reuses_global_checkpoint(
+    tmp_path: Path,
+) -> None:
+    executions = 0
+
+    @step(id="tests.reused_rows", revision=1, output=_CleanRow)
+    def reusable() -> list[_CleanRow]:
+        nonlocal executions
+        executions += 1
+        return [_CleanRow(id=1, label="stable")]
+
+    @dataset(
+        id="tests.reused_dataset",
+        revision=1,
+        row=_CleanRow,
+        grain="one row",
+        keys=("id",),
+    )
+    def reused_dataset() -> RecipeRef[list[_CleanRow]]:
+        return reusable()
+
+    graph = _compile_recipe(reused_dataset, (), {})
+    root = tmp_path / "analytics"
+    store = _ArtifactObjectStore(root)
+    database = _RunDatabase(root / "runs.sqlite3")
+    try:
+        first_run = _run(database)
+        first_runner = _runner(database, store, run_id=first_run)
+        first_step = await first_runner.run_batch((graph.nodes[0],), {})
+        await first_runner.run_batch((graph.nodes[1],), first_step)
+
+        second_run = _run(database)
+        second_runner = _runner(database, store, run_id=second_run)
+        second_step = await second_runner.run_batch((graph.nodes[0],), {})
+        await second_runner.run_batch((graph.nodes[1],), second_step)
+
+        assert executions == 1
+        assert database.node_state(second_run, graph.nodes[0].node_id) == "reused"
+        assert database.node_state(second_run, graph.nodes[1].node_id) == "reused"
+    finally:
+        database.close()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_runners_compute_one_checkpoint_eligible_node(
+    tmp_path: Path,
+) -> None:
+    """Reuse the winner across independent database connections and runners."""
+    executions = 0
+    lock = threading.Lock()
+
+    @step(id="tests.cross_process_rows", revision=1, output=_CleanRow)
+    def reusable() -> list[_CleanRow]:
+        nonlocal executions
+        with lock:
+            executions += 1
+        time.sleep(0.05)
+        return [_CleanRow(id=1, label="stable")]
+
+    @dataset(
+        id="tests.cross_process_dataset",
+        revision=1,
+        row=_CleanRow,
+        grain="one row",
+        keys=("id",),
+    )
+    def cross_process_dataset() -> RecipeRef[list[_CleanRow]]:
+        return reusable()
+
+    node = _compile_recipe(cross_process_dataset, (), {}).nodes[0]
+    root = tmp_path / "analytics"
+    first_database = _RunDatabase(root / "runs.sqlite3")
+    second_database = _RunDatabase(root / "runs.sqlite3")
+    observer = _EventCollector()
+    try:
+        first_run = _run(first_database)
+        second_run = _run(second_database)
+        first_result, second_result = await asyncio.gather(
+            _runner(
+                first_database,
+                _ArtifactObjectStore(root),
+                run_id=first_run,
+                observer=observer,
+            ).run_batch((node,), {}),
+            _runner(
+                second_database,
+                _ArtifactObjectStore(root),
+                run_id=second_run,
+                observer=observer,
+            ).run_batch((node,), {}),
+        )
+
+        assert executions == 1
+        assert first_result[node.node_id].value == second_result[node.node_id].value
+        assert {
+            first_database.node_state(first_run, node.node_id),
+            second_database.node_state(second_run, node.node_id),
+        } == {"completed", "reused"}
+        assert (
+            sum(
+                event.event_type is AnalyticsEventType.resource_wait
+                for event in observer.events
+            )
+            == 1
+        )
+    finally:
+        first_database.close()
+        second_database.close()
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_off_allows_independent_concurrent_compute(
+    tmp_path: Path,
+) -> None:
+    """Avoid lease coordination when policy makes a boundary non-reusable."""
+    executions = 0
+    lock = threading.Lock()
+
+    @step(id="tests.non_checkpointed_rows", revision=1, output=_CleanRow)
+    def independent() -> list[_CleanRow]:
+        nonlocal executions
+        with lock:
+            executions += 1
+        time.sleep(0.03)
+        return [_CleanRow(id=1, label="independent")]
+
+    @dataset(
+        id="tests.non_checkpointed_dataset",
+        revision=1,
+        row=_CleanRow,
+        grain="one row",
+        keys=("id",),
+    )
+    def non_checkpointed_dataset() -> RecipeRef[list[_CleanRow]]:
+        return independent()
+
+    node = _compile_recipe(non_checkpointed_dataset, (), {}).nodes[0]
+    root = tmp_path / "analytics"
+    first_database = _RunDatabase(root / "runs.sqlite3")
+    second_database = _RunDatabase(root / "runs.sqlite3")
+    try:
+        first_run = _run(first_database)
+        second_run = _run(second_database)
+        await asyncio.gather(
+            _runner(
+                first_database,
+                _ArtifactObjectStore(root),
+                run_id=first_run,
+                checkpoint_nodes=frozenset(),
+            ).run_batch((node,), {}),
+            _runner(
+                second_database,
+                _ArtifactObjectStore(root),
+                run_id=second_run,
+                checkpoint_nodes=frozenset(),
+            ).run_batch((node,), {}),
+        )
+
+        assert executions == 2
+    finally:
+        first_database.close()
+        second_database.close()
+
+
+@pytest.mark.asyncio
+async def test_long_transform_renews_its_publication_lease(tmp_path: Path) -> None:
+    """Keep ownership alive while synchronous work runs off the event loop."""
+
+    @step(id="tests.renewed_rows", revision=1, output=_CleanRow)
+    def slow() -> list[_CleanRow]:
+        time.sleep(0.7)
+        return [_CleanRow(id=1, label="renewed")]
+
+    @dataset(
+        id="tests.renewed_dataset",
+        revision=1,
+        row=_CleanRow,
+        grain="one row",
+        keys=("id",),
+    )
+    def renewed_dataset() -> RecipeRef[list[_CleanRow]]:
+        return slow()
+
+    node = _compile_recipe(renewed_dataset, (), {}).nodes[0]
+    root = tmp_path / "analytics"
+    database = _RunDatabase(root / "runs.sqlite3")
+    try:
+        run_id = _run(database)
+        result = await _runner(
+            database,
+            _ArtifactObjectStore(root),
+            run_id=run_id,
+            lease_ttl=timedelta(seconds=0.3),
+        ).run_batch((node,), {})
+
+        assert result[node.node_id].value == [_CleanRow(id=1, label="renewed")]
+        assert database.node_state(run_id, node.node_id) == "completed"
+    finally:
+        database.close()

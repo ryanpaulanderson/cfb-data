@@ -50,7 +50,12 @@ from cfb_data.cache._identity_codecs import (
     team_identity,
     venue_identity,
 )
-from cfb_data.cache._models import MAX_RESPONSE_BODY_BYTES, ResponseRecord
+from cfb_data.cache._models import (
+    MAX_RESPONSE_BODY_BYTES,
+    ResponsePeek,
+    ResponsePeekStatus,
+    ResponseRecord,
+)
 from cfb_data.cache.config import RedisCacheConfig
 from cfb_data.errors import CFBDCacheBackendError, CFBDClientStateError
 
@@ -155,6 +160,27 @@ class RedisCacheBackend:
             await self.delete_response(key)
             return None
         return record
+
+    async def peek_response(self, key: str, now: datetime) -> ResponsePeek:
+        """Inspect one Redis response without deleting or refreshing it."""
+        client = self._active_client()
+        response_key = self._response_key(key)
+        encoded_size = _integer(await _redis_result(client.strlen(response_key)))
+        if encoded_size > _MAX_ENCODED_RESPONSE_BYTES:
+            return ResponsePeek(ResponsePeekStatus.corrupt)
+        raw = await client.get(response_key)
+        if raw is None:
+            return ResponsePeek(ResponsePeekStatus.missing)
+        try:
+            record = _decode_response(_bytes(raw))
+        except CFBDCacheBackendError:
+            return ResponsePeek(ResponsePeekStatus.corrupt)
+        status = (
+            ResponsePeekStatus.expired
+            if record.retained_until <= now
+            else ResponsePeekStatus.retained
+        )
+        return ResponsePeek(status, record)
 
     async def commit_response(
         self, record: ResponseRecord, projection: CatalogProjection

@@ -1,8 +1,9 @@
 # ADR 0006: Build analytics from modular callable recipes
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-08-18
-- Applies from: Acceptance of the modular analytics foundation
+- Accepted: 2026-08-19
+- Applies from: The modular analytics vertical slice
 
 ## Context
 
@@ -33,10 +34,11 @@ substantial analytics platform. Dependencies and frameworks are selected by
 whether they preserve the product's correctness, extensibility, and parity
 contracts rather than by whether they are small.
 
-This record replaces the rejected ADR 0006 design. While its status is
-``Proposed``, the recipe API, first-party modules, Dask executor, and durable
-analytics runtime described below are planned contracts, not current supported
-behavior.
+This record replaces the rejected ADR 0006 design. It remained ``Proposed``
+while the authoring, discovery, coordinator, artifact, and Dask vertical slice
+was built. The acceptance evidence below approves these architectural
+boundaries; it does not claim that every planned recipe, YAML support, or
+release-hardening gate is complete.
 
 ## Decision
 
@@ -132,13 +134,16 @@ explicit async-step execution after compilation.
 A dataset combines a colocated Pydantic row model with decorator metadata for
 stable identity and revision, grain, keys, ordering, partitions, optional event
 time, and semantic field information. The runtime derives a private table
-contract from those declarations. Analytics durable compatibility uses a
-distinct analytics table codec v2 keyed by stable recipe/output contract ID,
-semantic revision, and ordered logical schema digest. For analytics-v2
-artifacts, module-qualified Pydantic-model identity is diagnostic provenance
+contract from those declarations. Analytics durable compatibility uses
+Parquet table codec version 2, distinct from the existing endpoint Parquet
+codec version 1. Its compatibility key is the stable recipe/output contract
+ID, semantic revision, and ordered logical schema digest. For artifacts written
+by the analytics Parquet codec, module-qualified Pydantic-model identity is
+diagnostic provenance
 rather than a compatibility key, so moving a recipe module does not by itself
 redefine durable compatibility. This narrowly amends ADR 0003 for
-analytics-v2 artifacts; the existing Parquet-v1 format, reader, and enforced
+analytics table artifacts; the existing endpoint Parquet codec version 1,
+reader, and enforced
 module-qualified identity remain unchanged. Public authoring does not require a
 parallel parameter model or author-constructed definition, catalog, node,
 provider, or table-contract hierarchy. Small immutable framework-owned control
@@ -214,12 +219,16 @@ child more than once uses ``child_recipe.as_("alias")(...)``; call ordinals are
 not stable identity. A named workflow output is selected explicitly with
 ``child_workflow(...)["output_name"]``.
 Graph shape may depend on validated plan-time parameters but never on source
-results or DataFrame contents. The bounded map/gather primitive accepts only a
-validated plan-time parameter sequence, requires stable unique keys, and fully
-expands during compilation. Compilation rejects duplicate aliases, recursive
-expansion, cycles, ambiguous output bindings, incompatible schemas, unsupported
-backends, and expansion or attempt plans above their configured limits before
-operational I/O.
+results or DataFrame contents. A fixed source node may bind a request parameter
+to a validated scalar produced by an already-declared upstream node. This does
+not add nodes or alter worst-case cost: the plan records the binding shape and
+inspection reports its exact cache disposition as deferred until the scalar is
+available. The bounded map/gather primitive accepts only a validated plan-time
+parameter sequence, requires stable unique keys, and fully expands during
+compilation. Compilation rejects duplicate aliases, recursive expansion,
+cycles, ambiguous output bindings, incompatible schemas, unsupported backends,
+and expansion or attempt plans above their configured limits before operational
+I/O.
 
 Explicit dataset-to-workflow-output selection narrowly amends ADR 0001's
 default workflow-above-dataset layering. The compiler slices the child workflow
@@ -415,11 +424,14 @@ exception objects.
 ### Dask is a first-class compute executor
 
 Dask will be an optional execution dependency and a fully supported compute
-option, not the owner of source retrieval or analytical persistence. Version
-one will use a coordinator-owned temporary ``distributed.LocalCluster`` with at
-most four worker processes, bounded by available CPUs, and one thread per
-worker by default. The coordinator opens the cluster for one run, cancels and
-awaits outstanding futures during failure or cancellation, and closes the
+option, not the owner of source retrieval or analytical persistence. The
+coordinator depends on a topology-neutral executor-provider and run-session
+contract; it does not assume that it constructed the scheduler, that workers
+share its filesystem, or that worker transport is local. The initially shipped
+Dask provider owns a temporary asynchronous ``distributed.LocalCluster`` with
+at most four worker processes, bounded by available CPUs, and one thread per
+worker by default. That provider opens its resources for one run, cancels and
+awaits outstanding futures during failure or cancellation, and closes its
 client and cluster deterministically.
 
 Both local and Dask modes invoke the same transform-worker contract. Dask
@@ -451,10 +463,13 @@ transport is not a durable format. No checkpoint, manifest, artifact, or
 artifact loader may persist or load pickle. A worker or coordinator failure
 before coordinator validation and commit cannot publish a successful node.
 
-Existing multi-host schedulers and remote clusters are deferred until the
-platform defines remote artifact ownership, worker-environment verification,
-transfer limits, distributed cancellation, and representative acceptance
-infrastructure. The executor interface must not prevent that later addition.
+The provider contract includes resource ownership, capability and environment
+verification, bounded Arrow transport, submission, cancellation, and closure.
+An adopted-client or remote-cluster provider can therefore be added without
+changing recipes, graph identity, the coordinator, artifacts, recovery, or
+events. Support for an external scheduler address is deferred until its
+security and representative multi-host acceptance infrastructure exist; the
+managed-local topology is a provider capability, not a coordinator invariant.
 
 ### Every offered option has runtime parity
 
@@ -494,7 +509,10 @@ component:
 
 - SQLite transactionally stores immutable runs, node outcomes, parent/child
   recovery lineage, cross-process leases, and retention pins.
-- The filesystem stores immutable content-addressed objects.
+- The filesystem stores immutable content-addressed objects. Stable payload
+  identity excludes run-specific timestamps, placement, and correlation data;
+  SQLite run/node bindings own that audit evidence so identical content can be
+  reused without volatile metadata changing its address.
 - Canonical analytics table artifacts use codec v2, ordered Parquet parts, and
   a versioned manifest. Endpoint Parquet-v1 remains readable and unchanged.
 - Bounded modeled control artifacts use canonical Pydantic/JSON with non-finite
@@ -589,6 +607,41 @@ observation. Generic pickle remains excluded.
   and nested recipe authoring, no-I/O planning, async pooled sources, local/Dask
   parity, safe artifacts, and first-party/user discovery through black-box
   tests.
+
+## Acceptance evidence
+
+The decision was accepted on August 19, 2026 after the vertical slice proved:
+
+- Direct eager calls and advanced durable runs through the same callable
+  recipe engine, with artifact references remaining usable after client close.
+- Nested dataset composition in ``team_games`` and game-context identity
+  composition in ``player_game_stats``, with no central recipe index or
+  privileged first-party path.
+- Pure state-independent planning, transactional installed-provider discovery,
+  and a separately built external provider using the public extension surface.
+- Independent pooled source overlap, retry-inclusive attempt reservation,
+  cancellation cleanup, immutable artifact publication, child recovery, and
+  freshness-safe source behavior.
+- Equal canonical content for ``game_summaries``, ``team_games``, and
+  ``player_game_stats`` across pandas/local, Polars/local, pandas/Dask, and
+  Polars/Dask, with sources and persistence remaining coordinator-owned.
+- Managed Dask worker execution, transfer limits, worker cancellation, lazy
+  zero-work behavior, and deterministic provider cleanup.
+
+The repository-wide ``make check`` contract passed with 518 deterministic
+tests and 21 correctly gated Redis/live tests. The separately gated Redis suite
+passed all 19 tests against the preserved local container using isolated test
+prefixes. No live API request was made for architecture acceptance.
+
+The remaining foundation gates subsequently passed on August 19, 2026: all
+twelve datasets and three workflows, Python/YAML canonical graph parity, the
+Python 3.12/3.13 base and optional-extra package matrix, Redis replay, durable
+recovery hardening, operational documentation, and bounded live validation.
+The live ledger moved from 651 to 655; all four pandas/Polars by local/Dask
+cache-only executions added zero attempts and produced equal canonical
+results. Acceptance fixes the modular recipe and topology-neutral executor
+direction; future modeling, visualization, remote execution, and new datasets
+must build on these boundaries rather than creating privileged paths.
 
 ## Alternatives considered
 

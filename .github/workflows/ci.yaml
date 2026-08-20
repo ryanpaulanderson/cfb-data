@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.13"]
-        installation: ["base", "polars"]
+        installation: ["base", "polars", "redis", "yaml", "dask", "all"]
 
     steps:
       - name: Check out repository
@@ -43,6 +43,22 @@ jobs:
         if: matrix.installation == 'polars'
         run: python -m pip install ".[polars]"
 
+      - name: Install package with Redis
+        if: matrix.installation == 'redis'
+        run: python -m pip install ".[redis]"
+
+      - name: Install package with YAML
+        if: matrix.installation == 'yaml'
+        run: python -m pip install ".[yaml]"
+
+      - name: Install package with Dask
+        if: matrix.installation == 'dask'
+        run: python -m pip install ".[dask]"
+
+      - name: Install package with every optional feature
+        if: matrix.installation == 'all'
+        run: python -m pip install ".[polars,redis,yaml,dask]"
+
       - name: Verify installed-user imports
         env:
           INSTALLATION: ${{ matrix.installation }}
@@ -51,6 +67,7 @@ jobs:
           import asyncio
           import importlib.util
           import os
+          from importlib.metadata import entry_points
 
           from aiohttp import web
           import pandas
@@ -58,8 +75,29 @@ jobs:
           from cfb_data import CFBDClient, RetryPolicy
 
           assert pyarrow.__version__
-          has_polars = importlib.util.find_spec("polars") is not None
-          assert has_polars is (os.environ["INSTALLATION"] == "polars")
+          expected = os.environ["INSTALLATION"]
+          optional_modules = {
+              "polars": "polars",
+              "redis": "redis",
+              "yaml": "yaml",
+              "dask": "distributed",
+          }
+          present_modules = {
+              option: importlib.util.find_spec(module) is not None
+              for option, module in optional_modules.items()
+          }
+          if expected == "base":
+              assert not any(present_modules.values())
+          elif expected == "all":
+              assert all(present_modules.values())
+          else:
+              assert present_modules[expected]
+          has_polars = present_modules["polars"]
+          providers = entry_points(group="cfb_data.recipes")
+          assert any(
+              item.name == "official" and item.value == "cfb_data_recipes"
+              for item in providers
+          )
 
           async def main() -> None:
               async def calendar(request: web.Request) -> web.Response:
