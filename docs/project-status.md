@@ -56,6 +56,14 @@ Retrieval remains source-faithful. Filtering, joining, flattening, missing-data
 policy, and derived metrics live in each visible versioned recipe or in user
 code. Optional enrichments never change a base dataset's declared row universe.
 
+The foundation's release evidence includes 651 default-suite tests, 20
+separately enabled Redis tests, a 12-combination clean-wheel matrix across
+Python 3.12 and 3.13, all four pandas/Polars by local/Dask execution paths, and
+a bounded live run that consumed four attempts from the cumulative ledger.
+The complete evidence and disclosed environment limitations are recorded in
+the [foundation implementation
+plan](architecture/analytics-foundation-plan.md).
+
 ## Caching is optional
 
 No cache is required. This is often enough for a quick script or a small number
