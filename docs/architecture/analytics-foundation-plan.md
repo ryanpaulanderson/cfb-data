@@ -980,18 +980,7 @@ The completed branch passed the following release gates on August 19, 2026:
   typing markers, and analytics SQL resources were present.
 - The separately gated live analytics harness passed once. It moved the
   cumulative ledger from 651 to 655 attempts and was not rerun after success.
-- The local field-notes website passed lint, production build, two rendered-
-  page tests, and a runtime-dependency audit with zero findings.
 - ``git diff --check`` passed after the evidence was recorded.
-
-The local website's development/build toolchain reported 42 transitive audit
-findings (3 low, 4 moderate, and 35 high) for which the installed dependency
-graph offered no automatic fix. Its production dependency audit reported zero
-findings. The website is a local, static demonstration with no server-side
-data or untrusted input path; the toolchain findings remain disclosed rather
-than being hidden by an audit exemption. The Vinext build also emitted a Node
-``module.register()`` deprecation and an unknown-route static-classification
-warning. Neither warning changed the rendered output or test result.
 
 ## Future integration boundary
 

@@ -318,12 +318,3 @@ wraps the exact ``cfbd.game_summaries@2`` dataset as a named workflow output.
 YAML can compose exact registered sources, steps, datasets, and workflows, but
 it cannot import code, evaluate expressions, expand a graph from returned rows,
 or infer a dataset schema from populated data.
-
-## Inspect the real demonstration
-
-The repository includes a [local field-notes
-site](https://github.com/ryanpaulanderson/cfb-data/tree/main/examples/analytics_site)
-generated through the same public recipe APIs. Its committed snapshot shows a team season, program history, a
-single game, and the four pandas/Polars × local/Dask acceptance runs. Snapshot
-generation uses Redis ``local_only`` and refuses to write if the cumulative API
-attempt ledger changes.
