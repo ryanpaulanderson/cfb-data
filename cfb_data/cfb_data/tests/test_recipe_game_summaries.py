@@ -160,7 +160,7 @@ async def test_recipe_preserves_source_fields_and_conservative_results(
         * 3
     )
     assert run.artifact.descriptor.output_id == "cfbd.game_summaries"
-    assert run.artifact.descriptor.output_revision == 2
+    assert run.artifact.descriptor.output_revision == 3
 
 
 @pytest.mark.asyncio
@@ -229,10 +229,19 @@ async def test_exact_game_enrichments_are_late_bound_and_four_way_portable(
     """Attach exact-game media and weather through every supported option."""
     pytest.importorskip("polars")
     pytest.importorskip("distributed")
+    selected_game = copy.deepcopy(game_response)
+    selected_game["seasonType"] = "postseason"
+    selected_media = _media_payload()
+    selected_media["seasonType"] = "postseason"
+    unrelated_media = copy.deepcopy(selected_media)
+    unrelated_media["id"] = 401628999
+    unrelated_media["awayTeam"] = "Auburn"
+    selected_weather = _weather_payload()
+    selected_weather["seasonType"] = "postseason"
     payloads: dict[str, object] = {
-        "/games": [game_response],
-        "/games/media": [_media_payload()],
-        "/games/weather": [_weather_payload()],
+        "/games": [selected_game],
+        "/games/media": [selected_media, unrelated_media],
+        "/games/weather": [selected_weather],
     }
     calls: dict[str, int] = dict.fromkeys(payloads, 0)
 
@@ -244,6 +253,7 @@ async def test_exact_game_enrichments_are_late_bound_and_four_way_portable(
             assert request.query == {
                 "year": "2024",
                 "week": "1",
+                "seasonType": "postseason",
                 "team": "Alabama",
             }
         else:
@@ -290,7 +300,12 @@ async def test_exact_game_enrichments_are_late_bound_and_four_way_portable(
             media_node = next(
                 node for node in plan.nodes if "cfbd.games.media" in node.node_id
             )
-            assert media_node.deferred_parameters == ("year", "week", "team")
+            assert media_node.deferred_parameters == (
+                "year",
+                "week",
+                "season_type",
+                "team",
+            )
             restored = run.artifact.load()
             assert restored["game_id"].tolist() == [401628347]
             assert restored["media_coverage"].tolist() == [
@@ -300,6 +315,7 @@ async def test_exact_game_enrichments_are_late_bound_and_four_way_portable(
                 GameEnrichmentCoverage.present
             ]
             assert restored.loc[0, "media"][0]["outlet"] == "ESPN"
+            assert len(restored.loc[0, "media"]) == 1
             assert restored.loc[0, "weather"]["temperature"] == 84.0
             digests.append(run.artifact.descriptor.content_digest)
             records.append(restored.to_dict(orient="records"))

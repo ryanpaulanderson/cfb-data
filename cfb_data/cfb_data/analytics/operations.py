@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from enum import Enum
 from typing import Literal, cast
 
 from ._graph import _NodeRef, _ValueRef
@@ -308,7 +309,9 @@ def value[ValueT](
         raise CFBDRecipeCompilationError(
             "value() paths require between one and 32 string/integer tokens"
         )
-    if expected_type not in {str, int, float, bool}:
+    if expected_type not in {str, int, float, bool} and not (
+        isinstance(expected_type, type) and issubclass(expected_type, Enum)
+    ):
         raise CFBDRecipeCompilationError(
             "value() expected_type must be a supported scalar type"
         )

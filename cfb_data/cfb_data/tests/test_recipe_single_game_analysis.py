@@ -160,7 +160,12 @@ async def test_workflow_exposes_game_summary_enrichment_plan() -> None:
     media_node = next(
         node for node in enriched.nodes if "cfbd.games.media" in node.node_id
     )
-    assert media_node.deferred_parameters == ("year", "week", "team")
+    assert media_node.deferred_parameters == (
+        "year",
+        "week",
+        "season_type",
+        "team",
+    )
 
 
 @pytest.mark.asyncio

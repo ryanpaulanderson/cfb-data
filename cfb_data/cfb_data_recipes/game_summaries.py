@@ -269,6 +269,30 @@ def normalize_games(rows: list[Game]) -> list[GameSummary]:
 
 
 @step(
+    id="cfbd.game_summaries.select_exact_media",
+    revision=1,
+    output=GameMedia,
+    deterministic=True,
+)
+def select_exact_game_media(
+    rows: list[GameMedia],
+    *,
+    game_id: int,
+) -> list[GameMedia]:
+    """Select one game's media from the endpoint's containing partition.
+
+    The media endpoint has no game-ID selector. This visible analytics step
+    preserves source retrieval while excluding other games returned by the
+    smallest bounded season/week/team partition.
+
+    :param rows: Validated source media in upstream order.
+    :param game_id: Stable game identifier selected by the dataset caller.
+    :return: Source-ordered media rows whose stable ID matches the game.
+    """
+    return [row for row in rows if row.id == game_id]
+
+
+@step(
     id="cfbd.game_summaries.attach_enrichments",
     revision=1,
     output=GameSummary,
@@ -298,7 +322,7 @@ def attach_game_enrichments(
 
 @dataset(
     id="cfbd.game_summaries",
-    revision=2,
+    revision=3,
     row=GameSummary,
     grain="one selected game",
     keys=("game_id",),
@@ -363,11 +387,19 @@ def game_summaries(
     requested_media: RecipeRef[list[GameMedia]] | None = None
     if include_media and game_id is not None:
         context = require_one(summaries)
-        requested_media = game_media(
-            year=value(context, path=("season",), expected_type=int),
-            week=value(context, path=("week",), expected_type=int),
-            team=value(context, path=("home_team",), expected_type=str),
-            media_type=media_type,
+        requested_media = select_exact_game_media(
+            game_media(
+                year=value(context, path=("season",), expected_type=int),
+                week=value(context, path=("week",), expected_type=int),
+                season_type=value(
+                    context,
+                    path=("season_type",),
+                    expected_type=SeasonType,
+                ),
+                team=value(context, path=("home_team",), expected_type=str),
+                media_type=media_type,
+            ),
+            game_id=game_id,
         )
     elif include_media:
         if year is None:

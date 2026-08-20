@@ -314,7 +314,7 @@ outputs = await recipe(client, year=2024, team="Penn State")
 ```
 
 The copyable [YAML example](../../examples/analytics/penn_state_games.yaml)
-wraps the exact ``cfbd.game_summaries@2`` dataset as a named workflow output.
+wraps the exact ``cfbd.game_summaries@3`` dataset as a named workflow output.
 YAML can compose exact registered sources, steps, datasets, and workflows, but
 it cannot import code, evaluate expressions, expand a graph from returned rows,
 or infer a dataset schema from populated data.
