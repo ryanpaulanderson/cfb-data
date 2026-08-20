@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 
@@ -16,13 +17,16 @@ from cfb_data.analytics import (
     ExecutionPolicy,
     RecipeRef,
     RecipeRun,
+    SourceContext,
     dataset,
     list_runs,
+    source,
     step,
     workflow,
 )
 from cfb_data.games.models.pydantic.responses import Game
 from cfb_data.games.sources import games
+from pydantic import BaseModel
 
 from cfb_data import CFBDClient, RetryPolicy, SQLiteCacheConfig
 
@@ -46,6 +50,57 @@ def _runtime_games(*, year: int, team: str) -> RecipeRef[list[Game]]:
 def _runtime_workflow(*, year: int, team: str) -> dict[str, RecipeRef[list[Game]]]:
     """Build one named-output workflow through the public dataset object."""
     return {"games": _runtime_games(year=year, team=team)}
+
+
+class _CustomSourceRow(BaseModel):
+    """Represent one row emitted by a user-owned coordinator source."""
+
+    game_id: int
+    season: int
+
+
+@source(id="tests.custom_source", revision=1, output=_CustomSourceRow, cost=0)
+async def _custom_source(
+    context: SourceContext[_CustomSourceRow], *, season: int
+) -> list[_CustomSourceRow]:
+    """Return validated rows without an endpoint operation descriptor."""
+    del context
+    await asyncio.sleep(0)
+    return [_CustomSourceRow(game_id=401628515, season=season)]
+
+
+@dataset(
+    id="tests.custom_source_dataset",
+    revision=1,
+    row=_CustomSourceRow,
+    grain="one custom game",
+    keys=("game_id",),
+    order_by=("season", "game_id"),
+)
+def _custom_source_dataset(*, season: int) -> RecipeRef[list[_CustomSourceRow]]:
+    """Expose a custom source through the ordinary dataset path."""
+    return _custom_source(season=season)
+
+
+@pytest.mark.asyncio
+async def test_custom_source_completes_through_public_dataset_execution(
+    tmp_path: Path,
+) -> None:
+    """Validate, persist, and report a source without endpoint metadata."""
+    async with CFBDClient(
+        "custom-source-key",
+        analytics=AnalyticsConfig(root=tmp_path / "analytics"),
+    ) as client:
+        run = await _custom_source_dataset.run(client, season=2024)
+
+    assert run.value.to_dict(orient="records") == [
+        {"game_id": 401628515, "season": 2024}
+    ]
+    assert run.actual_http_attempts == 0
+    assert len(run.source_coverage) == 1
+    assert run.source_coverage[0].operation_id == "tests.custom_source"
+    assert run.source_coverage[0].access_tier == "custom"
+    assert run.source_coverage[0].state == "present"
 
 
 @pytest.mark.asyncio

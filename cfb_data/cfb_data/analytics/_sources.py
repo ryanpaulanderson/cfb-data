@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
+from types import GenericAlias
 from typing import cast
 
 import pyarrow as pa
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 
 from cfb_data._executor import _EndpointExecutor
 from cfb_data._observability import _analytics_retrieval_context, _failure_category
@@ -41,7 +43,11 @@ from ._persistence import (
     _StoredArtifact,
 )
 from ._recipes import SourceRecipe
-from .errors import CFBDArtifactCorruptionError, CFBDRecipeCompilationError
+from .errors import (
+    CFBDArtifactCorruptionError,
+    CFBDRecipeCompilationError,
+    CFBDRecipeUsageError,
+)
 from .observability import (
     AnalyticsEvent,
     AnalyticsEventType,
@@ -72,6 +78,32 @@ class _EndpointSourceContext:
             )
         self._used = True
         return await self._runner._retrieve(self._node, self._operation, parameters)
+
+
+class _CustomSourceContext:
+    """Reject endpoint retrieval from a source without an endpoint contract."""
+
+    async def retrieve(self, **parameters: object) -> list[BaseModel]:
+        """Reject descriptor-owned retrieval for a custom source.
+
+        :param parameters: Unused attempted endpoint parameters.
+        :raises CFBDRecipeUsageError: Always, because the source is custom.
+        """
+        del parameters
+        raise CFBDRecipeUsageError(
+            "Custom sources own their retrieval and cannot use context.retrieve"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _SourceContract:
+    """Describe one source's validated durable table boundary."""
+
+    source_id: str
+    revision: int
+    row_model: type[BaseModel]
+    rows_adapter: TypeAdapter[list[BaseModel]]
+    operation: _EndpointOperation[BaseModel, BaseModel] | None
 
 
 class _SourceRunner:
@@ -172,16 +204,16 @@ class _SourceRunner:
             results,
             allow_node_values=False,
         )
-        operation = _operation(node)
+        contract = _source_contract(node)
         identity = _AnalyticsTableIdentity(
-            output_id=operation.id,
-            revision=operation.revision,
+            output_id=contract.source_id,
+            revision=contract.revision,
         )
         output = _OutputContractIdentity(
             name="value",
-            output_id=operation.id,
-            revision=operation.revision,
-            schema_digest=_logical_schema_digest(_logical_schema(operation.row_model)),
+            output_id=contract.source_id,
+            revision=contract.revision,
+            schema_digest=_logical_schema_digest(_logical_schema(contract.row_model)),
             codec_id=_TableArtifactCodec.codec_id,
             codec_version=_TableArtifactCodec.codec_version,
         )
@@ -213,7 +245,7 @@ class _SourceRunner:
         if candidate is not None:
             reused = await self._load_candidate(
                 node,
-                operation,
+                contract,
                 identity,
                 fingerprint,
                 candidate,
@@ -231,13 +263,21 @@ class _SourceRunner:
         started = time.monotonic()
         try:
             recipe = cast(SourceRecipe[..., object], node.recipe)
-            context = _EndpointSourceContext(self, node, operation)
-            value = await recipe._execute_source(context, parameters)
-            rows = operation.rows_adapter.validate_python(value)
+            if contract.operation is None:
+                async with self._semaphore:
+                    value = await recipe._execute_source(
+                        _CustomSourceContext(), parameters
+                    )
+            else:
+                value = await recipe._execute_source(
+                    _EndpointSourceContext(self, node, contract.operation),
+                    parameters,
+                )
+            rows = contract.rows_adapter.validate_python(value)
             artifact = await asyncio.to_thread(
                 self._store_and_bind_rows,
                 rows,
-                operation.row_model,
+                contract.row_model,
                 identity,
                 node.node_id,
                 fingerprint,
@@ -284,7 +324,7 @@ class _SourceRunner:
             value=rows,
             artifact=artifact,
             node_fingerprint=fingerprint,
-            row_model=operation.row_model,
+            row_model=contract.row_model,
         )
 
     async def _retrieve(
@@ -345,7 +385,7 @@ class _SourceRunner:
     async def _load_candidate(
         self,
         node: _CompiledNode,
-        operation: _EndpointOperation[BaseModel, BaseModel],
+        contract: _SourceContract,
         identity: _AnalyticsTableIdentity,
         fingerprint: str,
         candidate: _CheckpointCandidate,
@@ -353,7 +393,7 @@ class _SourceRunner:
         try:
             rows = await asyncio.to_thread(
                 self._load_rows,
-                operation,
+                contract,
                 identity,
                 candidate,
             )
@@ -387,7 +427,7 @@ class _SourceRunner:
                 manifest=candidate.manifest,
             ),
             node_fingerprint=fingerprint,
-            row_model=operation.row_model,
+            row_model=contract.row_model,
         )
 
     def _store_and_bind_rows(
@@ -430,7 +470,7 @@ class _SourceRunner:
 
     def _load_rows(
         self,
-        operation: _EndpointOperation[BaseModel, BaseModel],
+        contract: _SourceContract,
         identity: _AnalyticsTableIdentity,
         candidate: _CheckpointCandidate,
     ) -> list[BaseModel]:
@@ -438,12 +478,12 @@ class _SourceRunner:
         table = _TableArtifactCodec().load(
             directory=self._object_store.directory(candidate.binding.content_digest),
             manifest=candidate.manifest,
-            row_model=operation.row_model,
+            row_model=contract.row_model,
             identity=identity,
         )
         return _analytics_models_from_arrow_table(
-            row_model=operation.row_model,
-            response_adapter=operation.rows_adapter,
+            row_model=contract.row_model,
+            response_adapter=contract.rows_adapter,
             table=table,
             identity=identity,
         )
@@ -487,15 +527,40 @@ class _SourceRunner:
         )
 
 
-def _operation(
-    node: _CompiledNode,
-) -> _EndpointOperation[BaseModel, BaseModel]:
-    operation = node.declaration.operation
-    if not isinstance(operation, _EndpointOperation):
+def _source_contract(node: _CompiledNode) -> _SourceContract:
+    """Resolve endpoint-backed and custom sources to one table contract."""
+    source_id = node.declaration.recipe_id
+    revision = node.declaration.revision
+    row_model = node.declaration.output_type
+    if source_id is None or revision is None:
+        raise CFBDRecipeCompilationError("Sources require durable identity")
+    if not isinstance(row_model, type) or not issubclass(row_model, BaseModel):
         raise CFBDRecipeCompilationError(
-            "This source has no executable endpoint operation descriptor"
+            "Source outputs must declare a Pydantic row model"
         )
-    return cast(_EndpointOperation[BaseModel, BaseModel], operation)
+    operation = node.declaration.operation
+    endpoint_operation = (
+        cast(_EndpointOperation[BaseModel, BaseModel], operation)
+        if isinstance(operation, _EndpointOperation)
+        else None
+    )
+    if operation is not None and endpoint_operation is None:
+        raise CFBDRecipeCompilationError("Source operation metadata is invalid")
+    adapter = (
+        endpoint_operation.rows_adapter
+        if endpoint_operation is not None
+        else cast(
+            TypeAdapter[list[BaseModel]],
+            TypeAdapter(GenericAlias(list, row_model)),
+        )
+    )
+    return _SourceContract(
+        source_id=source_id,
+        revision=revision,
+        row_model=row_model,
+        rows_adapter=adapter,
+        operation=endpoint_operation,
+    )
 
 
 async def _cancel_and_await[ValueT](

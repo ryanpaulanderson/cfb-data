@@ -83,6 +83,18 @@ def _threshold_games(threshold: float) -> RecipeRef[list[_DatasetRow]]:
     return _game_summaries(year=2024)
 
 
+@dataset(
+    row=_DatasetRow,
+    grain="one game",
+    keys=("game_id",),
+    order_by=("year", "game_id"),
+)
+def _selected_team_games(teams: set[str]) -> RecipeRef[list[_DatasetRow]]:
+    """Build a notebook-style dataset with an unordered set parameter."""
+    del teams
+    return _game_summaries(year=2024)
+
+
 def test_decorators_create_typed_immutable_callable_recipes() -> None:
     """Expose each authored boundary as a stable immutable recipe object."""
     assert isinstance(_games, SourceRecipe)
@@ -125,6 +137,30 @@ async def test_non_finite_parameters_raise_typed_recipe_errors(
     async with CFBDClient("parameter-test-key") as client:
         with pytest.raises(CFBDRecipeParameterError, match="validation failed"):
             await _threshold_games.plan(client, threshold)
+
+
+@pytest.mark.asyncio
+async def test_set_parameters_have_deterministic_public_plan_identity() -> None:
+    """Canonicalize unordered parameters without rejecting their valid type."""
+    first_value = {"Penn State", "Ohio State", "Michigan"}
+    second_value = set(reversed(tuple(first_value)))
+
+    async with CFBDClient("parameter-test-key") as client:
+        first = await _selected_team_games.plan(client, first_value)
+        second = await _selected_team_games.plan(client, second_value)
+
+    assert first.parameter_fingerprint == second.parameter_fingerprint
+    assert first.graph_fingerprint == second.graph_fingerprint
+
+
+def test_custom_sources_require_pydantic_row_models() -> None:
+    """Reject custom sources that cannot form a validated table boundary."""
+    with pytest.raises(CFBDRecipeConfigurationError, match="Pydantic row model"):
+
+        @source(id="tests.invalid_source", revision=1, output=int, cost=0)
+        async def invalid(context: SourceContext[int]) -> list[int]:
+            del context
+            return [1]
 
 
 def test_datasets_require_an_explicit_client_at_top_level() -> None:

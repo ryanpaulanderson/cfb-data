@@ -274,7 +274,7 @@ class RecipeSourceCoverage:
 
     node_id: str
     operation_id: str
-    access_tier: Literal["free", "tier_1", "tier_2"]
+    access_tier: Literal["free", "tier_1", "tier_2", "custom"]
     state: Literal["empty", "present"]
     row_count: int
 

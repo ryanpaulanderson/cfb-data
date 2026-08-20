@@ -588,16 +588,27 @@ async def _public_result(
         if node.kind != "source":
             continue
         operation = node.declaration.operation
-        if not isinstance(operation, _EndpointOperation):
-            raise CFBDRecipeCompilationError("Source operation metadata is unavailable")
+        if operation is not None and not isinstance(operation, _EndpointOperation):
+            raise CFBDRecipeCompilationError("Source operation metadata is invalid")
+        operation_id = (
+            operation.id
+            if isinstance(operation, _EndpointOperation)
+            else node.declaration.recipe_id
+        )
+        if operation_id is None:
+            raise CFBDRecipeCompilationError("Source identity is unavailable")
         row_count = results[node.node_id].artifact.manifest.body.row_count
         if row_count is None:
             raise CFBDRecipeCompilationError("Source row count is unavailable")
         source_coverage.append(
             RecipeSourceCoverage(
                 node_id=node.node_id,
-                operation_id=operation.id,
-                access_tier=operation.access_tier,
+                operation_id=operation_id,
+                access_tier=(
+                    operation.access_tier
+                    if isinstance(operation, _EndpointOperation)
+                    else "custom"
+                ),
                 state="empty" if row_count == 0 else "present",
                 row_count=row_count,
             )

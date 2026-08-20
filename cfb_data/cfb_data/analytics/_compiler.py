@@ -426,6 +426,15 @@ def _canonical(value: object) -> object:
         return {str(key): _canonical(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_canonical(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        kind = "$frozenset" if isinstance(value, frozenset) else "$set"
+        items = [_canonical(item) for item in value]
+        items.sort(
+            key=lambda item: json.dumps(
+                item, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+            )
+        )
+        return {kind: items}
     raise CFBDRecipeCompilationError(
         f"Unsupported canonical recipe value type {type(value).__name__}"
     )

@@ -440,6 +440,8 @@ def source(
         raise CFBDRecipeConfigurationError(
             "Custom sources require id, revision, and output"
         )
+    if not isinstance(output_type, type) or not issubclass(output_type, BaseModel):
+        raise CFBDRecipeConfigurationError("Source output must be a Pydantic row model")
     if source_cost is None or not isinstance(source_cost, int) or source_cost < 0:
         raise CFBDRecipeConfigurationError(
             "Sources require a bounded non-negative cost"
