@@ -56,7 +56,7 @@ def _bind_graph_parameters(
             validated[name] = _require_finite(
                 adapter.validate_python(value, strict=True)
             )
-    except (KeyError, ValidationError, TypeError) as exc:
+    except (KeyError, ValidationError, TypeError, ValueError) as exc:
         raise CFBDRecipeParameterError("Recipe parameter validation failed") from exc
     return _ValidatedParameters(MappingProxyType(validated), provided)
 
@@ -123,7 +123,7 @@ def _validate_call_parameters(
             validated[name] = _require_finite(
                 adapter.validate_python(value, strict=True)
             )
-    except (KeyError, ValidationError, TypeError) as exc:
+    except (KeyError, ValidationError, TypeError, ValueError) as exc:
         raise CFBDRecipeParameterError("Recipe parameter validation failed") from exc
     return _ValidatedParameters(MappingProxyType(validated), provided)
 

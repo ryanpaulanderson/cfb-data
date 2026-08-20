@@ -11,7 +11,7 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from enum import Enum
 from types import MappingProxyType, UnionType
-from typing import Protocol, cast, get_args, get_origin
+from typing import Protocol, TypeAliasType, Union, cast, get_args, get_origin
 
 from pydantic import BaseModel
 
@@ -217,7 +217,7 @@ class _GraphBuilder:
                 )
                 self._append(node)
                 return _NodeRef(path)
-            outputs = _validate_workflow_outputs(built)
+            outputs = _validate_workflow_outputs(built, nodes=self._nodes)
             node = _CompiledNode(
                 node_id=path,
                 kind="workflow",
@@ -315,16 +315,32 @@ def _validate_reference_type(value: object, annotation: object) -> None:
     """Validate scalar reference compatibility without evaluating its value."""
     if not isinstance(value, _ValueRef):
         return
-    accepted = (
-        get_args(annotation) if get_origin(annotation) is UnionType else (annotation,)
-    )
+    accepted = _reference_types(annotation)
     if value.expected_type not in accepted:
         raise CFBDRecipeCompilationError(
             "Bound scalar type is incompatible with the source parameter"
         )
 
 
-def _validate_workflow_outputs(value: object) -> dict[str, _NodeRef]:
+def _reference_types(annotation: object) -> tuple[object, ...]:
+    """Expand named aliases and unions into accepted scalar reference types."""
+    if isinstance(annotation, TypeAliasType):
+        return _reference_types(annotation.__value__)
+    if get_origin(annotation) in {UnionType, Union}:
+        return tuple(
+            accepted
+            for member in get_args(annotation)
+            for accepted in _reference_types(member)
+        )
+    return (annotation,)
+
+
+def _validate_workflow_outputs(
+    value: object,
+    *,
+    nodes: list[_CompiledNode],
+) -> dict[str, _NodeRef]:
+    """Validate named workflow outputs as public tabular boundaries."""
     if not isinstance(value, Mapping) or not value:
         raise CFBDRecipeCompilationError(
             "Workflow builders must return a non-empty mapping of named references"
@@ -335,7 +351,16 @@ def _validate_workflow_outputs(value: object) -> dict[str, _NodeRef]:
             raise CFBDRecipeCompilationError(
                 "Workflow output names must be unique non-empty strings"
             )
-        outputs[name] = _require_node_ref(output, boundary="Workflow")
+        reference = _require_node_ref(output, boundary="Workflow")
+        node = next((item for item in nodes if item.node_id == reference.node_id), None)
+        if node is None:
+            raise AssertionError("Workflow output references an unknown compiled node")
+        output_type = node.declaration.output_type
+        if not isinstance(output_type, type) or not issubclass(output_type, BaseModel):
+            raise CFBDRecipeCompilationError(
+                "Workflow outputs must reference validated tabular boundaries"
+            )
+        outputs[name] = reference
     return outputs
 
 

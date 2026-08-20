@@ -7,6 +7,7 @@ import inspect
 import pytest
 from cfb_data.analytics import (
     CFBDRecipeConfigurationError,
+    CFBDRecipeParameterError,
     CFBDRecipeUsageError,
     DatasetRecipe,
     RecipeRef,
@@ -20,6 +21,8 @@ from cfb_data.analytics import (
     workflow,
 )
 from pydantic import BaseModel
+
+from cfb_data import CFBDClient
 
 
 class _SourceRow(BaseModel):
@@ -68,6 +71,18 @@ def _game_analysis(year: int) -> dict[str, RecipeRef[list[_DatasetRow]]]:
     return {"games": _game_summaries(year=year)}
 
 
+@dataset(
+    row=_DatasetRow,
+    grain="one game",
+    keys=("game_id",),
+    order_by=("year", "game_id"),
+)
+def _threshold_games(threshold: float) -> RecipeRef[list[_DatasetRow]]:
+    """Build a notebook-style dataset with one finite float parameter."""
+    del threshold
+    return _game_summaries(year=2024)
+
+
 def test_decorators_create_typed_immutable_callable_recipes() -> None:
     """Expose each authored boundary as a stable immutable recipe object."""
     assert isinstance(_games, SourceRecipe)
@@ -99,6 +114,17 @@ def test_sources_and_steps_are_build_only_top_level_values() -> None:
         _games(year=2024)
     with pytest.raises(CFBDRecipeUsageError, match="dataset or workflow"):
         _normalize([])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("threshold", [float("nan"), float("inf"), -float("inf")])
+async def test_non_finite_parameters_raise_typed_recipe_errors(
+    threshold: float,
+) -> None:
+    """Reject non-finite analytical parameters through the public plan API."""
+    async with CFBDClient("parameter-test-key") as client:
+        with pytest.raises(CFBDRecipeParameterError, match="validation failed"):
+            await _threshold_games.plan(client, threshold)
 
 
 def test_datasets_require_an_explicit_client_at_top_level() -> None:

@@ -151,6 +151,20 @@ def test_compilation_is_deterministic_and_topological() -> None:
     assert tuple(first.outputs) == ("games",)
 
 
+def test_workflow_control_outputs_fail_during_pure_compilation() -> None:
+    """Reject non-tabular workflow outputs before operational work begins."""
+
+    @workflow(id="tests.invalid_control_output", revision=1)
+    def invalid_control_output(
+        game_id: int,
+    ) -> dict[str, RecipeRef[_GameContext]]:
+        selected_game = require_one(_game_context(game_id=game_id))
+        return {"selected_game": selected_game}
+
+    with pytest.raises(CFBDRecipeCompilationError, match="tabular"):
+        _compile_recipe(invalid_control_output, (), {"game_id": 401628515})
+
+
 def test_omitted_and_explicit_null_parameters_have_distinct_identity() -> None:
     """Preserve caller intent in parameter and graph fingerprints."""
     omitted = _compile_recipe(_game_summaries, (), {"year": 2024})
