@@ -10,7 +10,7 @@ from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
 from cfb_data._requests import _resolve_request
 from cfb_data.enums import Classification, SeasonType
-from cfb_data.plays._operations import PLAYS_LIST
+from cfb_data.plays._operations import PLAY_STAT_TYPES, PLAYS_LIST, PLAYS_STATS
 from cfb_data.plays.models.pydantic.requests import (
     LivePlaysRequest,
     PlaysRequest,
@@ -18,8 +18,6 @@ from cfb_data.plays.models.pydantic.requests import (
 )
 from cfb_data.plays.models.pydantic.responses import (
     LiveGame,
-    PlayStat,
-    PlayStatType,
     PlayType,
 )
 
@@ -37,8 +35,6 @@ type _SeasonTypeArgument = (
 type _ClassificationArgument = Classification | Literal["fbs", "fcs", "ii", "iii"]
 
 _PLAY_TYPE_ROWS = TypeAdapter(list[PlayType])
-_PLAY_STAT_ROWS = TypeAdapter(list[PlayStat])
-_PLAY_STAT_TYPE_ROWS = TypeAdapter(list[PlayStatType])
 _LIVE_GAME = TypeAdapter(LiveGame)
 
 
@@ -159,22 +155,8 @@ class PlaysResource[FrameT]:
         :raises TypeError: If request styles are mixed or the model type is wrong.
         :raises CFBDError: If request, transport, response, or conversion fails.
         """
-        endpoint = "/plays/stats"
-        validated = _resolve_request(
-            endpoint=endpoint,
-            request_type=PlayStatsRequest,
-            request=request,
-            filters=filters,
-        )
-        rows = await self._executor.fetch_many(
-            endpoint=endpoint,
-            request=validated,
-            response_adapter=_PLAY_STAT_ROWS,
-        )
-        return self._dataframe_adapter.from_models(
-            endpoint=endpoint,
-            row_model=PlayStat,
-            models=rows,
+        return await PLAYS_STATS.fetch_frame(
+            self._executor, self._dataframe_adapter, request, filters
         )
 
     async def stat_types(self) -> FrameT:
@@ -183,16 +165,8 @@ class PlaysResource[FrameT]:
         :return: Eager frame containing validated ``PlayStatType`` rows.
         :raises CFBDError: If transport, response, or conversion fails.
         """
-        endpoint = "/plays/stats/types"
-        rows = await self._executor.fetch_many(
-            endpoint=endpoint,
-            request=_EMPTY_REQUEST,
-            response_adapter=_PLAY_STAT_TYPE_ROWS,
-        )
-        return self._dataframe_adapter.from_models(
-            endpoint=endpoint,
-            row_model=PlayStatType,
-            models=rows,
+        return await PLAY_STAT_TYPES.fetch_frame(
+            self._executor, self._dataframe_adapter, None, {}
         )
 
     @overload

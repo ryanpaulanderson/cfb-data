@@ -3,11 +3,23 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import TYPE_CHECKING, Literal, Protocol, TypeVar, runtime_checkable
+
+from pydantic import BaseModel
+
+from cfb_data._operation import _EndpointOperation
 
 RowT = TypeVar("RowT")
 OutputT_co = TypeVar("OutputT_co", covariant=True)
 ValueT_co = TypeVar("ValueT_co", covariant=True)
+
+
+@runtime_checkable
+class _CoverageAwareRow(Protocol):
+    """Expose durable row coverage for recipe result evidence."""
+
+    coverage_state: Literal["complete", "partial"]
+    coverage_warning: str | None
 
 
 class SourceContext[RowT](Protocol):
@@ -15,6 +27,24 @@ class SourceContext[RowT](Protocol):
 
     async def retrieve(self, **parameters: object) -> list[RowT]:
         """Return validated source rows for the compiled request."""
+        ...
+
+
+class AdaptiveSourceContext(Protocol):
+    """Retrieve declared endpoint operations within a hard run attempt budget."""
+
+    async def retrieve[RequestT: BaseModel, RowT: BaseModel](
+        self,
+        operation: _EndpointOperation[RequestT, RowT],
+        **parameters: object,
+    ) -> list[RowT]:
+        """Return validated rows from one declared endpoint operation.
+
+        :param operation: Allowlisted typed endpoint descriptor.
+        :param parameters: Validated snake-case request parameters.
+        :return: Source-shaped rows from the shared retrieval coordinator.
+        :raises CFBDRecipeUsageError: If the operation was not declared.
+        """
         ...
 
 
@@ -46,4 +76,10 @@ class WorkflowOutputs[OutputT_co](Protocol):
         ...
 
 
-__all__ = ["RecipeRef", "SourceContext", "ValueRef", "WorkflowOutputs"]
+__all__ = [
+    "AdaptiveSourceContext",
+    "RecipeRef",
+    "SourceContext",
+    "ValueRef",
+    "WorkflowOutputs",
+]

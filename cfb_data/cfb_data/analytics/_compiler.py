@@ -384,6 +384,10 @@ def _node_identity(node: _CompiledNode) -> object:
         "kind": node.kind,
         "recipe": node.declaration.recipe_id,
         "revision": node.declaration.revision,
+        "adaptive_operations": [
+            (operation.id, operation.revision, operation.response_contract)
+            for operation in node.declaration.adaptive_operations
+        ],
         "provided": sorted(node.provided),
         "arguments": {
             name: {"kind": argument.kind, "value": argument.value}

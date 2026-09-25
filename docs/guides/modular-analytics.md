@@ -143,6 +143,47 @@ Every actual HTTP attempt—including a retry—must fit the run-wide budget.
 Response-cache hits consume no attempt. Dask starts lazily only when eligible,
 non-reused compute is ready.
 
+## Retrieve play-player statistics with coverage evidence
+
+``play_player_stats`` accepts explicit game IDs and returns the source's athlete
+and named-stat associations without joining them to the one-row-per-play
+dataset. The two added coverage columns identify any game whose result may be
+partial:
+
+```python
+from cfb_data_recipes.play_player_stats import play_player_stats
+
+game_ids = (401628452, 401628453)
+plan = await play_player_stats.plan(client, game_ids=game_ids)
+print(plan.worst_case_http_attempts, plan.diagnostics)
+run = await play_player_stats.run(client, game_ids=game_ids)
+print(
+    run.value[
+        ["game_id", "play_id", "athlete_name", "stat_type", "stat", "coverage_state"]
+    ]
+)
+print(run.warnings)
+```
+
+The default 100-attempt ceiling works for ordinary small game lists. Increase
+it with ``ExecutionPolicy(max_http_attempts=300)`` when a larger list or capped
+partition needs more requests. Planning checks
+that the base two requests per game, including possible retries, fit before
+any I/O. The plan shows the allowed operations; conditional subrequests are
+not known until execution. Each request and retry consumes the same hard
+run-wide budget. A capped game is split by its two teams, and a capped team by
+every play-stat type. If a final team/type partition still reaches 2,000 rows,
+or the attempt budget ends after usable rows have been validated, the recipe
+returns those rows with ``coverage_state="partial"``, a non-null
+``coverage_warning``, and ``run.warnings``. The row markers remain in the
+dataset artifact when it is loaded later. Partial source results
+are checked again on the next run; use ``source_behavior="refresh"`` to bypass
+the response cache when newer upstream data is needed. Malformed, duplicated,
+or conflicting responses still fail, as does budget exhaustion before a game
+has usable stat rows. An empty result for an existing game is valid. A complete
+result establishes that its returned partitions fell below the API cap. The
+API has no cross-request snapshot, so records may still change during a run.
+
 ## Compose named workflow outputs
 
 Workflows never choose a hidden primary table:
@@ -211,6 +252,7 @@ them.
 | ``player_game_stats`` | One long-form athlete/stat observation. |
 | ``drives`` | One game-scoped drive. |
 | ``plays`` | One game-scoped historical play. |
+| ``play_player_stats`` | One athlete and named statistic association with a game play. |
 | ``rosters`` | One athlete/team/season membership. |
 | ``team_seasons`` | One records-established team season. |
 | ``player_seasons`` | One roster-or-stat athlete/team/season membership. |

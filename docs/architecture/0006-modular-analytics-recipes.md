@@ -192,8 +192,9 @@ redacted plan never stores selectors or cache keys merely to enable later
 inspection. Execution performs the same preflight internally. Inspection makes
 no HTTP request, transform call, artifact write, or store creation. ``run()``
 returns a typed recipe run with values, opaque artifact references, lineage,
-coverage, quality, and reuse evidence. A workflow returns an immutable mapping
-of explicitly named outputs; it never invents a main table.
+coverage, warnings for known partial sources, quality, and reuse evidence. A
+workflow returns an immutable mapping of explicitly named outputs; it never
+invents a main table.
 
 ``CFBDClient`` may accept a lazy ``AnalyticsConfig`` for execution and artifact
 policy. It does not gain ``datasets`` or ``workflows`` manager resources.
@@ -228,6 +229,18 @@ compilation. Compilation rejects duplicate aliases, recursive expansion,
 cycles, ambiguous output bindings, incompatible schemas, unsupported backends,
 and expansion or attempt plans above their configured limits before operational
 I/O.
+
+A declared adaptive source may issue conditional requests to a fixed allowlist
+of typed endpoint operations without adding graph nodes. Its declaration
+includes the base request count; planning validates the retry-inclusive base
+path and reports the execution policy's hard attempt ceiling as the worst-case
+bound. Every conditional request uses the ordinary coordinator, cache,
+validation, and attempt reservation. Inspection marks conditional source-cache
+disposition as deferred. A source output is committed only after its body
+validates the observed rows and their coverage state. Partial sources are
+excluded from checkpoint reuse. This supports capped endpoints whose deeper
+partitions are discovered from validated responses while keeping planning pure
+and the run's actual HTTP cost bounded.
 
 Explicit dataset-to-workflow-output selection narrowly amends ADR 0001's
 default workflow-above-dataset layering. The compiler slices the child workflow

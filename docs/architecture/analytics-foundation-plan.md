@@ -712,10 +712,17 @@ present, and failed.
 | ``recruiting_classes.py`` | One team/class year; ``(class_year, source_team)`` | Compose team rankings and player commitments, union ranked teams with teams having commitments, and account for uncommitted recruits separately. Do not treat ``/recruiting/groups`` as class-year data because its response lacks that grain. |
 | ``coach_seasons.py`` | One coach/team/year; ``(coach_id, team_id, year)`` | Use coach-season records directly, preserving ``attribution_complete`` and nullable record/scoring/poll context. Tenure is optional context. Never auto-fan-out through coach profiles. |
 
-``play_player_stats`` is the next direct recipe and remains separate because
+``play_player_stats`` is a direct recipe separate from ``plays`` because
 ``/plays/stats`` is athlete/stat-association grain, one-to-many with plays, and
-capped at 2,000 rows. It will be game-partitioned and must prove completeness.
-``transfer_events`` is the following independent recipe candidate.
+capped at 2,000 rows. It accepts explicit game IDs and verifies that exact-game,
+then team, then stat-type partitions fall below the cap. The fixed recipe graph
+uses a bounded adaptive source for conditional retrieval. A capped leaf or
+attempt budget exhaustion after validated stat rows yields a partial dataset
+with persisted row coverage, run warnings, and a partial source state. Partial
+sources are not eligible for checkpoint reuse, so a later run can try again.
+Malformed or contradictory partitions still fail. The API provides no
+cross-request snapshot, so complete coverage concerns truncation at the
+documented cap. ``transfer_events`` is the next independent recipe candidate.
 
 ### Workflows
 
@@ -744,7 +751,7 @@ expansions.
 - ``plays``
 - ``betting_lines``
 
-Advanced box score, play win probability, future ``play_player_stats``, media,
+Advanced box score, play win probability, the standalone ``play_player_stats``, media,
 and paid weather are explicit expansions. Because drives lack a direct game-ID
 selector and plays require year/week, planning first validates game context,
 requests the smallest complete containing partition, and filters by validated

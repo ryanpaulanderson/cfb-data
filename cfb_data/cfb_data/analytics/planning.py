@@ -135,6 +135,7 @@ class RecipePlanNode:
     parameter_names: tuple[str, ...]
     deferred_parameters: tuple[str, ...]
     recompute: bool
+    allowed_operations: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +176,7 @@ def _plan_recipe(
     recompute_nodes = _expanded_recompute_nodes(graph, selected.recompute_nodes)
     nodes: list[RecipePlanNode] = []
     logical_source_cost = 0
+    has_adaptive_source = False
     planned_source_requests: set[str] = set()
     for node in graph.nodes:
         if bridge.dataframe_backend not in node.declaration.supported_backends:
@@ -193,7 +195,11 @@ def _plan_recipe(
             request_key = _source_request_key(node)
             if request_key not in planned_source_requests:
                 planned_source_requests.add(request_key)
-                logical_source_cost += node.declaration.source_cost or 0
+                if node.declaration.adaptive_operations:
+                    has_adaptive_source = True
+                    logical_source_cost += node.declaration.adaptive_base_requests
+                else:
+                    logical_source_cost += node.declaration.source_cost or 0
         deferred = tuple(
             name
             for name, argument in node.arguments.items()
@@ -208,13 +214,21 @@ def _plan_recipe(
                 parameter_names=tuple(node.arguments),
                 deferred_parameters=deferred,
                 recompute=node.node_id in recompute_nodes,
+                allowed_operations=tuple(
+                    operation.id for operation in node.declaration.adaptive_operations
+                ),
             )
         )
-    worst_case_attempts = logical_source_cost * bridge.retry_max_attempts
-    if worst_case_attempts > selected.max_http_attempts:
+    base_case_attempts = logical_source_cost * bridge.retry_max_attempts
+    if base_case_attempts > selected.max_http_attempts:
         raise CFBDRecipeCompilationError(
-            "Recipe worst-case HTTP attempts exceed execution policy"
+            "Recipe base-case HTTP attempts exceed execution policy"
+            if has_adaptive_source
+            else "Recipe worst-case HTTP attempts exceed execution policy"
         )
+    worst_case_attempts = (
+        selected.max_http_attempts if has_adaptive_source else base_case_attempts
+    )
     plan_fingerprint = _digest(
         {
             "graph": graph.graph_fingerprint,
@@ -222,6 +236,7 @@ def _plan_recipe(
             "executor": selected.executor,
             "placements": [node.placement for node in nodes],
             "attempts": worst_case_attempts,
+            "base_attempts": base_case_attempts,
             "max_nodes": selected.max_expanded_nodes,
             "checkpoint_mode": selected.checkpoint_mode,
             "recompute_nodes": sorted(recompute_nodes),
@@ -237,7 +252,15 @@ def _plan_recipe(
         nodes=tuple(nodes),
         outputs=tuple(graph.outputs),
         worst_case_http_attempts=worst_case_attempts,
-        diagnostics=(),
+        diagnostics=(
+            (
+                "Adaptive retrieval: "
+                f"{base_case_attempts} base retry attempts; "
+                f"{selected.max_http_attempts} hard attempt ceiling"
+            ),
+        )
+        if has_adaptive_source
+        else (),
     )
     return plan, graph
 
@@ -319,7 +342,9 @@ async def _inspect_recipe(
     for node in graph.nodes:
         if node.kind != "source":
             continue
-        if any(argument.kind == "value" for argument in node.arguments.values()):
+        if node.declaration.adaptive_operations or any(
+            argument.kind == "value" for argument in node.arguments.values()
+        ):
             dispositions[node.node_id] = "deferred"
             continue
         operation = node.declaration.operation

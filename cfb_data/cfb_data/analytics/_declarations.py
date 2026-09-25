@@ -7,6 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from cfb_data._operation import _EndpointOperation
+
 type RecipeKind = Literal["source", "step", "dataset", "workflow"]
 
 
@@ -28,6 +30,8 @@ class _RecipeDeclaration:
     event_time: str | None = None
     operation: object | None = None
     source_cost: int | None = None
+    adaptive_operations: tuple[_EndpointOperation[BaseModel, BaseModel], ...] = ()
+    adaptive_base_requests: int = 0
 
     @property
     def durable(self) -> bool:
