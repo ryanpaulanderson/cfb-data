@@ -74,8 +74,7 @@ async def games(
 
 
 @step(id="example.normalize_games", revision=1, output=GameSummary)
-def normalize_games(rows: list[Game]) -> list[GameSummary]:
-    ...
+def normalize_games(rows: list[Game]) -> list[GameSummary]: ...
 
 
 @dataset(

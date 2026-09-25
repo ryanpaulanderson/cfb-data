@@ -56,9 +56,7 @@ import polars as pl
 
 high_scoring = (
     games.drop_nulls(["home_points", "away_points"])
-    .with_columns(
-        (pl.col("home_points") + pl.col("away_points")).alias("total_points")
-    )
+    .with_columns((pl.col("home_points") + pl.col("away_points")).alias("total_points"))
     .sort("total_points", descending=True)
 )
 

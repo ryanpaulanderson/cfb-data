@@ -139,6 +139,7 @@ class SeasonType(str, Enum):
     SPRING_REGULAR = "spring_regular"
     SPRING_POSTSEASON = "spring_postseason"
 
+
 class Classification(str, Enum):
     FBS = "fbs"
     FCS = "fcs"
@@ -149,8 +150,8 @@ class Classification(str, Enum):
 ### 2. **Request Model Validation**
 ```python
 # Missing DrivesRequest model with proper validation
-@model_validator(mode='after')
-def validate_parameters(self) -> 'DrivesRequest':
+@model_validator(mode="after")
+def validate_parameters(self) -> "DrivesRequest":
     # Year range validation
     current_year = datetime.now().year
     if self.year < 1869 or self.year > current_year:
@@ -226,8 +227,9 @@ async def _get_drives(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
 from cfb_data.base.validation.request_validators import (
     SeasonType,
     Classification,
-    validate_year_range
+    validate_year_range,
 )
+
 
 # Create DrivesRequest with proper validation
 class DrivesRequest(BaseModel):
@@ -235,8 +237,8 @@ class DrivesRequest(BaseModel):
     season_type: Optional[SeasonType] = Field(default=None, alias="seasonType")
     classification: Optional[Classification] = None
 
-    @model_validator(mode='after')
-    def validate_drives_parameters(self) -> 'DrivesRequest':
+    @model_validator(mode="after")
+    def validate_drives_parameters(self) -> "DrivesRequest":
         validate_year_range(self.year)
         return self
 ```

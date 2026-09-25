@@ -126,9 +126,7 @@ from cfb_data.enums import teams
 
 async with CFBDClient() as client:
     games = await client.games.list(year=2024, team=teams.Michigan)
-    same_games = await client.games.list(
-        GamesRequest(year=2024, team=teams.Michigan)
-    )
+    same_games = await client.games.list(GamesRequest(year=2024, team=teams.Michigan))
     box = await client.games.advanced_box_score(game_id=401628347)
 ```
 

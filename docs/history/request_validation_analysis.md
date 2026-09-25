@@ -49,7 +49,9 @@ if game_id is None:
 
     # At least one of week, team, or conference must be specified
     if week is None and team is None and conference is None:
-        raise ValueError("At least one of week, team, or conference is required when game_id is not specified")
+        raise ValueError(
+            "At least one of week, team, or conference is required when game_id is not specified"
+        )
 ```
 
 ### 3. Inconsistent API Implementation - [`CFBDGamesAPI`](cfb_data/cfb_data/game/api/game_api.py:29)
@@ -116,7 +118,10 @@ if game_id is None:
 ```python
 # Create shared enums and validators
 class SeasonType(str, Enum): ...
+
+
 class Classification(str, Enum): ...
+
 
 # Create reusable validator functions
 def validate_year_or_id(values): ...
@@ -126,8 +131,8 @@ def validate_one_of_required(values, fields): ...
 ### 2. Model-Level Validation
 ```python
 # Use Pydantic v2 model_validator for complex logic
-@model_validator(mode='after')
-def validate_conditional_requirements(self) -> 'RequestModel':
+@model_validator(mode="after")
+def validate_conditional_requirements(self) -> "RequestModel":
     # Implement conditional validation logic
     return self
 ```

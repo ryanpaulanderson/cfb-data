@@ -20,10 +20,10 @@ The drives API will integrate with the existing shared validation infrastructure
 ### Available Shared Components:
 ```python
 from cfb_data.base.validation import (
-    SeasonType,           # Enum with values: regular, postseason, both, allstar, spring_regular, spring_postseason
-    Classification,       # Enum with values: fbs, fcs, ii, iii
+    SeasonType,  # Enum with values: regular, postseason, both, allstar, spring_regular, spring_postseason
+    Classification,  # Enum with values: fbs, fcs, ii, iii
     validate_year_or_id_required,  # Year validation utility
-    RequestValidationMixin         # Common validation patterns
+    RequestValidationMixin,  # Common validation patterns
 )
 ```
 
@@ -47,6 +47,7 @@ def validate_drives_year_required(year: Optional[int]) -> None:
 
     # Validate year range using datetime
     from datetime import datetime
+
     current_year = datetime.now().year
     if year < 1869 or year > current_year:
         raise ValueError(f"year must be between 1869 and {current_year}")
@@ -352,9 +353,7 @@ class TestDrivesRequestValidation:
     def test_team_and_conference_filters(self):
         """Test team and conference filter combinations."""
         # Test offense/defense team filters
-        request = DrivesRequest(
-            year=2023, offense="Alabama", defense="Georgia"
-        )
+        request = DrivesRequest(year=2023, offense="Alabama", defense="Georgia")
         assert request.offense == "Alabama"
         assert request.defense == "Georgia"
 

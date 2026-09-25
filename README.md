@@ -235,8 +235,8 @@ async with CFBDClient(cache=SQLiteCacheConfig(), observer=stats) as client:
     await client.games.list(year=2025)
 
 snapshot = stats.snapshot()
-print(snapshot.http_attempts)       # actual client-side HTTP attempts
-print(snapshot.fresh_cache_hits)    # fresh initial cache hits
+print(snapshot.http_attempts)  # actual client-side HTTP attempts
+print(snapshot.fresh_cache_hits)  # fresh initial cache hits
 print(snapshot.fresh_hit_rate)
 ```
 

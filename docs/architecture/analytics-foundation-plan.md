@@ -85,8 +85,7 @@ async def games(
     output=GameSummary,
     deterministic=True,
 )
-def normalize_games(rows: list[Game]) -> list[GameSummary]:
-    ...
+def normalize_games(rows: list[Game]) -> list[GameSummary]: ...
 
 
 @dataset(

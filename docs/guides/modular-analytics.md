@@ -262,9 +262,7 @@ def normalize_completed_games(rows: list[Game]) -> list[CompletedGame]:
             total_points=row.home_points + row.away_points,
         )
         for row in rows
-        if row.completed
-        and row.home_points is not None
-        and row.away_points is not None
+        if row.completed and row.home_points is not None and row.away_points is not None
     ]
 
 

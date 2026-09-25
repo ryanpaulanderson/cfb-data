@@ -27,6 +27,7 @@ from pydantic import model_validator
 
 class SeasonType(str, Enum):
     """Season type enumeration for API requests."""
+
     regular = "regular"
     postseason = "postseason"
     both = "both"
@@ -37,6 +38,7 @@ class SeasonType(str, Enum):
 
 class Classification(str, Enum):
     """Division classification enumeration for API requests."""
+
     fbs = "fbs"
     fcs = "fcs"
     ii = "ii"
@@ -44,9 +46,7 @@ class Classification(str, Enum):
 
 
 def validate_year_or_id_required(
-    year: Optional[int],
-    id_field: Optional[int],
-    id_field_name: str = "id"
+    year: Optional[int], id_field: Optional[int], id_field_name: str = "id"
 ) -> None:
     """Validate that either year or id field is provided."""
     if year is None and id_field is None:
@@ -56,7 +56,7 @@ def validate_year_or_id_required(
 def validate_at_least_one_of(
     values: Dict[str, Any],
     field_names: List[str],
-    context_message: str = "At least one of the following fields is required"
+    context_message: str = "At least one of the following fields is required",
 ) -> None:
     """Validate that at least one of the specified fields has a value."""
     if not any(values.get(field) is not None for field in field_names):
@@ -69,7 +69,7 @@ def validate_team_game_stats_logic(
     week: Optional[int],
     team: Optional[str],
     conference: Optional[str],
-    game_id: Optional[int]
+    game_id: Optional[int],
 ) -> None:
     """Validate the complex conditional logic for /games/teams endpoint."""
     # If game_id is specified, no other validation needed
@@ -124,7 +124,12 @@ __all__ = [
 
 ##### 1. GamesRequest - Fix year/id conditional validation
 ```python
-from cfb_data.base.validation import SeasonType, Classification, validate_year_or_id_required
+from cfb_data.base.validation import (
+    SeasonType,
+    Classification,
+    validate_year_or_id_required,
+)
+
 
 class GamesRequest(BaseModel):
     """Request parameters for /games endpoint."""
@@ -141,8 +146,8 @@ class GamesRequest(BaseModel):
     classification: Optional[Classification] = None  # Fixed from 'division'
     id: Optional[int] = Field(default=None, ge=0)
 
-    @model_validator(mode='after')
-    def validate_year_or_id(self) -> 'GamesRequest':
+    @model_validator(mode="after")
+    def validate_year_or_id(self) -> "GamesRequest":
         """Validate that year is required when id is not specified."""
         validate_year_or_id_required(self.year, self.id, "id")
         return self
@@ -163,8 +168,8 @@ class TeamGameStatsRequest(BaseModel):
     game_id: Optional[int] = Field(default=None, ge=0, alias="gameId")
     classification: Optional[Classification] = None
 
-    @model_validator(mode='after')
-    def validate_team_stats_requirements(self) -> 'TeamGameStatsRequest':
+    @model_validator(mode="after")
+    def validate_team_stats_requirements(self) -> "TeamGameStatsRequest":
         """Validate complex conditional requirements for /games/teams."""
         validate_team_game_stats_logic(
             self.year, self.week, self.team, self.conference, self.game_id
@@ -228,6 +233,7 @@ from cfb_data.game.models.pydantic.requests import (
     AdvancedBoxScoreRequest,
 )
 
+
 class CFBDGamesAPI(CFBDAPIBase):
     """Games-specific endpoints for the College Football Data API."""
 
@@ -239,23 +245,37 @@ class CFBDGamesAPI(CFBDAPIBase):
         validated_params = request.model_dump(exclude_none=True, by_alias=True)
         return await self._make_request("/games", validated_params)
 
-    @route("/games/teams", response_model=TeamGameStats, dataframe_schema=TeamGameStatsSchema)
-    async def _get_team_game_stats(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    @route(
+        "/games/teams",
+        response_model=TeamGameStats,
+        dataframe_schema=TeamGameStatsSchema,
+    )
+    async def _get_team_game_stats(
+        self, params: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
         """Get team statistics by game."""
         # Use model validation instead of commented-out hard-coded check
         request = TeamGameStatsRequest.model_validate(params)
         validated_params = request.model_dump(exclude_none=True, by_alias=True)
         return await self._make_request("/games/teams", validated_params)
 
-    @route("/games/players", response_model=PlayerGameStats, dataframe_schema=PlayerGameStatsSchema)
-    async def _get_player_game_stats(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    @route(
+        "/games/players",
+        response_model=PlayerGameStats,
+        dataframe_schema=PlayerGameStatsSchema,
+    )
+    async def _get_player_game_stats(
+        self, params: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
         """Get player statistics by game."""
         # Use model validation instead of commented-out hard-coded check
         request = PlayerGameStatsRequest.model_validate(params)
         validated_params = request.model_dump(exclude_none=True, by_alias=True)
         return await self._make_request("/games/players", validated_params)
 
-    @route("/calendar", response_model=CalendarWeek, dataframe_schema=CalendarWeekSchema)
+    @route(
+        "/calendar", response_model=CalendarWeek, dataframe_schema=CalendarWeekSchema
+    )
     async def _get_calendar(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Get calendar/weeks for a given year."""
         # CalendarRequest already requires year - no change needed
@@ -271,7 +291,9 @@ class CFBDGamesAPI(CFBDAPIBase):
         validated_params = request.model_dump(exclude_none=True, by_alias=True)
         return await self._make_request("/games/media", validated_params)
 
-    @route("/games/box/advanced", response_model=AdvancedBoxScore, dataframe_schema=None)
+    @route(
+        "/games/box/advanced", response_model=AdvancedBoxScore, dataframe_schema=None
+    )
     async def _get_box_scores(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Get box score data for a specific game."""
         # AdvancedBoxScoreRequest already requires gameId - no change needed
@@ -319,7 +341,10 @@ class TestGamesRequestValidation:
             GamesRequest(week=1)
 
         errors = exc_info.value.errors()
-        assert any("year is required when id is not specified" in str(error) for error in errors)
+        assert any(
+            "year is required when id is not specified" in str(error)
+            for error in errors
+        )
 
     def test_season_type_enum_validation(self):
         """Test season type enum validation."""
@@ -374,7 +399,10 @@ class TestTeamGameStatsRequestValidation:
             TeamGameStatsRequest(week=1)
 
         errors = exc_info.value.errors()
-        assert any("year is required when game_id is not specified" in str(error) for error in errors)
+        assert any(
+            "year is required when game_id is not specified" in str(error)
+            for error in errors
+        )
 
     def test_invalid_request_year_but_no_filters(self):
         """Test invalid request with year but no week/team/conference."""
@@ -382,7 +410,10 @@ class TestTeamGameStatsRequestValidation:
             TeamGameStatsRequest(year=2023)
 
         errors = exc_info.value.errors()
-        assert any("At least one of week, team, or conference is required" in str(error) for error in errors)
+        assert any(
+            "At least one of week, team, or conference is required" in str(error)
+            for error in errors
+        )
 
     def test_year_range_validation(self):
         """Test year range validation."""
@@ -418,11 +449,7 @@ class TestRequestModelAliases:
 
     def test_games_request_aliases(self):
         """Test GamesRequest generates correct camelCase aliases."""
-        request = GamesRequest(
-            year=2023,
-            season_type=SeasonType.regular,
-            id=123
-        )
+        request = GamesRequest(year=2023, season_type=SeasonType.regular, id=123)
 
         params = request.model_dump(exclude_none=True, by_alias=True)
 
@@ -436,9 +463,7 @@ class TestRequestModelAliases:
     def test_team_stats_request_aliases(self):
         """Test TeamGameStatsRequest generates correct camelCase aliases."""
         request = TeamGameStatsRequest(
-            year=2023,
-            season_type=SeasonType.postseason,
-            game_id=456
+            year=2023, season_type=SeasonType.postseason, game_id=456
         )
 
         params = request.model_dump(exclude_none=True, by_alias=True)
