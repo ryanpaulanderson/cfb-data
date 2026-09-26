@@ -34,7 +34,7 @@ installation to a DataFrame.
 
 ## Modular analytics is available
 
-The separate ``cfb_data_recipes`` package ships twelve independently authored
+The separate ``cfb_data_recipes`` package ships thirteen independently authored
 dataset modules and three workflow modules. They are callable directly,
 compose through ordinary function calls, and use the same public decorators,
 discovery, compiler, scheduler, persistence, and events as user recipes. There
@@ -47,10 +47,16 @@ lineage, checkpoint recovery, maintenance operations, and a hardened optional
 YAML composition boundary. Redis remains only the API response cache.
 
 The included datasets cover game summaries, team games, player-game stats,
-drives, plays, rosters, team seasons, player seasons, rankings, betting lines,
-recruiting classes, and coach seasons. The workflows cover a team season, one
-game, and bounded program history. See [Build durable analyses with modular
-recipes](guides/modular-analytics.md) for usage and authoring.
+drives, plays, play-player stats, rosters, team seasons, player seasons,
+rankings, betting lines, recruiting classes, and coach seasons. The workflows
+cover a team season, one game, and bounded program history. See [Build durable
+analyses with modular recipes](guides/modular-analytics.md) for usage and
+authoring.
+
+The play-player-stat recipe splits capped game and team responses, then reports
+usable rows with explicit partial coverage and warnings if a final partition
+remains capped or the request budget ends. Its artifact retains the coverage
+columns; malformed or conflicting source data still fails validation.
 
 Retrieval remains source-faithful. Filtering, joining, flattening, missing-data
 policy, and derived metrics live in each visible versioned recipe or in user

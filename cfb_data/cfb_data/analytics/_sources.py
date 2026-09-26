@@ -53,6 +53,7 @@ from .observability import (
     AnalyticsEventType,
     AnalyticsOutcome,
 )
+from .types import _CoverageAwareRow
 
 
 class _EndpointSourceContext:
@@ -78,6 +79,33 @@ class _EndpointSourceContext:
             )
         self._used = True
         return await self._runner._retrieve(self._node, self._operation, parameters)
+
+
+class _AdaptiveSourceContext:
+    """Allow repeated retrieval of only explicitly declared operations."""
+
+    def __init__(
+        self,
+        runner: _SourceRunner,
+        node: _CompiledNode,
+        operations: tuple[object, ...],
+    ) -> None:
+        """Bind one source node to its allowlisted operation descriptors."""
+        self._runner = runner
+        self._node = node
+        self._operations = operations
+
+    async def retrieve[RequestT: BaseModel, RowT: BaseModel](
+        self,
+        operation: _EndpointOperation[RequestT, RowT],
+        **parameters: object,
+    ) -> list[RowT]:
+        """Return validated rows through the shared budgeted coordinator."""
+        if not any(operation is allowed for allowed in self._operations):
+            raise CFBDRecipeUsageError(
+                "Adaptive source attempted an undeclared endpoint operation"
+            )
+        return await self._runner._retrieve(self._node, operation, parameters)
 
 
 class _CustomSourceContext:
@@ -263,7 +291,14 @@ class _SourceRunner:
         started = time.monotonic()
         try:
             recipe = cast(SourceRecipe[..., object], node.recipe)
-            if contract.operation is None:
+            if node.declaration.adaptive_operations:
+                value = await recipe._execute_source(
+                    _AdaptiveSourceContext(
+                        self, node, node.declaration.adaptive_operations
+                    ),
+                    parameters,
+                )
+            elif contract.operation is None:
                 async with self._semaphore:
                     value = await recipe._execute_source(
                         _CustomSourceContext(), parameters
@@ -274,6 +309,10 @@ class _SourceRunner:
                     parameters,
                 )
             rows = contract.rows_adapter.validate_python(value)
+            checkpoint_eligible = self._checkpoint_eligible(node) and not any(
+                isinstance(row, _CoverageAwareRow) and row.coverage_state == "partial"
+                for row in rows
+            )
             artifact = await asyncio.to_thread(
                 self._store_and_bind_rows,
                 rows,
@@ -281,7 +320,7 @@ class _SourceRunner:
                 identity,
                 node.node_id,
                 fingerprint,
-                self._checkpoint_eligible(node),
+                checkpoint_eligible,
             )
         except asyncio.CancelledError:
             await asyncio.to_thread(
@@ -327,12 +366,12 @@ class _SourceRunner:
             row_model=contract.row_model,
         )
 
-    async def _retrieve(
+    async def _retrieve[RequestT: BaseModel, RowT: BaseModel](
         self,
         node: _CompiledNode,
-        operation: _EndpointOperation[BaseModel, BaseModel],
+        operation: _EndpointOperation[RequestT, RowT],
         parameters: Mapping[str, object],
-    ) -> list[BaseModel]:
+    ) -> list[RowT]:
         request = operation.resolve(None, dict(parameters))
         serialized = operation.serialized_parameters(request)
         retrieval_key = _digest(
@@ -345,19 +384,24 @@ class _SourceRunner:
         )
         task = self._retrievals.get(retrieval_key)
         if task is None:
-            task = asyncio.create_task(
-                self._retrieve_once(node, operation, request),
-                name=f"cfb-data-retrieval:{operation.id}",
+            # The cache stores tasks for heterogeneous operations; their row
+            # types are narrowed again by the operation-specific retrieval key.
+            task = cast(
+                asyncio.Task[list[BaseModel]],
+                asyncio.create_task(
+                    self._retrieve_once(node, operation, request),
+                    name=f"cfb-data-retrieval:{operation.id}",
+                ),
             )
             self._retrievals[retrieval_key] = task
-        return await asyncio.shield(task)
+        return cast(list[RowT], await asyncio.shield(task))
 
-    async def _retrieve_once(
+    async def _retrieve_once[RequestT: BaseModel, RowT: BaseModel](
         self,
         node: _CompiledNode,
-        operation: _EndpointOperation[BaseModel, BaseModel],
-        request: BaseModel,
-    ) -> list[BaseModel]:
+        operation: _EndpointOperation[RequestT, RowT],
+        request: RequestT,
+    ) -> list[RowT]:
         async def reserve(endpoint: str, attempt: int) -> None:
             record = await asyncio.to_thread(
                 self._database.reserve_attempt,

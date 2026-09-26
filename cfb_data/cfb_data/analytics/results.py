@@ -270,12 +270,12 @@ class WorkflowOutputs[OutputT](Mapping[str, OutputT]):
 
 @dataclass(frozen=True, slots=True)
 class RecipeSourceCoverage:
-    """Report successful source availability without exposing selectors."""
+    """Report source availability and known partial coverage."""
 
     node_id: str
     operation_id: str
     access_tier: Literal["free", "tier_1", "tier_2", "custom"]
-    state: Literal["empty", "present"]
+    state: Literal["empty", "present", "partial"]
     row_count: int
 
 
@@ -301,6 +301,7 @@ class RecipeRun[OutputT]:
     value: OutputT
     artifacts: Mapping[str, ArtifactRef]
     source_coverage: tuple[RecipeSourceCoverage, ...]
+    warnings: tuple[str, ...]
     quality: Mapping[str, tuple[QualityCheck, ...]]
     lineage: tuple[RunNodeEvidence, ...]
     actual_http_attempts: int

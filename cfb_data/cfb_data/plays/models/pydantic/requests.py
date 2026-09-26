@@ -74,6 +74,12 @@ class PlayStatsRequest(BaseModel):
     conference: str | None = None
 
 
+class PlayStatTypesRequest(BaseModel):
+    """Validate the parameter-free ``GET /plays/stats/types`` request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class LivePlaysRequest(BaseModel):
     """Validate filters accepted by ``GET /live/plays``.
 

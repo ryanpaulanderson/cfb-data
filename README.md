@@ -112,7 +112,7 @@ Use ``.plan()`` for a pure no-I/O execution plan and ``.run()`` for durable
 artifacts, lineage, source coverage, quality results, and recovery evidence.
 Workflows return explicit named outputs rather than choosing a hidden primary
 table. See [Build durable analyses with modular
-recipes](docs/guides/modular-analytics.md) for the twelve included datasets,
+recipes](docs/guides/modular-analytics.md) for the thirteen included datasets,
 three workflows, Dask execution, safe YAML, recovery, and user authoring.
 
 ## Find the data you need

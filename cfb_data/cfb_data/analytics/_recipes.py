@@ -17,6 +17,8 @@ from typing import (
 
 from pydantic import BaseModel
 
+from cfb_data._operation import _EndpointOperation
+
 from ._declarations import RecipeKind, _RecipeDeclaration, _validate_row_type
 from ._parameters import (
     _bind_graph_parameters,
@@ -26,7 +28,7 @@ from ._parameters import (
 )
 from ._registration import _publish_candidate
 from .errors import CFBDRecipeConfigurationError, CFBDRecipeUsageError
-from .types import RecipeRef, SourceContext
+from .types import AdaptiveSourceContext, RecipeRef, SourceContext
 
 if TYPE_CHECKING:
     from ._runtime import SourceBehavior
@@ -456,6 +458,102 @@ def source(
         dask_eligible=False,
         operation=operation,
         source_cost=source_cost,
+    )
+    return _decorate(
+        cast(Callable[..., object] | None, function),
+        declaration,
+        SourceRecipe,
+    )
+
+
+@overload
+def adaptive_source[**Params, Row: BaseModel](
+    function: Callable[
+        Concatenate[AdaptiveSourceContext, Params], Awaitable[list[Row]]
+    ],
+    *,
+    id: str,
+    revision: int,
+    output: type[Row],
+    operations: tuple[object, ...],
+    base_requests: int,
+) -> SourceRecipe[Params, list[Row]]: ...
+
+
+@overload
+def adaptive_source[**Params, Row: BaseModel](
+    function: None = None,
+    *,
+    id: str,
+    revision: int,
+    output: type[Row],
+    operations: tuple[object, ...],
+    base_requests: int,
+) -> Callable[
+    [Callable[Concatenate[AdaptiveSourceContext, Params], Awaitable[list[Row]]]],
+    SourceRecipe[Params, list[Row]],
+]: ...
+
+
+def adaptive_source(
+    function: object | None = None,
+    *,
+    id: str,
+    revision: int,
+    output: type[BaseModel],
+    operations: tuple[object, ...],
+    base_requests: int,
+) -> object:
+    """Decorate a source with conditional, allowlisted endpoint retrievals.
+
+    :param function: Source body, or ``None`` for decorator use.
+    :param id: Stable source identity.
+    :param revision: Semantic source revision.
+    :param output: Validated source row model.
+    :param operations: Exact endpoint descriptors the body may retrieve.
+    :param base_requests: Minimum logical requests per source invocation.
+    :return: Immutable source recipe or decorator.
+    :raises CFBDRecipeConfigurationError: If the declaration is unbounded or invalid.
+    """
+    if (
+        not isinstance(operations, tuple)
+        or not operations
+        or any(not isinstance(item, _EndpointOperation) for item in operations)
+    ):
+        raise CFBDRecipeConfigurationError(
+            "Adaptive sources require unique declared endpoint operations"
+        )
+    validated_operations = cast(
+        tuple[_EndpointOperation[BaseModel, BaseModel], ...], operations
+    )
+    if len({item.id for item in validated_operations}) != len(validated_operations):
+        raise CFBDRecipeConfigurationError(
+            "Adaptive sources require unique declared endpoint operations"
+        )
+    if len({item.access_tier for item in validated_operations}) != 1:
+        raise CFBDRecipeConfigurationError(
+            "Adaptive source operations must share one access tier"
+        )
+    if (
+        not isinstance(base_requests, int)
+        or isinstance(base_requests, bool)
+        or base_requests < 1
+    ):
+        raise CFBDRecipeConfigurationError(
+            "Adaptive sources require a positive base request count"
+        )
+    if not isinstance(output, type) or not issubclass(output, BaseModel):
+        raise CFBDRecipeConfigurationError("Source output must be a Pydantic row model")
+    declaration = _RecipeDeclaration(
+        kind="source",
+        recipe_id=_validate_identity(id),
+        revision=_validate_revision(revision),
+        output_type=output,
+        deterministic=False,
+        supported_backends=_BACKENDS,
+        dask_eligible=False,
+        adaptive_operations=validated_operations,
+        adaptive_base_requests=base_requests,
     )
     return _decorate(
         cast(Callable[..., object] | None, function),

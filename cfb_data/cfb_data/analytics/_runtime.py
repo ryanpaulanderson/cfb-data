@@ -51,6 +51,7 @@ from .results import (
     RunNodeEvidence,
     WorkflowOutputs,
 )
+from .types import _CoverageAwareRow
 
 type SourceBehavior = Literal["preserve_snapshot", "normal_freshness", "refresh"]
 
@@ -584,6 +585,7 @@ async def _public_result(
         frames["value"] if graph.root_kind == "dataset" else WorkflowOutputs(frames)
     )
     source_coverage: list[RecipeSourceCoverage] = []
+    coverage_warnings: list[str] = []
     for node in graph.nodes:
         if node.kind != "source":
             continue
@@ -597,9 +599,30 @@ async def _public_result(
         )
         if operation_id is None:
             raise CFBDRecipeCompilationError("Source identity is unavailable")
+        adaptive_operations = node.declaration.adaptive_operations
+        if adaptive_operations:
+            access_tiers = {item.access_tier for item in adaptive_operations}
+            if len(access_tiers) != 1:
+                raise CFBDRecipeCompilationError(
+                    "Adaptive source operations have mixed access tiers"
+                )
         row_count = results[node.node_id].artifact.manifest.body.row_count
         if row_count is None:
             raise CFBDRecipeCompilationError("Source row count is unavailable")
+        source_rows = cast(Sequence[BaseModel], results[node.node_id].value)
+        partial_rows = (
+            row
+            for row in source_rows
+            if isinstance(row, _CoverageAwareRow) and row.coverage_state == "partial"
+        )
+        source_warnings = tuple(
+            dict.fromkeys(
+                row.coverage_warning
+                for row in partial_rows
+                if row.coverage_warning is not None
+            )
+        )
+        coverage_warnings.extend(source_warnings)
         source_coverage.append(
             RecipeSourceCoverage(
                 node_id=node.node_id,
@@ -607,18 +630,28 @@ async def _public_result(
                 access_tier=(
                     operation.access_tier
                     if isinstance(operation, _EndpointOperation)
+                    else next(iter(access_tiers))
+                    if adaptive_operations
                     else "custom"
                 ),
-                state="empty" if row_count == 0 else "present",
+                state=(
+                    "partial"
+                    if source_warnings
+                    else "empty"
+                    if row_count == 0
+                    else "present"
+                ),
                 row_count=row_count,
             )
         )
+    distinct_warnings = tuple(dict.fromkeys(coverage_warnings))
     return RecipeRun(
         run_id=run_id,
         parent_run_id=parent_run_id,
         value=value,
         artifacts=MappingProxyType(artifacts),
         source_coverage=tuple(source_coverage),
+        warnings=distinct_warnings,
         quality=MappingProxyType(
             {name: artifact.descriptor.quality for name, artifact in artifacts.items()}
         ),

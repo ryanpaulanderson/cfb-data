@@ -5,6 +5,7 @@ from ._recipes import (
     SourceRecipe,
     StepRecipe,
     WorkflowRecipe,
+    adaptive_source,
     dataset,
     source,
     step,
@@ -87,11 +88,12 @@ from .tabular import (
     sort_rows,
     strict_cast_columns,
 )
-from .types import RecipeRef, SourceContext, ValueRef
+from .types import AdaptiveSourceContext, RecipeRef, SourceContext, ValueRef
 from .yaml import load_recipe_yaml
 
 __all__ = [
     "AnalyticsConfig",
+    "AdaptiveSourceContext",
     "AnalyticsEvent",
     "AnalyticsEventType",
     "AnalyticsObserver",
@@ -144,6 +146,7 @@ __all__ = [
     "QualityCheck",
     "WorkflowOutputs",
     "WorkflowRecipe",
+    "adaptive_source",
     "dataset",
     "clean_orphans",
     "discover_recipes",

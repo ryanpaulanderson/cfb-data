@@ -68,6 +68,14 @@ def _node_fingerprint(
             "kind": node.kind,
             "operation_id": declaration.recipe_id,
             "operation_revision": declaration.revision,
+            "adaptive_operations": [
+                {
+                    "id": operation.id,
+                    "revision": operation.revision,
+                    "contract": operation.response_contract,
+                }
+                for operation in declaration.adaptive_operations
+            ],
             "parameters": parameters,
             "semantic_policy": semantic_policy or {},
             "upstream": [
