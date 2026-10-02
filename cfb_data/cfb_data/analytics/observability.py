@@ -36,6 +36,7 @@ class AnalyticsEventType(StrEnum):
     artifact_loaded = "artifact_loaded"
     artifact_committed = "artifact_committed"
     source_attempt_reserved = "source_attempt_reserved"
+    partition_completed = "partition_completed"
 
 
 class AnalyticsOutcome(StrEnum):
@@ -65,6 +66,7 @@ class AnalyticsEvent:
     byte_count: int | None = None
     duration_seconds: float | None = None
     failure_category: str | None = None
+    worker_pid: int | None = None
 
 
 class AnalyticsObserver(Protocol):

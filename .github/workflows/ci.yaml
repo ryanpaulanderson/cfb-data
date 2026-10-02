@@ -86,8 +86,11 @@ jobs:
               option: importlib.util.find_spec(module) is not None
               for option, module in optional_modules.items()
           }
+          # Native dataframe execution is core; Dask also requires PyYAML.
+          assert importlib.util.find_spec("dask.dataframe") is not None
+          assert present_modules["yaml"]
           if expected == "base":
-              assert not any(present_modules.values())
+              assert not any(found for option, found in present_modules.items() if option != "yaml")
           elif expected == "all":
               assert all(present_modules.values())
           else:

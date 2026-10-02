@@ -10,6 +10,7 @@ from typing import Literal, cast
 from ._graph import _NodeRef, _ValueRef
 from ._recipes import step
 from .errors import CFBDRecipeCompilationError, CFBDTransformError
+from .tables import Table
 from .types import RecipeRef, ValueRef
 
 type _NullTraversal = Literal["error", "return_null"]
@@ -268,13 +269,15 @@ def _validate_declared_fields(fields: tuple[str, ...]) -> None:
 
 
 @step(id="cfb_data.operations.require_one", revision=1, deterministic=True, dask=True)
-def require_one[RowT](rows: list[RowT]) -> RowT:
+def require_one[RowT](rows: list[RowT] | Table) -> RowT:
     """Return the only row after enforcing exact cardinality.
 
     :param rows: Validated source or dataset rows.
     :return: The sole row.
     :raises ValueError: If the input does not contain exactly one row.
     """
+    if isinstance(rows, Table):
+        raise CFBDTransformError("require_one requires the engine single-row boundary")
     if len(rows) != 1:
         raise ValueError("require_one expected exactly one row")
     return rows[0]

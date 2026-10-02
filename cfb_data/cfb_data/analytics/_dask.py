@@ -5,13 +5,20 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from importlib import import_module
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Literal, Protocol, Self, cast
 
+import pandas as pd
+from pydantic import BaseModel
+
 from cfb_data._observability import _failure_category
+from cfb_data._tabular import _AnalyticsTableIdentity
 from cfb_data.errors import CFBDOptionalDependencyError
 
+from ._contracts import _is_native_step
 from ._dask_transport import (
     _decode_output,
     _encode_parameters,
@@ -23,8 +30,15 @@ from ._dask_transport import (
     _worker_capabilities,
     _WorkerResult,
 )
+from ._native_execution import (
+    _check_frame,
+    _encode_partition,
+    _EncodedPartition,
+    _validation_tasks,
+)
 from ._recipes import StepRecipe
 from .errors import CFBDExecutorError
+from .tables import Table
 
 
 class _DaskTransformProvider:
@@ -36,6 +50,8 @@ class _DaskTransformProvider:
         max_workers: int,
         threads_per_worker: int,
         transfer_limit_bytes: int,
+        local_directory: Path | None = None,
+        compute_retries: int = 0,
     ) -> None:
         """Initialize bounded settings without importing or starting Dask."""
         values = (max_workers, threads_per_worker, transfer_limit_bytes)
@@ -44,6 +60,11 @@ class _DaskTransformProvider:
             for value in values
         ):
             raise ValueError("Dask provider limits must be positive integers")
+        if isinstance(compute_retries, bool) or compute_retries < 0:
+            raise ValueError("Native task retries must be nonnegative")
+        self._compute_retries = compute_retries
+        self._worker_root = local_directory
+        self._worker_directory: TemporaryDirectory[str] | None = None
         self._max_workers = max_workers
         self._threads_per_worker = threads_per_worker
         self._transfer_limit_bytes = transfer_limit_bytes
@@ -88,6 +109,8 @@ class _DaskTransformProvider:
             raise CFBDExecutorError(provider="dask", category="closed")
         if recipe._is_async or not recipe._declaration.dask_eligible:
             raise CFBDExecutorError(provider="dask", category="ineligible")
+        if _is_native_step(recipe):
+            return await asyncio.to_thread(recipe._execute_step, parameters)
         output_model = _output_model(recipe)
         output_identity = _recipe_identity(recipe, label="output")
         encoded, input_bytes = await asyncio.to_thread(
@@ -114,7 +137,14 @@ class _DaskTransformProvider:
         )
         self._futures.add(future)
         try:
-            payload, diagnostics = await future
+            value = await future
+            if (
+                not isinstance(value, tuple)
+                or len(value) != 2
+                or not all(isinstance(item, bytes) for item in value)
+            ):
+                raise CFBDExecutorError(provider="dask", category="worker_result")
+            payload, diagnostics = value
         except asyncio.CancelledError:
             await _cancel_futures(client, (future,))
             await asyncio.gather(future, return_exceptions=True)
@@ -134,6 +164,78 @@ class _DaskTransformProvider:
             output_model,
             output_identity,
         )
+
+    async def native_partitions(
+        self,
+        table: Table,
+        row_model: type[BaseModel],
+        identity: _AnalyticsTableIdentity,
+    ) -> AsyncIterator[_EncodedPartition]:
+        """Execute global checks and stream bounded native Dask partitions.
+
+        A finite window owns futures and cancellation. Partition data is never
+        gathered into a whole-table coordinator value.
+        """
+        from dask.dataframe import DataFrame
+        from dask.delayed import delayed
+
+        await self._ensure_started()
+        client = self._client
+        if client is None:
+            raise CFBDExecutorError(provider="dask", category="client_state")
+        checks = table._checks
+        futures = (
+            client.compute(_validation_tasks(table), retries=self._compute_retries)
+            if checks
+            else []
+        )
+        self._futures.update(futures)
+        try:
+            for check, future in zip(checks, futures, strict=True):
+                value = await future
+                if not isinstance(value, pd.DataFrame):
+                    raise CFBDExecutorError(provider="dask", category="check_result")
+                _check_frame(value, check.message)
+        except BaseException:
+            await _cancel_futures(client, tuple(futures))
+            await asyncio.gather(*futures, return_exceptions=True)
+            raise
+        finally:
+            self._futures.difference_update(futures)
+        native = table.frame.to_native()
+        if not isinstance(native, DataFrame):
+            raise CFBDExecutorError(provider="dask", category="native_frame")
+        parts: object = cast(_NativeCollection, native).to_delayed(optimize_graph=False)
+        if not isinstance(parts, list):
+            raise CFBDExecutorError(provider="dask", category="partition_graph")
+        window = max(1, self._max_workers)
+        for offset in range(0, len(parts), window):
+            tasks = tuple(
+                delayed(_encode_partition)(
+                    part,
+                    row_model,
+                    identity,
+                    self._transfer_limit_bytes,
+                )
+                for part in parts[offset : offset + window]
+            )
+            futures = client.compute(tasks, retries=self._compute_retries)
+            self._futures.update(futures)
+            try:
+                for future in futures:
+                    value = await future
+                    if not isinstance(value, _EncodedPartition):
+                        raise CFBDExecutorError(
+                            provider="dask", category="partition_result"
+                        )
+                    self._require_transfer(value.table.nbytes)
+                    yield value
+            except BaseException:
+                await _cancel_futures(client, tuple(futures))
+                await asyncio.gather(*futures, return_exceptions=True)
+                raise
+            finally:
+                self._futures.difference_update(futures)
 
     async def aclose(self) -> None:
         """Cancel and await futures, then close the client and cluster."""
@@ -158,6 +260,9 @@ class _DaskTransformProvider:
             except BaseException as exc:
                 failures.append(exc)
         failures.extend(await _close_dask_resources(client_object, cluster_object))
+        if self._worker_directory is not None:
+            await asyncio.to_thread(self._worker_directory.cleanup)
+            self._worker_directory = None
         if failures:
             failure = failures[0]
             if isinstance(failure, asyncio.CancelledError):
@@ -171,11 +276,17 @@ class _DaskTransformProvider:
             if self._client is not None:
                 return
             cluster_factory, client_factory = _load_dask_factories()
+            if self._worker_root is not None:
+                self._worker_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+            self._worker_directory = TemporaryDirectory(
+                prefix="cfb-data-dask-", dir=self._worker_root
+            )
             workers = min(self._max_workers, 4, os.cpu_count() or 1)
             cluster: _DaskCluster | None = None
             client: _DaskClient | None = None
             try:
                 cluster = await cluster_factory(
+                    local_directory=self._worker_directory.name,
                     n_workers=workers,
                     threads_per_worker=self._threads_per_worker,
                     processes=True,
@@ -217,7 +328,13 @@ class _DaskTransformProvider:
             raise CFBDExecutorError(provider="dask", category="transfer_limit")
 
 
-class _DaskFuture(Awaitable[_WorkerResult], Protocol):
+class _NativeCollection(Protocol):
+    """Type the verified native Dask delayed-partition boundary."""
+
+    def to_delayed(self, *, optimize_graph: bool = False) -> object: ...
+
+
+class _DaskFuture(Awaitable[object], Protocol):
     """Describe the awaitable subset used from a distributed future."""
 
 
@@ -230,6 +347,10 @@ class _DaskClient(Protocol):
         *args: object,
         **kwargs: object,
     ) -> _DaskFuture: ...
+
+    def compute(
+        self, collections: Sequence[object], *, retries: int
+    ) -> list[_DaskFuture]: ...
 
     async def cancel(
         self,
@@ -260,6 +381,7 @@ class _DaskClusterFactory(Protocol):
     def __call__(
         self,
         *,
+        local_directory: str,
         n_workers: int,
         threads_per_worker: int,
         processes: bool,

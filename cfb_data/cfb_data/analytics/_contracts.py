@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from ._graph import _CompiledNode
 from ._recipes import StepRecipe
 from .errors import CFBDRecipeCompilationError
+from .tables import Table
 
 
 def _table_row_model(
@@ -18,9 +19,9 @@ def _table_row_model(
 ) -> type[BaseModel] | None:
     """Return the declared table row model for a dataset or table step.
 
-    A step is tabular only when its return contract is ``list[Model]`` and its
-    decorator names that same model. Other step outputs are modeled JSON
-    controls and remain eligible for coordinator-local execution.
+    Native steps return ``Table`` and declare their final row model. Bounded
+    model-list transforms require the same model in their annotation and
+    declaration. Other outputs are modeled JSON controls.
     """
     output_type = node.declaration.output_type
     if node.kind == "dataset":
@@ -36,6 +37,8 @@ def _table_row_model(
         raise CFBDRecipeCompilationError("Compiled step has an invalid recipe")
     return_type = get_type_hints(recipe._function, include_extras=True)["return"]
     arguments = get_args(return_type)
+    if return_type is Table:
+        return _require_model(output_type)
     if get_origin(return_type) is list and len(arguments) == 1:
         row_type = arguments[0]
         declared = _require_model(output_type)
@@ -49,6 +52,14 @@ def _table_row_model(
             "This transform boundary does not produce a table"
         )
     return None
+
+
+def _is_native_step(recipe: object) -> bool:
+    """Identify the explicit native-table return contract without execution."""
+    return (
+        isinstance(recipe, StepRecipe)
+        and get_type_hints(recipe._function, include_extras=True).get("return") is Table
+    )
 
 
 def _require_model(output_type: type[object] | None) -> type[BaseModel]:

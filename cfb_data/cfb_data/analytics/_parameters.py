@@ -6,8 +6,8 @@ import inspect
 import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from types import MappingProxyType
-from typing import get_type_hints
+from types import MappingProxyType, UnionType
+from typing import Union, get_args, get_origin, get_type_hints
 
 from pydantic import ConfigDict, TypeAdapter, ValidationError
 
@@ -49,6 +49,13 @@ def _bind_graph_parameters(
             if is_reference(value):
                 validate_reference(value, hints[name])
                 validated[name] = value
+                continue
+            if (
+                value is None
+                and get_origin(hints[name]) in {UnionType, Union}
+                and type(None) in get_args(hints[name])
+            ):
+                validated[name] = None
                 continue
             adapter: TypeAdapter[object] = TypeAdapter(
                 hints[name], config=ConfigDict(strict=True)

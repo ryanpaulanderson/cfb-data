@@ -12,7 +12,7 @@ make docs
 make check
 ```
 
-`make install` creates `.venv` and installs `.[dev,polars,redis]` so the contributor
+`make install` creates `.venv` and installs `.[dev,polars,redis,dask,yaml]` so the contributor
 environment exercises the canonical PyArrow layer, default pandas backend,
 optional Polars backend, and Redis integration client. `make check` is the
 shared local and CI contract:

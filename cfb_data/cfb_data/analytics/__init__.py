@@ -81,6 +81,7 @@ from .results import (
     RunNodeEvidence,
     WorkflowOutputs,
 )
+from .tables import Table, concat_tables
 from .tabular import (
     PortableDType,
     rename_columns,
@@ -92,6 +93,8 @@ from .types import AdaptiveSourceContext, RecipeRef, SourceContext, ValueRef
 from .yaml import load_recipe_yaml
 
 __all__ = [
+    "Table",
+    "concat_tables",
     "AnalyticsConfig",
     "AdaptiveSourceContext",
     "AnalyticsEvent",

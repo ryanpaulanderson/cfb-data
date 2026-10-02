@@ -22,9 +22,10 @@ from cfb_data._tabular import (
     _AnalyticsTableIdentity,
 )
 
-from ._artifacts import _ArtifactManifest, _TableArtifactCodec
+from ._artifacts import _ArtifactManifest, _ArtifactPart, _TableArtifactCodec
 from ._persistence import _ArtifactObjectStore, _StoredArtifact
 from .errors import CFBDArtifactCodecError
+from .tables import Table
 
 if TYPE_CHECKING:
     import polars as pl
@@ -125,6 +126,105 @@ class ArtifactRef:
             models=rows,
         )
 
+    def batches(self, *, batch_rows: int = 16_384) -> Iterator[pd.DataFrame]:
+        """Read validated pandas batches without collecting the whole artifact.
+
+        :param batch_rows: Positive maximum rows returned in each batch.
+        :return: Owned pandas batches in declared artifact order.
+        :raises CFBDArtifactCodecError: If the artifact is not a table.
+        :raises CFBDArtifactCorruptionError: If a part fails validation.
+        :raises ValueError: If the batch row bound is invalid.
+        """
+        if (
+            isinstance(batch_rows, bool)
+            or not isinstance(batch_rows, int)
+            or batch_rows < 1
+        ):
+            raise ValueError("batch_rows must be a positive integer")
+        identity = _AnalyticsTableIdentity(
+            self.descriptor.output_id, self.descriptor.output_revision
+        )
+        store = _ArtifactObjectStore(self._root, create=False)
+        for table in _TableArtifactCodec().iter_tables(
+            directory=store.directory(self.descriptor.content_digest),
+            manifest=self._manifest,
+            row_model=self._row_model,
+            identity=identity,
+        ):
+            for offset in range(0, max(1, table.num_rows), batch_rows):
+                yield _part_frame(
+                    table.slice(offset, batch_rows), self._row_model, identity
+                )
+
+    def scan(
+        self, *, partition_rows: int = 16_384, source_ordinal: bool = False
+    ) -> Table:
+        """Build a lazy native Dask scan from immutable validated parts.
+
+        :param partition_rows: Positive target rows in compute partitions.
+        :param source_ordinal: Include internal global source ordering evidence.
+        :return: Lazy table independent of the original client and cluster.
+        :raises CFBDArtifactCorruptionError: If manifest or computed parts fail validation.
+        :raises ValueError: If partition sizing is invalid.
+        """
+        import dask
+        import dask.dataframe as dd
+        import narwhals.stable.v2 as nw
+        from dask.delayed import Delayed, delayed
+        from narwhals.stable.v2.typing import IntoLazyFrame
+
+        from .tables import SOURCE_ORDINAL
+
+        if (
+            isinstance(partition_rows, bool)
+            or not isinstance(partition_rows, int)
+            or partition_rows < 1
+        ):
+            raise ValueError("partition_rows must be a positive integer")
+        identity = _AnalyticsTableIdentity(
+            self.descriptor.output_id, self.descriptor.output_revision
+        )
+        store = _ArtifactObjectStore(self._root, create=False)
+        directory = store.directory(self.descriptor.content_digest)
+        checked = _TableArtifactCodec().inspect(
+            directory=directory,
+            manifest=self._manifest,
+            row_model=self._row_model,
+            identity=identity,
+        )
+        meta = _PandasAdapter().from_models(
+            endpoint=identity.output_id,
+            row_model=self._row_model,
+            models=[],
+        )
+        if source_ordinal:
+            meta[SOURCE_ORDINAL] = pd.Series(dtype="int64")
+        tasks: list[Delayed] = []
+        offset = 0
+        for part in checked.body.parts:
+            tasks.append(
+                delayed(_read_native_part)(
+                    directory,
+                    part,
+                    self._row_model,
+                    identity,
+                    checked.content_digest,
+                    offset if source_ordinal else None,
+                )
+            )
+            offset += part.row_count or 0
+        with dask.config.set({"dataframe.convert-string": False}):
+            native = dd.from_delayed(tasks, meta=meta, verify_meta=True)
+            desired = max(1, (offset + partition_rows - 1) // partition_rows)
+            native = native.repartition(npartitions=desired)
+        wrapped: object = nw.from_native(native)
+        if not isinstance(wrapped, nw.LazyFrame):
+            raise TypeError("Artifact scan did not produce a lazy dataframe")
+        return Table(
+            cast(nw.LazyFrame[IntoLazyFrame], wrapped),
+            _known_empty=checked.body.row_count == 0,
+        )
+
     def export_parquet(self, destination: Path | str) -> Path:
         """Atomically export one validated table as a standalone Parquet file.
 
@@ -133,20 +233,33 @@ class ArtifactRef:
         :raises CFBDArtifactCodecError: If this reference is not a table artifact.
         :raises CFBDArtifactCorruptionError: If durable content fails validation.
         """
-        table = self._load_table()
+        identity = _AnalyticsTableIdentity(
+            self.descriptor.output_id, self.descriptor.output_revision
+        )
+        store = _ArtifactObjectStore(self._root, create=False)
+        parts = _TableArtifactCodec().iter_tables(
+            directory=store.directory(self.descriptor.content_digest),
+            manifest=self._manifest,
+            row_model=self._row_model,
+            identity=identity,
+        )
+        first = next(parts)
         target = Path(destination).expanduser().resolve()
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         temporary = target.parent / f".{target.name}.stage-{uuid.uuid4().hex}"
         try:
-            pq.write_table(
-                table,
+            with pq.ParquetWriter(
                 temporary,
+                first.schema,
                 version="2.6",
                 compression="zstd",
                 write_statistics=True,
                 use_compliant_nested_type=True,
                 store_schema=True,
-            )
+            ) as writer:
+                writer.write_table(first)
+                for part in parts:
+                    writer.write_table(part)
             with temporary.open("rb") as handle:
                 os.fsync(handle.fileno())
             os.chmod(temporary, 0o600)
@@ -192,6 +305,52 @@ class ArtifactRef:
             table=table,
             identity=identity,
         )
+
+
+def _part_frame(
+    table: pa.Table,
+    row_model: type[BaseModel],
+    identity: _AnalyticsTableIdentity,
+) -> pd.DataFrame:
+    """Decode and validate one bounded canonical partition into pandas."""
+    adapter = cast(
+        TypeAdapter[list[BaseModel]], TypeAdapter(types.GenericAlias(list, row_model))
+    )
+    rows = _analytics_models_from_arrow_table(
+        row_model=row_model,
+        response_adapter=adapter,
+        table=table,
+        identity=identity,
+    )
+    return _PandasAdapter().from_models(
+        endpoint=identity.output_id,
+        row_model=row_model,
+        models=rows,
+    )
+
+
+def _read_native_part(
+    directory: Path,
+    part: _ArtifactPart,
+    row_model: type[BaseModel],
+    identity: _AnalyticsTableIdentity,
+    content_digest: str,
+    source_offset: int | None,
+) -> pd.DataFrame:
+    """Validate one native scan partition with optional source-order evidence."""
+    from .tables import SOURCE_ORDINAL
+
+    table = _TableArtifactCodec().read_part(
+        directory=directory,
+        part=part,
+        row_model=row_model,
+        identity=identity,
+        content_digest=content_digest,
+    )
+    frame = _part_frame(table, row_model, identity)
+    if source_offset is not None:
+        frame[SOURCE_ORDINAL] = range(source_offset, source_offset + len(frame))
+    return frame
 
 
 def _artifact_descriptor(manifest: _ArtifactManifest) -> ArtifactDescriptor:

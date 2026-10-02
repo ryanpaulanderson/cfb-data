@@ -161,11 +161,17 @@ class _ArtifactObjectStore:
     def __init__(self, root: Path, *, create: bool = True) -> None:
         """Open the object store, optionally creating execution directories."""
         self._root = root
+
         self._objects = root / "objects" / "sha256"
         if create:
             _make_private_directory(root)
             _make_private_directory(root / "objects")
             _make_private_directory(self._objects)
+
+    @property
+    def root(self) -> Path:
+        """Return the explicit root owned by immutable artifact references."""
+        return self._root
 
     @contextmanager
     def staging_directory(self) -> Iterator[Path]:

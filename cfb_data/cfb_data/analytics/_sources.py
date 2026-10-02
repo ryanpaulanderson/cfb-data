@@ -53,6 +53,7 @@ from .observability import (
     AnalyticsEventType,
     AnalyticsOutcome,
 )
+from .results import ArtifactRef
 from .types import _CoverageAwareRow
 
 
@@ -151,6 +152,8 @@ class _SourceRunner:
         recompute_nodes: frozenset[str] = frozenset(),
         concurrency: int,
         dispatcher: _AnalyticsDispatcher,
+        native_tables: bool = False,
+        partition_rows: int = 16_384,
     ) -> None:
         """Initialize one run-scoped source coordinator."""
         if concurrency < 1:
@@ -167,6 +170,8 @@ class _SourceRunner:
         self._semaphore = asyncio.Semaphore(concurrency)
         self._dispatcher = dispatcher
         self._retrievals: dict[str, asyncio.Task[list[BaseModel]]] = {}
+        self._native_tables: bool = native_tables
+        self._partition_rows: int = partition_rows
 
     async def run_batch(
         self,
@@ -360,10 +365,28 @@ class _SourceRunner:
             duration=time.monotonic() - started,
         )
         return node.node_id, _NodeResult(
-            value=rows,
+            value=self._table_value(artifact, contract.row_model)
+            if self._native_tables
+            else rows,
             artifact=artifact,
             node_fingerprint=fingerprint,
             row_model=contract.row_model,
+            warnings=tuple(
+                dict.fromkeys(
+                    row.coverage_warning
+                    for row in rows
+                    if isinstance(row, _CoverageAwareRow)
+                    and row.coverage_warning is not None
+                )
+            ),
+        )
+
+    def _table_value(
+        self, artifact: _StoredArtifact, row_model: type[BaseModel]
+    ) -> ArtifactRef:
+        """Return an owned immutable source table reference without row models."""
+        return ArtifactRef._from_stored(
+            root=self._object_store.root, artifact=artifact, row_model=row_model
         )
 
     async def _retrieve[RequestT: BaseModel, RowT: BaseModel](
@@ -435,12 +458,22 @@ class _SourceRunner:
         candidate: _CheckpointCandidate,
     ) -> _NodeResult | None:
         try:
-            rows = await asyncio.to_thread(
-                self._load_rows,
-                contract,
-                identity,
-                candidate,
-            )
+            if self._native_tables:
+                reference = self._table_value(
+                    _StoredArtifact(
+                        candidate.binding.content_digest, candidate.manifest
+                    ),
+                    contract.row_model,
+                )
+                await asyncio.to_thread(self._validate_reference, reference)
+                value: object = reference
+            else:
+                value = await asyncio.to_thread(
+                    self._load_rows,
+                    contract,
+                    identity,
+                    candidate,
+                )
             await asyncio.to_thread(
                 self._database.bind_reused_node,
                 run_id=self._run_id,
@@ -462,10 +495,10 @@ class _SourceRunner:
             node.node_id,
             outcome=AnalyticsOutcome.reused,
             artifact=candidate.binding.content_digest,
-            row_count=len(rows),
+            row_count=candidate.manifest.body.row_count,
         )
         return _NodeResult(
-            value=rows,
+            value=value,
             artifact=_StoredArtifact(
                 content_digest=candidate.binding.content_digest,
                 manifest=candidate.manifest,
@@ -473,6 +506,11 @@ class _SourceRunner:
             node_fingerprint=fingerprint,
             row_model=contract.row_model,
         )
+
+    def _validate_reference(self, reference: ArtifactRef) -> None:
+        """Validate checkpoint contents in bounded batches before reuse."""
+        for _ in reference.batches(batch_rows=self._partition_rows):
+            pass
 
     def _store_and_bind_rows(
         self,
@@ -484,18 +522,25 @@ class _SourceRunner:
         checkpoint_eligible: bool,
     ) -> _StoredArtifact:
         """Stage, publish, and durably bind source rows under one reservation."""
-        table: pa.Table = _analytics_arrow_table_from_models(
-            row_model=row_model,
-            models=rows,
-            identity=identity,
-        )
         with self._object_store.staging_directory() as directory:
-            staged = _TableArtifactCodec().stage(
+            codec = (
+                _TableArtifactCodec(max_rows_per_part=self._partition_rows)
+                if self._native_tables
+                else _TableArtifactCodec()
+            )
+            writer = codec.writer(
                 directory=directory,
-                table=table,
                 row_model=row_model,
                 identity=identity,
             )
+            for offset in range(0, max(1, len(rows)), self._partition_rows):
+                table: pa.Table = _analytics_arrow_table_from_models(
+                    row_model=row_model,
+                    models=rows[offset : offset + self._partition_rows],
+                    identity=identity,
+                )
+                writer.append(table)
+            staged = writer.finish()
             artifact, _ = self._database.publish_completed_node(
                 run_id=self._run_id,
                 node_id=node_id,

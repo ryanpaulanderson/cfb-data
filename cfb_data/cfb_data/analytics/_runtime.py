@@ -26,7 +26,7 @@ from ._checkpoints import (
 )
 from ._compiler import _CompilableRecipe
 from ._compute import _LocalTransformProvider, _TransformExecutorSession
-from ._contracts import _table_row_model
+from ._contracts import _is_native_step, _table_row_model
 from ._dask import _DaskTransformProvider
 from ._execution import _NodeResult
 from ._graph import _CompiledGraph, _CompiledNode
@@ -202,6 +202,7 @@ async def _execute_run(
                 root=root,
                 run_id=run.run_id,
                 parent_run_id=parent_run_id,
+                policy=selected,
             )
         except asyncio.CancelledError:
             await asyncio.to_thread(database.transition_run, run.run_id, "cancelled")
@@ -288,6 +289,8 @@ async def _execute_graph(
         recompute_nodes=recompute_nodes,
         concurrency=policy.retrieval_concurrency,
         dispatcher=dispatcher,
+        native_tables=any(_is_native_step(node.recipe) for node in graph.nodes),
+        partition_rows=policy.table_partition_rows,
     )
     local_provider = _LocalTransformProvider(concurrency=policy.compute_concurrency)
     dask_provider: _DaskTransformProvider | None = None
@@ -296,6 +299,8 @@ async def _execute_graph(
             max_workers=policy.dask_max_workers,
             threads_per_worker=policy.dask_threads_per_worker,
             transfer_limit_bytes=policy.dask_transfer_limit_bytes,
+            local_directory=store.root / "workers",
+            compute_retries=policy.dask_max_attempts - 1,
         )
     local_runner = _transform_runner(
         local_provider,
@@ -309,6 +314,8 @@ async def _execute_graph(
         recompute_nodes=recompute_nodes,
         backend=bridge.dataframe_backend,
         dispatcher=dispatcher,
+        partition_rows=policy.table_partition_rows,
+        native_tables=any(_is_native_step(node.recipe) for node in graph.nodes),
     )
     dask_runner = (
         _transform_runner(
@@ -325,6 +332,8 @@ async def _execute_graph(
             dispatcher=dispatcher,
             max_compute_attempts=policy.dask_max_attempts,
             compute_timeout_seconds=policy.dask_step_timeout_seconds,
+            partition_rows=policy.table_partition_rows,
+            native_tables=any(_is_native_step(node.recipe) for node in graph.nodes),
         )
         if dask_provider is not None
         else None
@@ -432,6 +441,8 @@ def _transform_runner(
     dispatcher: _AnalyticsDispatcher,
     max_compute_attempts: int = 1,
     compute_timeout_seconds: float | None = None,
+    partition_rows: int = 16_384,
+    native_tables: bool = False,
 ) -> _TransformRunner:
     return _TransformRunner(
         provider=provider,
@@ -447,6 +458,8 @@ def _transform_runner(
         dispatcher=dispatcher,
         max_compute_attempts=max_compute_attempts,
         compute_timeout_seconds=compute_timeout_seconds,
+        partition_rows=partition_rows,
+        native_tables=native_tables,
     )
 
 
@@ -543,6 +556,7 @@ async def _public_result(
     root: Path,
     run_id: str,
     parent_run_id: str | None,
+    policy: ExecutionPolicy,
 ) -> RecipeRun[object]:
     frames: dict[str, object] = {}
     artifacts: dict[str, ArtifactRef] = {}
@@ -551,17 +565,19 @@ async def _public_result(
         row_model = result.row_model
         if row_model is None:
             raise CFBDRecipeCompilationError("Recipe output has no row contract")
-        frames[name] = await asyncio.to_thread(
-            bridge.dataframe_adapter.from_models,
-            endpoint=graph.root_id,
-            row_model=row_model,
-            models=cast(Sequence[BaseModel], result.value),
-        )
         artifacts[name] = ArtifactRef._from_stored(
             root=root,
             artifact=result.artifact,
             row_model=row_model,
         )
+        if policy.result_mode == "lazy":
+            frames[name] = artifacts[name].scan(
+                partition_rows=policy.table_partition_rows
+            )
+        else:
+            frames[name] = await asyncio.to_thread(
+                _materialize_artifact, artifacts[name], bridge.dataframe_backend
+            )
     bindings = await asyncio.to_thread(database.bindings, run_id)
     graph_nodes = {node.node_id: node for node in graph.nodes}
     evidence: list[RunNodeEvidence] = []
@@ -609,7 +625,12 @@ async def _public_result(
         row_count = results[node.node_id].artifact.manifest.body.row_count
         if row_count is None:
             raise CFBDRecipeCompilationError("Source row count is unavailable")
-        source_rows = cast(Sequence[BaseModel], results[node.node_id].value)
+        source_value = results[node.node_id].value
+        source_rows = (
+            cast(Sequence[BaseModel], source_value)
+            if isinstance(source_value, (list, tuple))
+            else ()
+        )
         partial_rows = (
             row
             for row in source_rows
@@ -617,9 +638,14 @@ async def _public_result(
         )
         source_warnings = tuple(
             dict.fromkeys(
-                row.coverage_warning
-                for row in partial_rows
-                if row.coverage_warning is not None
+                (
+                    *results[node.node_id].warnings,
+                    *(
+                        row.coverage_warning
+                        for row in partial_rows
+                        if row.coverage_warning is not None
+                    ),
+                )
             )
         )
         coverage_warnings.extend(source_warnings)
@@ -659,6 +685,13 @@ async def _public_result(
         actual_http_attempts=await asyncio.to_thread(database.attempt_count, run_id),
         reused_nodes=reused,
     )
+
+
+def _materialize_artifact(
+    reference: ArtifactRef, backend: Literal["pandas", "polars"]
+) -> object:
+    """Collect one explicit eager output through its canonical adapter."""
+    return reference.load() if backend == "pandas" else reference.load(backend="polars")
 
 
 def _resolve_recovery_parent(
