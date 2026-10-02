@@ -8,10 +8,10 @@ of silently choosing a name match.
 
 from __future__ import annotations
 
-from cfb_data.analytics import RecipeRef, dataset, step
+import narwhals.stable.v2 as nw
+from cfb_data.analytics import RecipeRef, Table, dataset, step
 from cfb_data.enums import Classification
-from cfb_data.teams.identity import TeamIdentityIndex, TeamIdentityStatus
-from cfb_data.teams.models.pydantic.responses import RosterPlayer, Team
+from cfb_data.teams.identity import TeamIdentityStatus, resolve_team_identity_table
 from cfb_data.teams.sources import roster as roster_source
 from cfb_data.teams.sources import teams as teams_source
 from pydantic import BaseModel, ConfigDict, Field
@@ -98,33 +98,31 @@ class RosterMembership(BaseModel):
 
 @step(
     id="cfbd.rosters.normalize",
-    revision=1,
+    revision=2,
     output=RosterMembership,
     deterministic=True,
 )
-def normalize_roster(
-    season: int,
-    players: list[RosterPlayer],
-    teams: list[Team],
-) -> list[RosterMembership]:
-    """Attach explicit season-scoped team identity evidence.
+def normalize_roster(season: int, players: Table, teams: Table) -> Table:
+    """Project memberships and join temporal identity evidence natively.
 
-    :param season: Requested roster season.
-    :param players: Validated roster memberships.
-    :param teams: Validated teams carrying historical school and alias evidence.
-    :return: Memberships with deterministic identity outcomes and ordering.
+    :param season: Explicit roster season.
+    :param players: Validated player membership table.
+    :param teams: Season-specific identity evidence table.
+    :return: Native memberships retaining unresolved and ambiguous identities.
     """
-    identity_index = TeamIdentityIndex(teams)
-    rows = [_normalize_player(season, player, identity_index) for player in players]
-    return sorted(
-        rows,
-        key=lambda row: (row.season, row.source_team.casefold(), row.athlete_id),
+    rows = players.rename(
+        {"id": "athlete_id", "team": "source_team", "year": "class_year"}
+    ).with_columns(nw.lit(season).alias("season"))
+    return (
+        resolve_team_identity_table(rows, teams, source_name="source_team")
+        .select(*RosterMembership.model_fields)
+        .sort("season", "source_team", "athlete_id")
     )
 
 
 @dataset(
     id="cfbd.rosters",
-    revision=1,
+    revision=2,
     row=RosterMembership,
     grain="one athlete/team/season membership",
     keys=("season", "source_team", "athlete_id"),
@@ -136,7 +134,7 @@ def rosters(
     season: int,
     team: str | None = None,
     classification: Classification | None = None,
-) -> RecipeRef[list[RosterMembership]]:
+) -> RecipeRef[Table]:
     """Build historical roster memberships with temporal identity evidence.
 
     :param season: Required roster and team-evidence season.
@@ -148,36 +146,6 @@ def rosters(
         season,
         roster_source(team=team, year=season, classification=classification),
         teams_source(year=season),
-    )
-
-
-def _normalize_player(
-    season: int,
-    player: RosterPlayer,
-    identity_index: TeamIdentityIndex,
-) -> RosterMembership:
-    evidence = identity_index.resolve(player.team)
-    return RosterMembership(
-        season=season,
-        source_team=player.team,
-        team_id=evidence.team_id,
-        team_identity_status=evidence.status,
-        team_identity_candidate_ids=list(evidence.candidate_ids),
-        athlete_id=player.id,
-        first_name=player.first_name,
-        last_name=player.last_name,
-        height=player.height,
-        weight=player.weight,
-        jersey=player.jersey,
-        class_year=player.year,
-        position=player.position,
-        home_city=player.home_city,
-        home_state=player.home_state,
-        home_country=player.home_country,
-        home_latitude=player.home_latitude,
-        home_longitude=player.home_longitude,
-        home_county_fips=player.home_county_fips,
-        recruit_ids=player.recruit_ids,
     )
 
 

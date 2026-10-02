@@ -186,8 +186,8 @@ async def test_duplicate_drive_keys_fail_instead_of_deduplicating(
             with pytest.raises(CFBDRunError) as exc_info:
                 await drives(client, year=2024)
 
-    assert exc_info.value.node_id.endswith("cfbd.drives@1")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.drives@2")
+    assert exc_info.value.category == "CFBDTransformError"
 
 
 @pytest.mark.asyncio

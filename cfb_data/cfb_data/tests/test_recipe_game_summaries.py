@@ -387,8 +387,8 @@ async def test_duplicate_game_media_fail_without_changing_base_rows(
                     include_media=True,
                 )
 
-    assert exc_info.value.node_id.endswith("cfbd.game_summaries.attach_enrichments@1")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.game_summaries.attach_enrichments@3")
+    assert exc_info.value.category == "CFBDTransformError"
 
 
 @pytest.mark.asyncio

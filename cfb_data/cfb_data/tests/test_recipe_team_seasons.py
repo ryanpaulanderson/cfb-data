@@ -516,8 +516,8 @@ async def test_required_statistical_coverage_fails_closed(
             with pytest.raises(CFBDRunError) as exc_info:
                 await team_seasons(client, season=2024)
 
-    assert exc_info.value.node_id.endswith("cfbd.team_seasons.compose@5")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.team_seasons.compose@6")
+    assert exc_info.value.category == "CFBDTransformError"
 
 
 @pytest.mark.asyncio

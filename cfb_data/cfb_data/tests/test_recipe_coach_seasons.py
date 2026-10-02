@@ -195,5 +195,5 @@ async def test_missing_requested_tenure_fails_closed(
             with pytest.raises(CFBDRunError) as exc_info:
                 await coach_seasons(client, year=2024, include_tenure=True)
 
-    assert exc_info.value.node_id.endswith("cfbd.coach_seasons.attach_tenure@1")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.coach_seasons.attach_tenure@2")
+    assert exc_info.value.category == "CFBDTransformError"

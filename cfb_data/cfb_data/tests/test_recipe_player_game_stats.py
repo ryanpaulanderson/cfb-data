@@ -207,5 +207,5 @@ async def test_duplicate_candidate_keys_fail_instead_of_aggregating(
                     team="Alabama",
                 )
 
-    assert exc_info.value.node_id.endswith("cfbd.player_game_stats@1")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.player_game_stats@2")
+    assert exc_info.value.category == "CFBDTransformError"

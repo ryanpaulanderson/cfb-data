@@ -8,8 +8,9 @@ are present. It deliberately does not infer drive success from a result label.
 
 from __future__ import annotations
 
-from cfb_data.analytics import RecipeRef, dataset, step
-from cfb_data.drives.models.pydantic.responses import Drive, DriveTime
+import narwhals.stable.v2 as nw
+from cfb_data.analytics import RecipeRef, Table, dataset, step
+from cfb_data.drives.models.pydantic.responses import DriveTime
 from cfb_data.drives.sources import drives as drives_source
 from cfb_data.enums import Classification, SeasonType
 from pydantic import BaseModel, ConfigDict, Field
@@ -112,36 +113,52 @@ class DriveRow(BaseModel):
 
 @step(
     id="cfbd.drives.normalize",
-    revision=1,
+    revision=2,
     output=DriveRow,
     deterministic=True,
 )
-def normalize_drives(rows: list[Drive], game_id: int | None) -> list[DriveRow]:
-    """Normalize validated drives and compute only direct arithmetic.
+def normalize_drives(rows: Table, game_id: int | None) -> Table:
+    """Project drives and direct arithmetic through native expressions.
 
-    :param rows: Validated source drives in upstream order.
-    :param game_id: Optional exact game retained from the containing partition.
-    :return: Drive rows in deterministic game and source-sequence order.
+    :param rows: Validated source drive table.
+    :param game_id: Optional exact game retained from the source partition.
+    :return: Globally ordered native drive table with null clocks preserved.
     """
-    normalized = [
-        _normalize_drive(row)
-        for row in rows
-        if game_id is None or row.game_id == game_id
-    ]
-    return sorted(
-        normalized,
-        key=lambda row: (
-            row.game_id,
-            row.drive_number is None,
-            row.drive_number if row.drive_number is not None else 0,
-            row.drive_id,
-        ),
+    if game_id is not None:
+        rows = rows.filter(nw.col("game_id") == game_id)
+    rows = rows.rename({"id": "drive_id"})
+    for source, target in (
+        ("start_time", "start_clock_seconds"),
+        ("end_time", "end_clock_seconds"),
+        ("elapsed", "elapsed_seconds"),
+    ):
+        rows = rows.nested(
+            source,
+            fields={"minutes": f"__{source}_minutes", "seconds": f"__{source}_seconds"},
+            dtypes={f"__{source}_minutes": "Int64", f"__{source}_seconds": "Int64"},
+        )
+        rows = rows.with_columns(
+            (nw.col(f"__{source}_minutes") * 60 + nw.col(f"__{source}_seconds")).alias(
+                target
+            )
+        )
+    return (
+        rows.with_columns(
+            (nw.col("end_offense_score") - nw.col("start_offense_score")).alias(
+                "offense_score_change"
+            ),
+            (nw.col("end_defense_score") - nw.col("start_defense_score")).alias(
+                "defense_score_change"
+            ),
+        )
+        .select(*DriveRow.model_fields)
+        .sort("game_id", "drive_number", "drive_id")
     )
 
 
 @dataset(
     id="cfbd.drives",
-    revision=1,
+    revision=2,
     row=DriveRow,
     grain="one game-scoped drive",
     keys=("game_id", "drive_id"),
@@ -161,7 +178,7 @@ def drives(
     defense_conference: str | None = None,
     classification: Classification | None = None,
     game_id: int | None = None,
-) -> RecipeRef[list[DriveRow]]:
+) -> RecipeRef[Table]:
     """Build game-scoped drive rows from the registered Drives source.
 
     :param year: Required season year.
@@ -191,47 +208,6 @@ def drives(
             classification=classification,
         ),
         game_id,
-    )
-
-
-def _clock_seconds(value: DriveTime) -> int | None:
-    if value.minutes is None or value.seconds is None:
-        return None
-    return value.minutes * 60 + value.seconds
-
-
-def _normalize_drive(drive: Drive) -> DriveRow:
-    return DriveRow(
-        offense=drive.offense,
-        offense_conference=drive.offense_conference,
-        defense=drive.defense,
-        defense_conference=drive.defense_conference,
-        game_id=drive.game_id,
-        drive_id=drive.id,
-        drive_number=drive.drive_number,
-        scoring=drive.scoring,
-        start_period=drive.start_period,
-        start_yardline=drive.start_yardline,
-        start_yards_to_goal=drive.start_yards_to_goal,
-        start_time=drive.start_time,
-        end_period=drive.end_period,
-        end_yardline=drive.end_yardline,
-        end_yards_to_goal=drive.end_yards_to_goal,
-        end_time=drive.end_time,
-        elapsed=drive.elapsed,
-        plays=drive.plays,
-        yards=drive.yards,
-        drive_result=drive.drive_result,
-        is_home_offense=drive.is_home_offense,
-        start_offense_score=drive.start_offense_score,
-        start_defense_score=drive.start_defense_score,
-        end_offense_score=drive.end_offense_score,
-        end_defense_score=drive.end_defense_score,
-        start_clock_seconds=_clock_seconds(drive.start_time),
-        end_clock_seconds=_clock_seconds(drive.end_time),
-        elapsed_seconds=_clock_seconds(drive.elapsed),
-        offense_score_change=drive.end_offense_score - drive.start_offense_score,
-        defense_score_change=drive.end_defense_score - drive.start_defense_score,
     )
 
 

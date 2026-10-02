@@ -173,8 +173,8 @@ async def test_incomplete_probability_fails_without_shrinking_plays(
                     include_win_probability=True,
                 )
 
-    assert exc_info.value.node_id.endswith("cfbd.plays.attach_win_probability@1")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.plays.attach_win_probability@2")
+    assert exc_info.value.category == "CFBDTransformError"
 
 
 @pytest.mark.asyncio

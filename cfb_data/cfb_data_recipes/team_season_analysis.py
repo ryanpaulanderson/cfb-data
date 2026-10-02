@@ -10,31 +10,31 @@ from __future__ import annotations
 
 from typing import TypedDict
 
-from cfb_data.analytics import workflow
+from cfb_data.analytics import Table, workflow
 from cfb_data.enums import Classification, MediaType, SeasonType
 
-from cfb_data_recipes.coach_seasons import CoachSeason, coach_seasons
-from cfb_data_recipes.game_summaries import GameSummary, game_summaries
-from cfb_data_recipes.player_game_stats import PlayerGameStat, player_game_stats
-from cfb_data_recipes.player_seasons import PlayerSeason, player_seasons
-from cfb_data_recipes.rosters import RosterMembership, rosters
-from cfb_data_recipes.team_games import TeamGame, team_games
-from cfb_data_recipes.team_seasons import TeamSeason, team_seasons
+from cfb_data_recipes.coach_seasons import coach_seasons
+from cfb_data_recipes.game_summaries import game_summaries
+from cfb_data_recipes.player_game_stats import player_game_stats
+from cfb_data_recipes.player_seasons import player_seasons
+from cfb_data_recipes.rosters import rosters
+from cfb_data_recipes.team_games import team_games
+from cfb_data_recipes.team_seasons import team_seasons
 
 
 class TeamSeasonAnalysisRefs(TypedDict):
     """Describe the workflow's seven explicitly named tabular outputs."""
 
-    game_summaries: list[GameSummary]
-    team_games: list[TeamGame]
-    player_game_stats: list[PlayerGameStat]
-    rosters: list[RosterMembership]
-    team_seasons: list[TeamSeason]
-    player_seasons: list[PlayerSeason]
-    coach_seasons: list[CoachSeason]
+    game_summaries: Table
+    team_games: Table
+    player_game_stats: Table
+    rosters: Table
+    team_seasons: Table
+    player_seasons: Table
+    coach_seasons: Table
 
 
-@workflow(id="cfbd.team_season_analysis", revision=3)
+@workflow(id="cfbd.team_season_analysis", revision=4)
 def team_season_analysis(
     *,
     season: int,

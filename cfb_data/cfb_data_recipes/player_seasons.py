@@ -8,9 +8,9 @@ display statistics remain ordered strings rather than inferred numbers.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
 from enum import StrEnum
 
+import narwhals.stable.v2 as nw
 from cfb_data.adjusted_metrics.models.pydantic.responses import (
     KickerPAAR,
     PlayerWeightedEPA,
@@ -20,7 +20,8 @@ from cfb_data.adjusted_metrics.sources import (
     adjusted_player_rushing,
     kicker_paar_metrics,
 )
-from cfb_data.analytics import RecipeRef, dataset, step
+from cfb_data.analytics import RecipeRef, Table, dataset, step
+from cfb_data.analytics.tables import SOURCE_ORDINAL
 from cfb_data.enums import Classification, SeasonType
 from cfb_data.metrics.models.pydantic.responses import PlayerSeasonPredictedPointsAdded
 from cfb_data.metrics.sources import player_season_ppa
@@ -28,14 +29,12 @@ from cfb_data.players.models.pydantic.responses import PlayerUsage
 from cfb_data.players.sources import player_usage
 from cfb_data.stats.models.pydantic.responses import (
     PlayerSeasonSuccessRate,
-    PlayerStat,
 )
 from cfb_data.stats.sources import (
     player_season_stats,
     player_season_success,
 )
-from cfb_data.teams.identity import TeamIdentityIndex, TeamIdentityStatus
-from cfb_data.teams.models.pydantic.responses import Team
+from cfb_data.teams.identity import TeamIdentityStatus, resolve_team_identity_table
 from cfb_data.teams.sources import teams as teams_source
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -143,192 +142,187 @@ class PlayerSeason(BaseModel):
 
 @step(
     id="cfbd.player_seasons.compose",
-    revision=2,
+    revision=3,
     output=PlayerSeason,
     deterministic=True,
 )
 def compose_player_seasons(
     season: int,
-    memberships: list[RosterMembership],
-    statistics: list[PlayerStat],
-    teams: list[Team],
+    memberships: Table,
+    statistics: Table,
+    teams: Table,
     *,
-    usage: list[PlayerUsage] | None,
-    ppa: list[PlayerSeasonPredictedPointsAdded] | None,
-    success: list[PlayerSeasonSuccessRate] | None,
-    passing_wepa: list[PlayerWeightedEPA] | None,
-    rushing_wepa: list[PlayerWeightedEPA] | None,
-    kicker_paar: list[KickerPAAR] | None,
-) -> list[PlayerSeason]:
-    """Union roster and statistic athletes with explicit identity evidence.
+    usage: Table | None,
+    ppa: Table | None,
+    success: Table | None,
+    passing_wepa: Table | None,
+    rushing_wepa: Table | None,
+    kicker_paar: Table | None,
+) -> Table:
+    """Union native roster and statistic memberships with explicit evidence.
 
     :param season: Requested player season.
-    :param memberships: Validated output of the public Rosters recipe.
-    :param statistics: Validated long-form player statistics.
-    :param teams: Validated temporal team identity evidence.
-    :param usage: Requested player-usage rows, or ``None`` when omitted.
-    :param ppa: Requested player-season PPA rows, or ``None`` when omitted.
-    :param success: Requested player-success rows, or ``None`` when omitted.
-    :param passing_wepa: Requested adjusted passing rows, or ``None``.
-    :param rushing_wepa: Requested adjusted rushing rows, or ``None``.
-    :param kicker_paar: Requested kicker PAAR rows, or ``None``.
-    :return: Union athlete memberships in deterministic team/athlete order.
-    :raises ValueError: If source keys or athlete attributes conflict.
+    :param memberships: Validated public roster table.
+    :param statistics: Validated long-form statistic table.
+    :param teams: Temporal team identity evidence.
+    :param usage: Requested usage evidence or omitted source.
+    :param ppa: Requested PPA evidence or omitted source.
+    :param success: Requested success evidence or omitted source.
+    :param passing_wepa: Requested passing evidence or omitted source.
+    :param rushing_wepa: Requested rushing evidence or omitted source.
+    :param kicker_paar: Requested kicking evidence or omitted source.
+    :return: Native union retaining roster-only and statistics-only athletes.
     """
-    identity_index = TeamIdentityIndex(teams)
-    roster_by_key: dict[tuple[str, str], RosterMembership] = {}
-    source_team_by_key: dict[tuple[str, str], str] = {}
-    for roster_membership in memberships:
-        key = (
-            _identity_text(roster_membership.source_team),
-            roster_membership.athlete_id,
+    keys = ("season", "__team_key", "athlete_id")
+    roster = (
+        memberships.normalize_text("source_team", into="__team_key")
+        .require(
+            nw.col("season") == season,
+            message="Roster memberships contain a different season",
         )
-        if key in roster_by_key:
-            raise ValueError("Roster memberships contain duplicate athlete keys")
-        roster_by_key[key] = roster_membership
-        source_team_by_key[key] = roster_membership.source_team
-
-    stats_by_key: dict[tuple[str, str], list[PlayerSeasonStatistic]] = {}
-    stat_identity: dict[tuple[str, str], tuple[str, str]] = {}
-    observed_stat_keys: set[tuple[str, str, str, str]] = set()
-    for ordinal, statistic in enumerate(statistics):
-        if statistic.season != season:
-            raise ValueError("Player statistics contain a different season")
-        key = (_identity_text(statistic.team), statistic.player_id)
-        stat_key = (*key, statistic.category, statistic.stat_type)
-        if stat_key in observed_stat_keys:
-            raise ValueError("Player statistics contain duplicate candidate keys")
-        observed_stat_keys.add(stat_key)
-        identity = (statistic.player, statistic.position)
-        previous_identity = stat_identity.get(key)
-        if previous_identity is not None and previous_identity != identity:
-            raise ValueError("Player statistics disagree on athlete identity")
-        stat_identity[key] = identity
-        source_team_by_key.setdefault(key, statistic.team)
-        stats_by_key.setdefault(key, []).append(
-            PlayerSeasonStatistic(
-                category=statistic.category,
-                stat_type=statistic.stat_type,
-                stat=statistic.stat,
-                source_conference=statistic.conference,
-                source_ordinal=ordinal,
-            )
+        .require_unique(
+            keys, message="Roster memberships contain duplicate athlete keys"
         )
-
-    base_keys = set(roster_by_key) | set(stats_by_key)
-    usage_by_key = _index_enrichment(
-        usage,
-        base_keys=base_keys,
-        season=season,
-        label="Player usage",
-        identity=lambda row: (row.season, row.team, row.id),
     )
-    ppa_by_key = _index_enrichment(
-        ppa,
-        base_keys=base_keys,
-        season=season,
-        label="Player PPA",
-        identity=lambda row: (row.season, row.team, row.id),
+    roster = roster.pack(
+        columns={name: name for name in RosterMembership.model_fields}, into="roster"
+    ).select(
+        *keys,
+        "roster",
+        nw.col("source_team").alias("__roster_team"),
+        nw.when(
+            (~nw.col("first_name").is_null())
+            & (nw.col("first_name") != "")
+            & (~nw.col("last_name").is_null())
+            & (nw.col("last_name") != "")
+        )
+        .then(nw.concat_str(nw.col("first_name"), nw.col("last_name"), separator=" "))
+        .when((~nw.col("first_name").is_null()) & (nw.col("first_name") != ""))
+        .then(nw.col("first_name"))
+        .when((~nw.col("last_name").is_null()) & (nw.col("last_name") != ""))
+        .then(nw.col("last_name"))
+        .otherwise(nw.lit(""))
+        .alias("__roster_name"),
+        nw.col("position").alias("__roster_position"),
+        nw.lit(True).alias("roster_present"),
     )
-    success_by_key = _index_enrichment(
-        success,
-        base_keys=base_keys,
-        season=season,
-        label="Player success",
-        identity=lambda row: (row.season, row.team, row.id),
+    stats = (
+        statistics.rename({"player_id": "athlete_id"})
+        .normalize_text("team", into="__team_key")
+        .require(
+            nw.col("season") == season,
+            message="Player statistics contain a different season",
+        )
+        .require_unique(
+            (*keys, "category", "stat_type"),
+            message="Player statistics contain duplicate candidate keys",
+        )
     )
-    passing_wepa_by_key = _index_enrichment(
-        passing_wepa,
-        base_keys=base_keys,
-        season=season,
-        label="Passing WEPA",
-        identity=lambda row: (row.year, row.team, row.athlete_id),
+    identities = (
+        stats.distinct(*keys, "player", "position")
+        .aggregate(
+            keys=keys,
+            expressions=(
+                nw.len().alias("__identity_count"),
+                nw.col("player").min().alias("__stat_name"),
+                nw.col("position").min().alias("__stat_position"),
+            ),
+        )
+        .require(
+            nw.col("__identity_count") == 1,
+            message="Player statistics disagree on athlete identity",
+        )
     )
-    rushing_wepa_by_key = _index_enrichment(
-        rushing_wepa,
-        base_keys=base_keys,
-        season=season,
-        label="Rushing WEPA",
-        identity=lambda row: (row.year, row.team, row.athlete_id),
+    first = (
+        stats.aggregate(
+            keys=keys, expressions=(nw.col(SOURCE_ORDINAL).min().alias(SOURCE_ORDINAL),)
+        )
+        .join(
+            stats.select(*keys, SOURCE_ORDINAL, nw.col("team").alias("__stat_team")),
+            on=(*keys, SOURCE_ORDINAL),
+            cardinality="one_to_one",
+        )
+        .select(*keys, "__stat_team")
     )
-    kicker_paar_by_key = _index_enrichment(
-        kicker_paar,
-        base_keys=base_keys,
-        season=season,
-        label="Kicker PAAR",
-        identity=lambda row: (row.year, row.team, row.athlete_id),
+    packed = stats.pack(
+        columns={
+            "category": "category",
+            "stat_type": "stat_type",
+            "stat": "stat",
+            "conference": "source_conference",
+            SOURCE_ORDINAL: "source_ordinal",
+        },
+        into="__statistic",
     )
-
-    rows: list[PlayerSeason] = []
-    for key in base_keys:
-        selected_membership = roster_by_key.get(key)
-        source_team = source_team_by_key[key]
-        if selected_membership is None:
-            evidence = identity_index.resolve(source_team)
-            resolved_name, stats_position = stat_identity[key]
-            resolved_position: str | None = stats_position
-        else:
-            evidence = identity_index.resolve(selected_membership.source_team)
-            resolved_name = " ".join(
-                part
-                for part in (
-                    selected_membership.first_name,
-                    selected_membership.last_name,
+    grouped = (
+        packed.ordered_records(
+            keys=keys,
+            column="__statistic",
+            into="statistics",
+            ordinal_field="source_ordinal",
+            keep_ordinal=True,
+        )
+        .join(identities, on=keys, cardinality="one_to_one")
+        .join(first, on=keys, cardinality="one_to_one")
+        .with_columns(nw.lit(True).alias("statistics_present"))
+    )
+    base = (
+        roster.join(grouped, on=keys, how="full", cardinality="one_to_one")
+        .with_columns(
+            nw.coalesce(nw.col("__roster_team"), nw.col("__stat_team")).alias(
+                "source_team"
+            ),
+            nw.coalesce(nw.col("__roster_name"), nw.col("__stat_name")).alias(
+                "athlete_name"
+            ),
+            nw.when(nw.col("roster_present").fill_null(False))
+            .then(nw.col("__roster_position"))
+            .otherwise(nw.col("__stat_position"))
+            .alias("position"),
+            nw.col("roster_present").fill_null(False),
+            nw.col("statistics_present").fill_null(False),
+        )
+        .with_columns(nw.col("season").cast(nw.Int64))
+        .fill_empty_lists("statistics")
+    )
+    base = resolve_team_identity_table(base, teams, source_name="source_team")
+    specs: tuple[tuple[str, Table | None, type[BaseModel], str, str], ...] = (
+        ("usage", usage, PlayerUsage, "season", "id"),
+        ("ppa", ppa, PlayerSeasonPredictedPointsAdded, "season", "id"),
+        ("success", success, PlayerSeasonSuccessRate, "season", "id"),
+        ("passing_wepa", passing_wepa, PlayerWeightedEPA, "year", "athlete_id"),
+        ("rushing_wepa", rushing_wepa, PlayerWeightedEPA, "year", "athlete_id"),
+        ("kicker_paar", kicker_paar, KickerPAAR, "year", "athlete_id"),
+    )
+    for output, source, model, year_field, id_field in specs:
+        if source is not None:
+            source = (
+                source.with_columns(
+                    nw.col(year_field).alias("season"),
+                    nw.col(id_field).alias("athlete_id"),
                 )
-                if part
+                .normalize_text("team", into="__team_key")
+                .require(
+                    nw.col("season") == season,
+                    message=f"{output} contains a different season",
+                )
             )
-            resolved_position = selected_membership.position
-        rows.append(
-            PlayerSeason(
-                season=season,
-                source_team=source_team,
-                team_id=evidence.team_id,
-                team_identity_status=evidence.status,
-                team_identity_candidate_ids=list(evidence.candidate_ids),
-                athlete_id=key[1],
-                athlete_name=resolved_name,
-                position=resolved_position,
-                roster_present=selected_membership is not None,
-                statistics_present=key in stats_by_key,
-                roster=selected_membership,
-                statistics=stats_by_key.get(key, []),
-                usage_coverage=_coverage_for(key, usage_by_key),
-                usage=usage_by_key.get(key) if usage_by_key is not None else None,
-                ppa_coverage=_coverage_for(key, ppa_by_key),
-                ppa=ppa_by_key.get(key) if ppa_by_key is not None else None,
-                success_coverage=_coverage_for(key, success_by_key),
-                success=(
-                    success_by_key.get(key) if success_by_key is not None else None
-                ),
-                passing_wepa_coverage=_coverage_for(key, passing_wepa_by_key),
-                passing_wepa=(
-                    passing_wepa_by_key.get(key)
-                    if passing_wepa_by_key is not None
-                    else None
-                ),
-                rushing_wepa_coverage=_coverage_for(key, rushing_wepa_by_key),
-                rushing_wepa=(
-                    rushing_wepa_by_key.get(key)
-                    if rushing_wepa_by_key is not None
-                    else None
-                ),
-                kicker_paar_coverage=_coverage_for(key, kicker_paar_by_key),
-                kicker_paar=(
-                    kicker_paar_by_key.get(key)
-                    if kicker_paar_by_key is not None
-                    else None
-                ),
-            )
+        base = base.enrich(
+            source,
+            on=keys,
+            output=output,
+            coverage=f"{output}_coverage",
+            fields={name: name for name in model.model_fields},
+            message=f"{output} contains duplicate or outside athlete keys",
         )
-    return sorted(
-        rows,
-        key=lambda row: (row.season, row.source_team.casefold(), row.athlete_id),
+    return base.select(*PlayerSeason.model_fields).sort(
+        "season", "source_team", "athlete_id"
     )
 
 
 @dataset(
     id="cfbd.player_seasons",
-    revision=2,
+    revision=3,
     row=PlayerSeason,
     grain="one athlete/source-team/season union membership",
     keys=("season", "source_team", "athlete_id"),
@@ -354,7 +348,7 @@ def player_seasons(
     include_passing_wepa: bool = False,
     include_rushing_wepa: bool = False,
     include_kicker_paar: bool = False,
-) -> RecipeRef[list[PlayerSeason]]:
+) -> RecipeRef[Table]:
     """Build the union of roster and season-stat athlete memberships.
 
     :param season: Required roster and statistics season.
@@ -452,59 +446,6 @@ def player_seasons(
             else None
         ),
     )
-
-
-def _identity_text(value: str) -> str:
-    return " ".join(value.split()).casefold()
-
-
-def _index_enrichment[EnrichmentT](
-    rows: list[EnrichmentT] | None,
-    *,
-    base_keys: set[tuple[str, str]],
-    season: int,
-    label: str,
-    identity: Callable[[EnrichmentT], tuple[int, str, str]],
-) -> dict[tuple[str, str], EnrichmentT] | None:
-    """Index optional player evidence without expanding the base universe.
-
-    :param rows: Requested source rows, or ``None`` when omitted.
-    :param base_keys: Authoritative roster/stat union keys.
-    :param season: Requested player season.
-    :param label: Safe enrichment label for validation errors.
-    :param identity: Extract the source season, team, and athlete ID.
-    :return: Indexed evidence, or ``None`` when not requested.
-    :raises ValueError: If evidence is duplicated or outside the base universe.
-    """
-    if rows is None:
-        return None
-    indexed: dict[tuple[str, str], EnrichmentT] = {}
-    for row in rows:
-        row_season, row_team, row_id = identity(row)
-        if row_season != season:
-            raise ValueError(f"{label} contains a different season")
-        key = (_identity_text(row_team), row_id)
-        if key not in base_keys:
-            raise ValueError(f"{label} falls outside the player-season universe")
-        if key in indexed:
-            raise ValueError(f"{label} contains duplicate athlete keys")
-        indexed[key] = row
-    return indexed
-
-
-def _coverage_for(
-    key: tuple[str, str],
-    rows: Mapping[tuple[str, str], object] | None,
-) -> PlayerSeasonCoverage:
-    """Return explicit per-athlete enrichment availability.
-
-    :param key: Authoritative player-season key.
-    :param rows: Requested indexed rows, or ``None`` when omitted.
-    :return: Not-requested, empty, or present coverage.
-    """
-    if rows is None:
-        return PlayerSeasonCoverage.not_requested
-    return PlayerSeasonCoverage.present if key in rows else PlayerSeasonCoverage.empty
 
 
 __all__ = [

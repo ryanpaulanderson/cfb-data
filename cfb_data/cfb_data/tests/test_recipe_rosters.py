@@ -190,5 +190,5 @@ async def test_duplicate_memberships_fail_instead_of_deduplicating(
             with pytest.raises(CFBDRunError) as exc_info:
                 await rosters(client, season=2024)
 
-    assert exc_info.value.node_id.endswith("cfbd.rosters@1")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.rosters@2")
+    assert exc_info.value.category == "CFBDTransformError"

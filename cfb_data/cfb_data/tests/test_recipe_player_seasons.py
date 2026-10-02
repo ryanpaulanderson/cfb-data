@@ -319,8 +319,8 @@ async def test_duplicate_statistic_keys_fail_instead_of_aggregating(
             with pytest.raises(CFBDRunError) as exc_info:
                 await player_seasons(client, season=2024)
 
-    assert exc_info.value.node_id.endswith("cfbd.player_seasons.compose@2")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.player_seasons.compose@3")
+    assert exc_info.value.category == "CFBDTransformError"
 
 
 @pytest.mark.asyncio
@@ -393,5 +393,31 @@ async def test_enrichment_cannot_expand_player_season_universe(
                     include_usage=True,
                 )
 
-    assert exc_info.value.node_id.endswith("cfbd.player_seasons.compose@2")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.player_seasons.compose@3")
+    assert exc_info.value.category == "CFBDTransformError"
+
+
+@pytest.mark.asyncio
+async def test_roster_names_preserve_whitespace_and_skip_empty_parts(
+    api_server: ServerFactory, tmp_path: Path
+) -> None:
+    """Keep supplied name text when one roster name component is empty."""
+    athlete = _roster_player("004")
+    athlete.update(firstName="  Ada ", lastName="")
+    payloads: dict[str, object] = {
+        "/roster": [athlete],
+        "/teams": [_team()],
+        "/stats/player/season": [],
+    }
+
+    async def handler(request: web.Request) -> web.Response:
+        return web.json_response(payloads[request.path])
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "name-fixture",
+            base_url=base_url,
+            analytics=AnalyticsConfig(root=tmp_path / "analytics"),
+        ) as client:
+            frame = await player_seasons(client, season=2024, team="Penn State")
+    assert frame["athlete_name"].tolist() == ["  Ada "]

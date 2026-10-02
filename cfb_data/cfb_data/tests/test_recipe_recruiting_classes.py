@@ -177,5 +177,5 @@ async def test_duplicate_recruit_ids_fail_instead_of_counting_twice(
             with pytest.raises(CFBDRunError) as exc_info:
                 await recruiting_classes(client, class_year=2024)
 
-    assert exc_info.value.node_id.endswith("cfbd.recruiting_classes.compose@1")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.recruiting_classes.compose@2")
+    assert exc_info.value.category == "CFBDTransformError"

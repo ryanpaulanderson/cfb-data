@@ -342,8 +342,8 @@ async def test_requested_incomplete_stats_fail_without_shrinking_base_rows(
                     include_team_stats=True,
                 )
 
-    assert exc_info.value.node_id.endswith("cfbd.team_games.normalize@1")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.team_games.normalize@2")
+    assert exc_info.value.category == "CFBDTransformError"
 
 
 @pytest.mark.asyncio
@@ -409,8 +409,8 @@ async def test_conflicting_enrichment_fails_with_game_context_intact(
                     include_advanced_stats=True,
                 )
 
-    assert exc_info.value.node_id.endswith("cfbd.team_games.normalize@1")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.team_games.normalize@2")
+    assert exc_info.value.category == "CFBDTransformError"
 
 
 @pytest.mark.asyncio

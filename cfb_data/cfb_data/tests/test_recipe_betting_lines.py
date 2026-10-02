@@ -164,5 +164,5 @@ async def test_duplicate_game_quote_keys_fail_instead_of_deduplicating(
             with pytest.raises(CFBDRunError) as exc_info:
                 await betting_lines(client, season=2024)
 
-    assert exc_info.value.node_id.endswith("cfbd.betting_lines@1")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.betting_lines@2")
+    assert exc_info.value.category == "CFBDTransformError"

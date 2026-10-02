@@ -159,5 +159,5 @@ async def test_duplicate_snapshot_keys_fail_instead_of_deduplicating(
             with pytest.raises(CFBDRunError) as exc_info:
                 await poll_rankings(client, season=2024)
 
-    assert exc_info.value.node_id.endswith("cfbd.poll_rankings@1")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.poll_rankings@2")
+    assert exc_info.value.category == "CFBDTransformError"
