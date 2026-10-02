@@ -156,7 +156,7 @@ async def test_recipe_has_four_way_canonical_parity(
                 base_url=base_url,
                 dataframe_backend=backend,
                 retry_policy=RetryPolicy(max_attempts=1),
-                analytics=AnalyticsConfig(root=tmp_path / f"{backend}-{executor}"),
+                analytics=AnalyticsConfig(root=tmp_path / executor),
             ) as client:
                 run = await player_game_stats.run(
                     client,

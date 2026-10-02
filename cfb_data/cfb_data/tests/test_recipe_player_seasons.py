@@ -262,7 +262,7 @@ async def test_recipe_has_four_way_canonical_parity(
                 base_url=base_url,
                 dataframe_backend=backend,
                 retry_policy=RetryPolicy(max_attempts=1),
-                analytics=AnalyticsConfig(root=tmp_path / f"{backend}-{executor}"),
+                analytics=AnalyticsConfig(root=tmp_path / executor),
             ) as client:
                 run: RecipeRun[pd.DataFrame] = await player_seasons.run(
                     client,
@@ -275,6 +275,13 @@ async def test_recipe_has_four_way_canonical_parity(
                     include_kicker_paar=True,
                     policy=ExecutionPolicy(executor=executor, dask_max_workers=1),
                 )
+                if backend == "pandas":
+                    assert any(
+                        node.node_kind == "step" and not node.reused
+                        for node in run.lineage
+                    )
+                else:
+                    assert run.reused_nodes > 0
             digests.append(run.artifact.descriptor.content_digest)
             restored = run.artifact.load()
             records.append(restored.to_dict(orient="records"))

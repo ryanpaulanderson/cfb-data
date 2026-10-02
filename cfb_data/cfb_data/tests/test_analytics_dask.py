@@ -194,13 +194,20 @@ async def test_managed_dask_round_trip_uses_arrow_and_closes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cancelled_worker_future_is_awaited_before_cleanup() -> None:
+async def test_cancelled_worker_future_is_awaited_before_cleanup(
+    tmp_path: Path,
+) -> None:
     """Preserve cancellation while draining and closing provider resources."""
     pytest.importorskip("distributed")
 
     @step(id="tests.dask_blocking", revision=1, output=_DaskOutputRow)
-    def blocking(delay: float) -> list[_DaskOutputRow]:
-        time.sleep(delay)
+    def blocking(started: str, released: str) -> list[_DaskOutputRow]:
+        Path(started).touch()
+        deadline = time.monotonic() + 5
+        while not Path(released).exists():
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Cancellation fixture was not released")
+            time.sleep(0.01)
         return [_DaskOutputRow(game_id=1, label="late")]
 
     provider = _DaskTransformProvider(
@@ -209,13 +216,25 @@ async def test_cancelled_worker_future_is_awaited_before_cleanup() -> None:
         transfer_limit_bytes=16 * 1024 * 1024,
     )
     async with provider:
-        task = asyncio.create_task(provider.execute(blocking, {"delay": 5.0}))
-        while not provider.started:
-            await asyncio.sleep(0.01)
-        task.cancel()
-
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        started = tmp_path / "started"
+        released = tmp_path / "released"
+        task = asyncio.create_task(
+            provider.execute(
+                blocking, {"started": str(started), "released": str(released)}
+            )
+        )
+        try:
+            async with asyncio.timeout(10):
+                while not started.exists():
+                    await asyncio.sleep(0.01)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        finally:
+            released.touch()
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
 
     assert not provider.started
 

@@ -43,6 +43,39 @@ and passed `twine check --strict`. An isolated base-wheel installation passed
 imports and native two-partition collection with neither distributed nor
 Polars installed. CI now accounts for PyYAML being a core Dask dependency.
 
+## CI correction and default-suite runtime
+
+The initial Python 3.12 and 3.13 CI suites failed with `node_lease_lost` after
+969.02 and 1009.66 seconds of pytest execution. Each deferred validation check
+lowered its overlapping dataframe graph separately. Native distributed graph
+preparation and submission also ran synchronously on the coordinator loop,
+preventing timely checkpoint-lease renewal.
+
+Validation now lowers one shared graph and reuses equivalent physical
+summaries, retaining each contract's declaration order and failure message.
+Native graph preparation and submission run off the event loop. Cancellation
+drains owned preparation and cancels any futures created during submission.
+A small sorting fixture reproduces lease loss against the original engine
+and passes with the correction, using real distributed workers and a short
+publication lease.
+
+Default tests use two isolated pytest workers. Dataset parity retains fresh
+local and Dask computation in separate stores and replays their compatible
+checkpoints for Polars presentation. Workflow parity verifies portability
+without repeating already-covered dataset computation. HTTP and worker
+cancellation fixtures use explicit release handshakes instead of long sleeps.
+The external-provider fixture clones its installed environment offline before
+installing a plugin, so parallel tests cannot modify a shared installation.
+Quota-ledgered live targets remain serial; no additional live API calls were
+needed for this repair.
+
+On the same Python 3.13 host, an intermediate sequential suite passed 689 tests
+with 23 opt-in skips in 178.19 seconds. After the engine and fixture changes,
+the bounded parallel suite passed all 689 tests with the same 23 skips in
+74.82 seconds. The complete `make check`, including lint, strict typing, and
+warning-free documentation, took 81.77 seconds. These are measured local
+durations; supported-version CI results are verified separately on the PR.
+
 ## Redis-backed live evidence
 
 The bounded live recipe acceptance test passed in 103.98 seconds. Its persistent

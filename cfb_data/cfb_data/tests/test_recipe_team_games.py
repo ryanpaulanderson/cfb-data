@@ -252,7 +252,7 @@ async def test_requested_enrichments_preserve_universe_and_four_way_parity(
                 base_url=base_url,
                 dataframe_backend=backend,
                 retry_policy=RetryPolicy(max_attempts=1),
-                analytics=AnalyticsConfig(root=tmp_path / f"{backend}-{executor}"),
+                analytics=AnalyticsConfig(root=tmp_path / executor),
             ) as client:
                 run = await team_games.run(
                     client,

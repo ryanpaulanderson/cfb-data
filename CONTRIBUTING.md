@@ -22,6 +22,17 @@ runs the shared contract on Python 3.12 and 3.13, separately smoke-tests base
 and Polars installations, and publishes the documentation from `main` through
 GitHub Pages.
 
+The default suite targets one to two minutes and runs in two isolated pytest
+workers, with the slowest test durations reported. For focused debugging, use
+`.venv/bin/python -m pytest -n 0 path/to/test.py`. Dataset parity fixtures
+compute fresh local and Dask results in separate stores, then reuse their
+backend-portable checkpoints for Polars presentation. Workflow parity reuses
+compatible artifacts across both frame and executor options; dataset and
+dedicated worker acceptance already exercise fresh computation. Packaging
+fixtures install plugins into isolated environments. Cancellation fixtures use
+explicit handshakes instead of long fixed sleeps. Live targets remain serial
+to preserve cumulative API quota ledgers and their Redis cache policy.
+
 Follow [`AGENTS.md`](AGENTS.md), the authoritative repository engineering and
 Git guide. Run `make format` before `make check`; report every failure, skip,
 warning, or environment limitation during handoff.
