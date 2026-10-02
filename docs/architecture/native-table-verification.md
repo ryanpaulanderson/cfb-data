@@ -1,0 +1,92 @@
+# Native table migration verification
+
+The testing branch `refactor/native-dask-recipes` starts at fresh main
+`9af6f12493aca6caeb6dbe8dfaaf55927e8691f2`. The proposed beta version is
+0.9.0. The engine, recipe migration, and documentation are organized as related
+review commits; no package release has been made.
+
+All thirteen dataset transforms and three workflows use `Table` references and
+native dataframe operations. HTTP validation and the capped play-stat source's
+bounded request-control loops remain coordinator responsibilities. The original
+[audit](recipe-dask-reengineering-audit.md) is a historical inventory;
+[ADR 0007](0007-native-table-execution.md) describes the implemented contract.
+
+## Correctness and execution
+
+The acceptance suite covers source/final validation, cross-partition duplicate
+keys, coverage and conflicts, source ordinals, group ordinals across partitions,
+empty and nullable frames, backend/executor parity, immutable scans and batches,
+late-partition failure without dataset publication, recovery, and cancellation.
+Partition events verify work on two separate worker processes. Native computation
+uses bounded future windows and global count summaries. Checks are deduplicated
+when branches reconverge; coverage reductions use original base-key relations
+instead of previously enriched payloads. Empty sources retain physical/schema
+validation while avoiding joins proven to have no observations.
+
+Native global reductions and output partitions lower directly to Dask tasks.
+This avoids pathological repeated dataframe fusion in overlapping validation
+graphs; it preserves the complete joins, groups, checks, and global ordering.
+Source scans use declared empty metadata and canonical artifact parts rather
+than sampling data or sending whole dataframe inputs to workers.
+
+Final `make format` and `make check` passed: 684 tests passed and 23 opt-in
+Redis/live tests were skipped by default. Linting, strict typing, and the
+warning-free documentation build passed. A further native cancellation
+regression passed in 2.34 seconds after real partition execution, proving
+cleanup and no dataset publication. The previous package-version test failure
+was corrected by deriving its expected version from `pyproject.toml`.
+Twenty separately enabled Redis integration tests passed. Python 3.13.15,
+Dask/distributed 2026.8.0, pandas 3.0.6, and Polars 1.44.2 were
+used locally. Python 3.12 was unavailable on this host and remains part of
+the unchanged CI matrix. The wheel and source distribution built successfully
+and passed `twine check --strict`. An isolated base-wheel installation passed
+imports and native two-partition collection with neither distributed nor
+Polars installed. CI now accounts for PyYAML being a core Dask dependency.
+
+## Redis-backed live evidence
+
+The bounded live recipe acceptance test passed in 103.98 seconds. Its persistent
+Redis namespace is `cfb-data:penn-state-atlas`; no cache flush was performed.
+The cumulative ledger increased from 655 to 668: thirteen HTTP attempts.
+All four cached pandas/Polars by local/Dask replays used zero HTTP attempts.
+The test reported no warnings or skips and checked checkpoint reuse, recovery,
+and explicit freshness behavior.
+
+This live matrix covers team seasons, single-game analysis, and one-year program
+history, together covering ten dataset products. Rosters, player seasons, and
+capped play-player statistics have deterministic acceptance coverage; they were
+not part of this live matrix. Paid optional enrichments are covered by fixture
+validation and parity rather than this live request set.
+
+## Measured grouping overhead
+
+The generated fixture measures identical grouped count/sum results with a Python
+dictionary-loop reference, the local native scheduler, and two distributed
+workers. Each native graph has eight partitions. Timings exclude input creation,
+HTTP, artifact IO, Pydantic validation/encoding, and worker startup. Memory is
+profiled in a separate repetition to avoid biasing Python-loop timings. These
+single-run numbers characterize this shared operation, not complete recipes.
+
+| Input rows | Python loop (ms) | Local native (ms) | Distributed native (ms) |
+| --- | ---: | ---: | ---: |
+| 128 | 0.03 | 11.95 | 60.14 |
+| 100,000 | 4.30 | 11.06 | 52.09 |
+| 1,000,000 | 50.71 | 27.75 | 65.89 |
+| 1,000,000 (95% in one group) | 41.23 | 24.82 | 66.41 |
+
+Worker startup took 0.69 seconds. Local native
+grouping improved this million-row fixture; distributed scheduling/transfer
+added overhead and did not outperform the reference at these volumes. No
+blanket recipe speedup or distributed scaling claim is made.
+
+The million-row input occupies approximately 15.3 MiB. Coordinator traced
+incremental peaks were about 40 MiB for native processing versus less than
+0.3 MiB for the reference dictionary, excluding their prebuilt inputs. Worker
+RSS snapshots totaled approximately 376–377 MiB and are not peak measurements.
+The synthetic in-memory submission emitted Dask large-graph warnings
+(15–31 MiB); production source scans instead submit artifact-reading tasks.
+
+The fixture runner and raw redacted reports are retained in the ignored
+repository-local `.cache` directory. Further measurements must include full
+source validation, skewed nested payloads, artifact IO, transfer volume, and
+worker peaks before claiming end-to-end performance gains.

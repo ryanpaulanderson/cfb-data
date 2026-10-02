@@ -5,6 +5,15 @@
 - Implementation status: Complete on ``feat/modular-analytics-foundation``
 - Last updated: 2026-08-19
 
+The completion statement and release evidence below cover the original
+whole-function local/Dask executor. They do not establish native partitioned
+Dask DataFrame execution or completeness of the proposed reusable operation
+vocabulary. The October 2, 2026 [recipe execution
+audit](recipe-dask-reengineering-audit.md) records those gaps and the migration
+required by product constitution clause IX and the ADR 0006 execution policy
+amendment. The original release evidence remains historical evidence for the
+shipped behavior.
+
 ## Goal
 
 Build the reusable bones of an embedded college-football analytics platform:

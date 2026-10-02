@@ -77,6 +77,36 @@ explicit grain and semantics.
 and ordering, and does every derived product declare its sources, row grain,
 and metric definitions?
 
+## IX. Compose native, scalable table transformations
+
+Recipes must express analysis as a visible sequence of reusable table
+transformations. Use native DataFrame operations for general data processing;
+reserve custom code for explicit domain semantics and bounded boundary work.
+When Dask execution is selected, transformations must operate through a lazy,
+partitioned Dask DataFrame graph over pandas partitions. Prefer one shared
+pipeline with explicit execution and materialization boundaries; supported
+modes must preserve the same analytical meaning. Return dataframe-like
+analytical products or explicit named/batched collections of them. Small
+functions or lambdas may express domain rules; common table mechanics belong
+in reusable engine operations.
+
+During beta, interfaces and eager/lazy return boundaries may change to improve
+correctness, composition, and parallel execution. Backward compatibility with
+the existing recipe shape must not block that work. Document the new contract
+and revise examples, tests, semantic revisions, and artifact compatibility
+together; source fidelity and explicit uncertainty remain required.
+
+**Decision test:** Does the recipe avoid whole-dataset Python reconstruction
+between transformations, prove its global invariants across partitions, and
+provide actual partition-execution and representative runtime/memory evidence
+alongside logical parity? Worker placement alone is insufficient. Document
+small-data overhead and measure improvements rather than assuming Dask is faster.
+
+The [recipe execution audit](architecture/recipe-dask-reengineering-audit.md)
+records the existing implementation's gaps and the reengineering sequence.
+This clause sets the required direction; it does not claim that migration is
+already implemented.
+
 When clauses appear to conflict, preserve source fidelity and explicit
 uncertainty first, then choose the easiest interface that keeps consequential
 behavior observable and configurable. A decision may mark a clause not
