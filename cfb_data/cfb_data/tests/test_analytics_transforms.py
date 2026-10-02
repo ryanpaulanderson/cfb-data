@@ -8,10 +8,24 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
+import narwhals.stable.v2 as nw
+import pandas as pd
 import pytest
-from cfb_data.analytics import RecipeRef, dataset, require_one, step, workflow
+from cfb_data.analytics import (
+    ArtifactRef,
+    RecipeRef,
+    Table,
+    dataset,
+    require_one,
+    step,
+    workflow,
+)
 from cfb_data.analytics._compiler import _compile_recipe
-from cfb_data.analytics._compute import _LocalTransformProvider
+from cfb_data.analytics._compute import (
+    _LocalTransformProvider,
+    _TransformExecutorSession,
+)
+from cfb_data.analytics._dask import _DaskTransformProvider
 from cfb_data.analytics._observability import _AnalyticsDispatcher
 from cfb_data.analytics._persistence import _ArtifactObjectStore, _RunDatabase
 from cfb_data.analytics._transforms import _TransformRunner
@@ -73,9 +87,10 @@ def _runner(
     checkpoint_nodes: frozenset[str] | None = None,
     observer: AnalyticsObserver | None = None,
     lease_ttl: timedelta = timedelta(seconds=30),
+    provider: _TransformExecutorSession | None = None,
 ) -> _TransformRunner:
     return _TransformRunner(
-        provider=_LocalTransformProvider(concurrency=concurrency),
+        provider=provider or _LocalTransformProvider(concurrency=concurrency),
         database=database,
         object_store=store,
         run_id=run_id,
@@ -559,6 +574,68 @@ async def test_long_transform_renews_its_publication_lease(tmp_path: Path) -> No
         ).run_batch((node,), {})
 
         assert result[node.node_id].value == [_CleanRow(id=1, label="renewed")]
+        assert database.node_state(run_id, node.node_id) == "completed"
+    finally:
+        database.close()
+
+
+def _slow_native_partition(identifier: int) -> pd.DataFrame:
+    """Represent bounded synchronous source sampling during native graph lowering."""
+    time.sleep(0.75)
+    return pd.DataFrame({"id": [identifier], "label": ["renewed"]})
+
+
+@pytest.mark.asyncio
+async def test_native_graph_preparation_renews_its_publication_lease(
+    tmp_path: Path,
+) -> None:
+    """Keep the coordinator responsive while sorting lowers a native graph."""
+    pytest.importorskip("distributed")
+    import dask.dataframe as dd
+    from dask.delayed import delayed
+
+    @step(id="tests.native_renewed_rows", revision=1, output=_CleanRow)
+    def native_rows() -> Table:
+        meta = pd.DataFrame(
+            {"id": pd.Series(dtype="int64"), "label": pd.Series(dtype="str")}
+        )
+        frame = dd.from_delayed(
+            [delayed(_slow_native_partition)(2), delayed(_slow_native_partition)(1)],
+            meta=meta,
+        )
+        return Table(nw.from_native(frame)).sort("id")
+
+    @dataset(
+        id="tests.native_renewed_dataset",
+        revision=1,
+        row=_CleanRow,
+        grain="one row",
+        keys=("id",),
+    )
+    def native_dataset() -> RecipeRef[Table]:
+        return native_rows()
+
+    node = _compile_recipe(native_dataset, (), {}).nodes[0]
+    root = tmp_path / "analytics"
+    database = _RunDatabase(root / "runs.sqlite3")
+    try:
+        run_id = _run(database)
+        async with _DaskTransformProvider(
+            max_workers=1,
+            threads_per_worker=1,
+            transfer_limit_bytes=1024 * 1024,
+            local_directory=root / "workers",
+        ) as provider:
+            result = await _runner(
+                database,
+                _ArtifactObjectStore(root),
+                run_id=run_id,
+                lease_ttl=timedelta(seconds=0.5),
+                provider=provider,
+            ).run_batch((node,), {})
+        artifact = result[node.node_id].value
+        assert isinstance(artifact, ArtifactRef)
+        assert artifact.load()["id"].tolist() == [1, 2]
         assert database.node_state(run_id, node.node_id) == "completed"
     finally:
         database.close()

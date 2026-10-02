@@ -110,7 +110,7 @@ class _DaskTransformProvider:
         if recipe._is_async or not recipe._declaration.dask_eligible:
             raise CFBDExecutorError(provider="dask", category="ineligible")
         if _is_native_step(recipe):
-            return await asyncio.to_thread(recipe._execute_step, parameters)
+            return await _prepare_native(recipe._execute_step, parameters)
         output_model = _output_model(recipe)
         output_identity = _recipe_identity(recipe, label="output")
         encoded, input_bytes = await asyncio.to_thread(
@@ -185,7 +185,10 @@ class _DaskTransformProvider:
             raise CFBDExecutorError(provider="dask", category="client_state")
         checks = table._checks
         futures = (
-            client.compute(_validation_tasks(table), retries=self._compute_retries)
+            await self._submit_native(
+                client,
+                await _prepare_native(_validation_tasks, table),
+            )
             if checks
             else []
         )
@@ -205,7 +208,9 @@ class _DaskTransformProvider:
         native = table.frame.to_native()
         if not isinstance(native, DataFrame):
             raise CFBDExecutorError(provider="dask", category="native_frame")
-        parts: object = cast(_NativeCollection, native).to_delayed(optimize_graph=False)
+        parts = await _prepare_native(
+            cast(_NativeCollection, native).to_delayed, optimize_graph=False
+        )
         if not isinstance(parts, list):
             raise CFBDExecutorError(provider="dask", category="partition_graph")
         window = max(1, self._max_workers)
@@ -219,7 +224,7 @@ class _DaskTransformProvider:
                 )
                 for part in parts[offset : offset + window]
             )
-            futures = client.compute(tasks, retries=self._compute_retries)
+            futures = await self._submit_native(client, tasks)
             self._futures.update(futures)
             try:
                 for future in futures:
@@ -236,6 +241,28 @@ class _DaskTransformProvider:
                 raise
             finally:
                 self._futures.difference_update(futures)
+
+    async def _submit_native(
+        self, client: _DaskClient, tasks: Sequence[object]
+    ) -> list[_DaskFuture]:
+        """Own off-loop graph submission and cancel futures created during cancellation."""
+        submission = asyncio.create_task(
+            asyncio.to_thread(
+                client.compute,
+                tasks,
+                retries=self._compute_retries,
+                optimize_graph=False,
+            )
+        )
+        try:
+            return await asyncio.shield(submission)
+        except asyncio.CancelledError:
+            await asyncio.gather(submission, return_exceptions=True)
+            if not submission.cancelled() and submission.exception() is None:
+                futures = submission.result()
+                await _cancel_futures(client, tuple(futures))
+                await asyncio.gather(*futures, return_exceptions=True)
+            raise
 
     async def aclose(self) -> None:
         """Cancel and await futures, then close the client and cluster."""
@@ -328,6 +355,18 @@ class _DaskTransformProvider:
             raise CFBDExecutorError(provider="dask", category="transfer_limit")
 
 
+async def _prepare_native[**P, R](
+    function: Callable[P, R], *args: P.args, **kwargs: P.kwargs
+) -> R:
+    """Finish owned synchronous graph preparation before propagating cancellation."""
+    preparation = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+    try:
+        return await asyncio.shield(preparation)
+    except asyncio.CancelledError:
+        await asyncio.gather(preparation, return_exceptions=True)
+        raise
+
+
 class _NativeCollection(Protocol):
     """Type the verified native Dask delayed-partition boundary."""
 
@@ -349,7 +388,11 @@ class _DaskClient(Protocol):
     ) -> _DaskFuture: ...
 
     def compute(
-        self, collections: Sequence[object], *, retries: int
+        self,
+        collections: Sequence[object],
+        *,
+        retries: int,
+        optimize_graph: bool = True,
     ) -> list[_DaskFuture]: ...
 
     async def cancel(

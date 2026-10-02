@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import os
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from types import GenericAlias
 from typing import Protocol, cast
@@ -40,31 +40,65 @@ class _ComputeGraphs(Protocol):
     ) -> tuple[object, ...]: ...
 
 
+class _SummaryFromPandas(Protocol):
+    """Confine Dask's untyped eager-summary construction boundary."""
+
+    def __call__(
+        self, frame: pd.DataFrame, *, npartitions: int, sort: bool
+    ) -> object: ...
+
+
+class _ConcatSummaries(Protocol):
+    """Confine Dask's untyped shared-summary concatenation boundary."""
+
+    def __call__(
+        self, frames: Sequence[object], *, ignore_unknown_divisions: bool
+    ) -> object: ...
+
+
 def _validation_tasks(table: Table) -> tuple[object, ...]:
     """Lower shared global reductions once without repeated dataframe fusion."""
-    from dask.dataframe import DataFrame
-    from dask.delayed import delayed
+    from dask.dataframe import DataFrame, concat, from_pandas
 
-    tasks: list[object] = []
+    summaries: list[DataFrame] = []
+    summary_indices: list[int] = []
+    by_name: dict[str, int] = {}
     for check in table._checks:
         native = check.frame.to_native()
         if isinstance(native, DataFrame):
-            parts = cast(_Computable, native).to_delayed(optimize_graph=False)
-            if not isinstance(parts, list) or len(parts) != 1:
+            if native.npartitions != 1:
                 raise CFBDTransformError(
                     "Global check must produce one summary partition"
                 )
-            tasks.append(parts[0])
         elif isinstance(native, pd.DataFrame):
-            tasks.append(delayed(_summary_identity)(native))
+            converted = cast(_SummaryFromPandas, from_pandas)(
+                native, npartitions=1, sort=False
+            )
+            if not isinstance(converted, DataFrame):
+                raise CFBDTransformError("Global summary did not produce a dataframe")
+            native = converted
         else:
             raise CFBDTransformError("Global check did not return a native dataframe")
-    return tuple(tasks)
-
-
-def _summary_identity(frame: pd.DataFrame) -> pd.DataFrame:
-    """Retain a bounded eager summary at a delayed scheduler boundary."""
-    return frame
+        name: object = native._name
+        if not isinstance(name, str):
+            raise CFBDTransformError("Global summary has an invalid graph identity")
+        index = by_name.get(name)
+        if index is None:
+            index = len(summaries)
+            by_name[name] = index
+            summaries.append(native)
+        summary_indices.append(index)
+    if not summaries:
+        return ()
+    # Concatenation retains one partition per contract in declaration order.
+    # Lowering this shared expression once lets Dask reuse common subgraphs.
+    combined = cast(_ConcatSummaries, concat)(summaries, ignore_unknown_divisions=True)
+    if not isinstance(combined, DataFrame):
+        raise CFBDTransformError("Combined validation did not produce a dataframe")
+    parts = cast(_Computable, combined).to_delayed(optimize_graph=False)
+    if not isinstance(parts, list) or len(parts) != len(summaries):
+        raise CFBDTransformError("Global validation changed its summary partitions")
+    return tuple(parts[index] for index in summary_indices)
 
 
 def _validate_local_checks(table: Table) -> None:

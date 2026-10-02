@@ -183,6 +183,33 @@ def test_global_contract_is_checked_before_explicit_collection() -> None:
         Table(frame).require(nw.col("valid"), message="Invalid fixture").collect()
 
 
+@pytest.mark.parametrize(
+    ("identifiers", "values", "message"),
+    (
+        ([1, 2, 3, 4], [1, 2, 3, 4], None),
+        ([1, 2, 3, 1], [1, 2, 3, 4], "Duplicate identifiers"),
+        ([1, 2, 3, 1], [1, 2, None, 4], "Invalid values"),
+    ),
+)
+def test_shared_global_checks_preserve_contract_order(
+    identifiers: list[int], values: list[int | None], message: str | None
+) -> None:
+    """Retain each contract and its failure priority when lowering shared graphs."""
+    import dask.dataframe as dd
+
+    frame = pd.DataFrame({"id": identifiers, "value": values})
+    table = (
+        Table(nw.from_native(dd.from_pandas(frame, npartitions=2, sort=False)))
+        .require(nw.col("value") > 0, message="Invalid values")
+        .require_unique(("id",), message="Duplicate identifiers")
+    )
+    if message is not None:
+        with pytest.raises(CFBDTransformError, match=message):
+            table.collect()
+    else:
+        assert table.collect()["id"].tolist() == identifiers
+
+
 @step(id="tests.native.invalid_fields", revision=1, output=_Output)
 def _invalid_fields(base: Table, empty: Table) -> Table:
     """Reject an invalid source projection even when the source has no rows."""
