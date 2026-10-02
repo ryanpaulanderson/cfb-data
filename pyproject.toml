@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cfb-data"
 version = "0.9.0"
-description = "Validated CollegeFootballData access and native Dask analytics"
+description = "Async validated CollegeFootballData access for pandas and Polars, with native Dask analytics"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
