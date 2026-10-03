@@ -28,6 +28,7 @@ from ._parameters import (
 )
 from ._registration import _publish_candidate
 from .errors import CFBDRecipeConfigurationError, CFBDRecipeUsageError
+from .tables import Table
 from .types import AdaptiveSourceContext, RecipeRef, SourceContext
 
 if TYPE_CHECKING:
@@ -155,13 +156,17 @@ class _Recipe[**P, R]:
 class SourceRecipe[**P, R](_Recipe[P, R]):
     """Represent a coordinator-only validated source operation."""
 
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> RecipeRef[R]:
-        """Add the source to an active recipe graph."""
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> RecipeRef[Table]:
+        """Add a validated source table to an active recipe graph.
+
+        The body validates external model rows; its public graph output is a
+        typed table. No model list is exposed to native analytical steps.
+        """
         from ._graph_context import _call_in_build_context
 
-        return _call_in_build_context(self, args, kwargs)
+        return cast(RecipeRef[Table], _call_in_build_context(self, args, kwargs))
 
-    def bind(self, **parameters: object) -> RecipeRef[R]:
+    def bind(self, **parameters: object) -> RecipeRef[Table]:
         """Bind request parameters to literals or validated upstream scalars.
 
         :param parameters: Complete request bindings by parameter name.
@@ -170,7 +175,7 @@ class SourceRecipe[**P, R](_Recipe[P, R]):
         """
         from ._graph_context import _call_in_build_context
 
-        return _call_in_build_context(self, (), parameters)
+        return cast(RecipeRef[Table], _call_in_build_context(self, (), parameters))
 
     async def _execute_source(
         self,

@@ -83,11 +83,21 @@ class ExecutionPolicy:
     dask_transfer_limit_bytes: int = 512 * 1024 * 1024
     dask_max_attempts: int = 1
     dask_step_timeout_seconds: float | None = None
+    result_mode: Literal["eager", "lazy"] = "eager"
+    table_partition_rows: int = 16_384
 
     def __post_init__(self) -> None:
         """Reject unbounded or internally inconsistent execution controls."""
         if self.executor not in {"local", "dask"}:
             raise ValueError("executor must be 'local' or 'dask'")
+        if self.result_mode not in {"eager", "lazy"}:
+            raise ValueError("result_mode must be 'eager' or 'lazy'")
+        if (
+            isinstance(self.table_partition_rows, bool)
+            or not isinstance(self.table_partition_rows, int)
+            or self.table_partition_rows < 1
+        ):
+            raise ValueError("table_partition_rows must be a positive integer")
         if self.checkpoint_mode not in {"all", "outputs_only", "off"}:
             raise ValueError("checkpoint_mode is invalid")
         if (

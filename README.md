@@ -1,6 +1,6 @@
 # College Football Data Python Toolkit
 
-`cfb-data` 0.8.0 is a beta Python toolkit for exploring the public
+`cfb-data` 0.9.0 is a beta Python toolkit for exploring the public
 [CollegeFootballData API](https://collegefootballdata.com/). Most calls return
 eager pandas DataFrames that are ready for analysis. Polars is available as an
 option, and a few naturally nested results return Pydantic models.
@@ -25,7 +25,7 @@ Arrow, HTTP retry logic, or the cache implementation.
 
 ## Install
 
-Python 3.12 and 3.13 are supported. pandas and PyArrow are included:
+Python 3.12 and 3.13 are supported. pandas, PyArrow, and native Dask DataFrame processing are included:
 
 ```shell
 python -m pip install cfb-data
@@ -45,7 +45,7 @@ python -m pip install "cfb-data[redis]"
 
 SQLite caching is included in the normal installation.
 
-For local Dask execution or safe declarative YAML recipes:
+For parallel Dask workers or safe declarative YAML recipes:
 
 ```shell
 python -m pip install "cfb-data[dask,yaml]"

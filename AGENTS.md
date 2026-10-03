@@ -140,6 +140,59 @@ tracked in [issue #55](https://github.com/ryanpaulanderson/cfb-data/issues/55).
   the problem. Justify every new dependency by maintenance, security, and
   operational value.
 
+## Analytics recipes and native Dask execution
+
+- Read [the recipe execution audit](docs/architecture/recipe-dask-reengineering-audit.md)
+  before adding or reengineering analytics recipes. It records the original
+  whole-list implementation. Follow [ADR 0007](docs/architecture/0007-native-table-execution.md)
+  and the current native `Table` contract for authoring.
+- Write recipes as visible compositions of validated sources and named table
+  transformations. Use native DataFrame expressions for projection, filtering,
+  joins, grouping, aggregation, explosion, concatenation, and sorting. Shared
+  tooling owns their contract checks; recipe code owns football semantics.
+- When Dask execution is selected, build a lazy, partitioned Dask DataFrame
+  graph over pandas partitions. Submitting an entire list-processing function
+  to a worker does not satisfy native Dask execution. Prefer one shared table
+  pipeline with explicit execution/materialization boundaries. Supported
+  execution and result modes must agree on analytical meaning.
+- During beta, API signatures, step contracts, schemas, and eager/lazy return
+  boundaries may change to achieve correctness and native composition. Return
+  dataframe-like analytical products or explicit named/batched collections of
+  them. Do not retain model-list interfaces or an eager gather solely for
+  backward compatibility. Document intentional changes and update examples,
+  tests, semantic revisions, and artifact/checkpoint compatibility together.
+- Do not implement general table operations with whole-dataset Python lists,
+  dictionaries, sets, row loops, or row-wise `apply`. Do not hide a whole-table
+  gather in `map_partitions`, `delayed`, `client.submit`, or a helper. Small
+  scalar domain rules and bounded source-control loops are allowed when their
+  responsibility and bounds are explicit.
+- Use a custom partition kernel for semantics supported native operations
+  cannot faithfully express, including necessary structural decoding and
+  validation. Small functions or lambdas may express domain rules; they must
+  not conceal generic joins, groups, or whole-table gathers. Declare the
+  kernel's schema, null behavior, ordering, cardinality, resource bounds, and
+  partition assumptions. It must operate on a bounded partition;
+  cross-partition grouping and joining require an explicit shuffle or reduction.
+- Preserve strict source/final validation, identity evidence, nested values,
+  coverage, source ordinals, and declared row universes. Prove uniqueness,
+  join cardinality, conflict detection, and ordering globally, including keys
+  split across partitions. Partition-local checks alone are insufficient.
+- Keep credentials, HTTP, cache policy, attempt accounting, and authoritative
+  artifact commits coordinator-owned. Validate and write bounded partitions
+  without reconstructing the complete dataset as Python models between steps.
+  Eager collection belongs at an explicit requested result boundary, not an
+  automatic gather between transformations.
+- Verify actual multipartition execution through the public recipe interface,
+  with independently computed results for the supported dataframe/execution
+  modes at the same semantic revision. Record task/partition evidence and
+  representative cold/warm runtime, peak memory,
+  serialization, and shuffle measurements. Correctness parity or worker
+  placement alone does not prove scalable execution or a speed improvement.
+- Treat changes to the step contract, partitioned validation/persistence,
+  planning, and checkpoint compatibility as explicit architecture work. Do not
+  claim the current engine implements these requirements until the migration
+  and its acceptance evidence are complete.
+
 ## Errors, security, and external I/O
 
 - Raise specific, actionable exceptions with relevant safe context. Preserve
@@ -177,6 +230,17 @@ tracked in [issue #55](https://github.com/ryanpaulanderson/cfb-data/issues/55).
 - Keep tests deterministic, isolated, independent of execution order, and free
   of live network access by default. Do not manipulate `sys.path`; test the
   installed package. Maintain a clean-build/install/import smoke path.
+- Target one to two minutes for the default suite on ordinary development and
+  CI machines. Use small representative fixtures, event handshakes instead of
+  fixed waiting periods, and the bounded parallel runner configured in
+  `pyproject.toml`. CI splits the full suite into three duration-balanced groups
+  per supported Python version; retain complete coverage and fail that version's
+  required check when one of its groups fails or is cancelled. Refresh checked-in
+  timing data after substantial changes. Keep dependencies installed by packaging
+  tests in isolated environments. Reuse backend-portable checkpoints for presentation parity;
+  retain fresh local and Dask dataset execution and dedicated multipartition,
+  failure, cancellation, and worker-lifecycle acceptance. Report measured
+  durations, and keep quota-ledgered live checks explicitly enabled and serial.
 - The current in-package test layout is legacy, not a structural precedent.
   Move it only as a dedicated change that updates packaging and pytest
   configuration atomically.

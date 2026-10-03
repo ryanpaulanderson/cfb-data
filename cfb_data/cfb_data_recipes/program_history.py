@@ -2,7 +2,7 @@
 
 The season range is validated and expanded entirely during graph compilation.
 No source response can add nodes. Each season calls the same independent public
-dataset recipes an external analyst would use, and small coordinator-local
+dataset recipes an external analyst would use, and native distributed
 concatenation steps preserve their already validated rows and ordering.
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TypedDict
 
-from cfb_data.analytics import step, workflow
+from cfb_data.analytics import Table, concat_tables, step, workflow
 from cfb_data.enums import (
     Classification,
     MediaType,
@@ -18,7 +18,7 @@ from cfb_data.enums import (
     SeasonType,
 )
 
-from cfb_data_recipes.coach_seasons import CoachSeason, coach_seasons
+from cfb_data_recipes.coach_seasons import coach_seasons
 from cfb_data_recipes.game_summaries import GameSummary, game_summaries
 from cfb_data_recipes.poll_rankings import PollRanking, poll_rankings
 from cfb_data_recipes.recruiting_classes import RecruitingClass, recruiting_classes
@@ -31,80 +31,79 @@ _MAX_SEASONS = 50
 class ProgramHistoryRefs(TypedDict):
     """Describe the workflow's six explicitly named tabular outputs."""
 
-    game_summaries: list[GameSummary]
-    team_games: list[TeamGame]
-    team_seasons: list[TeamSeason]
-    recruiting_classes: list[RecruitingClass]
-    coach_seasons: list[CoachSeason]
-    poll_rankings: list[PollRanking]
+    game_summaries: Table
+    team_games: Table
+    team_seasons: Table
+    recruiting_classes: Table
+    coach_seasons: Table
+    poll_rankings: Table
 
 
 @step(
     id="cfbd.program_history.concatenate_game_summaries",
-    revision=1,
+    revision=2,
     output=GameSummary,
-    dask=False,
 )
 def _concatenate_game_summaries(
-    groups: tuple[list[GameSummary], ...],
-) -> list[GameSummary]:
+    groups: tuple[Table, ...],
+) -> Table:
     """Concatenate season-ordered game-summary partitions."""
-    return _concatenate(groups)
+    return concat_tables(groups).sort("season", "week", "game_id")
 
 
 @step(
     id="cfbd.program_history.concatenate_team_games",
-    revision=1,
+    revision=2,
     output=TeamGame,
-    dask=False,
 )
 def _concatenate_team_games(
-    groups: tuple[list[TeamGame], ...],
-) -> list[TeamGame]:
+    groups: tuple[Table, ...],
+) -> Table:
     """Concatenate season-ordered team-game partitions."""
-    return _concatenate(groups)
+    return concat_tables(groups).sort(
+        "season", "week", "game_id", "perspective_ordinal"
+    )
 
 
 @step(
     id="cfbd.program_history.concatenate_team_seasons",
-    revision=1,
+    revision=2,
     output=TeamSeason,
-    dask=False,
 )
 def _concatenate_team_seasons(
-    groups: tuple[list[TeamSeason], ...],
-) -> list[TeamSeason]:
+    groups: tuple[Table, ...],
+) -> Table:
     """Concatenate season-ordered team-season partitions."""
-    return _concatenate(groups)
+    return concat_tables(groups).sort("season", "team_id")
 
 
 @step(
     id="cfbd.program_history.concatenate_recruiting_classes",
-    revision=1,
+    revision=2,
     output=RecruitingClass,
-    dask=False,
 )
 def _concatenate_recruiting_classes(
-    groups: tuple[list[RecruitingClass], ...],
-) -> list[RecruitingClass]:
+    groups: tuple[Table, ...],
+) -> Table:
     """Concatenate year-ordered recruiting-class partitions."""
-    return _concatenate(groups)
+    return concat_tables(groups).sort("class_year", "class_ordinal")
 
 
 @step(
     id="cfbd.program_history.concatenate_poll_rankings",
-    revision=1,
+    revision=2,
     output=PollRanking,
-    dask=False,
 )
 def _concatenate_poll_rankings(
-    groups: tuple[list[PollRanking], ...],
-) -> list[PollRanking]:
+    groups: tuple[Table, ...],
+) -> Table:
     """Concatenate season-ordered poll-ranking partitions."""
-    return _concatenate(groups)
+    return concat_tables(groups).sort(
+        "season", "season_type", "week", "poll_ordinal", "rank_ordinal", "team_id"
+    )
 
 
-@workflow(id="cfbd.program_history", revision=3)
+@workflow(id="cfbd.program_history", revision=4)
 def program_history(
     *,
     team: str,
@@ -252,10 +251,6 @@ def _seasons(start_season: int, end_season: int) -> tuple[int, ...]:
     if count > _MAX_SEASONS:
         raise ValueError(f"program_history supports at most {_MAX_SEASONS} seasons")
     return tuple(range(start_season, end_season + 1))
-
-
-def _concatenate[RowT](groups: tuple[list[RowT], ...]) -> list[RowT]:
-    return [row for group in groups for row in group]
 
 
 __all__ = ["ProgramHistoryRefs", "program_history"]

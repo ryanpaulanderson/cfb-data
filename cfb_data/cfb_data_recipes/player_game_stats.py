@@ -11,13 +11,13 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from cfb_data.analytics import RecipeRef, dataset, step
+import narwhals.stable.v2 as nw
+from cfb_data.analytics import RecipeRef, Table, dataset, step
 from cfb_data.enums import Classification, SeasonType
-from cfb_data.games.models.pydantic.responses import PlayerGameStats
 from cfb_data.games.sources import player_game_stats as player_game_stats_source
 from pydantic import BaseModel, ConfigDict, Field
 
-from cfb_data_recipes.game_summaries import GameSummary, game_summaries
+from cfb_data_recipes.game_summaries import game_summaries
 
 
 class PlayerGameStat(BaseModel):
@@ -74,82 +74,95 @@ class PlayerGameStat(BaseModel):
 
 @step(
     id="cfbd.player_game_stats.flatten",
-    revision=1,
+    revision=2,
     output=PlayerGameStat,
     deterministic=True,
 )
-def flatten_player_game_stats(
-    summaries: list[GameSummary],
-    nested: list[PlayerGameStats],
-) -> list[PlayerGameStat]:
-    """Flatten validated nesting using game-scoped side identity.
+def flatten_player_game_stats(summaries: Table, nested: Table) -> Table:
+    """Compose native structural explosions and a globally checked context join.
 
-    :param summaries: Validated game contexts carrying stable team IDs.
-    :param nested: Validated game/team/category/type/athlete source nesting.
-    :return: Long-form statistic observations in deterministic source order.
-    :raises ValueError: If a source game has no unique validated game context.
+    :param summaries: Validated game context table with stable side IDs.
+    :param nested: Validated nested player-statistics table.
+    :return: Source-ordered long-form athlete/statistic observations.
     """
-    contexts: dict[int, GameSummary] = {}
-    for summary in summaries:
-        if summary.game_id in contexts:
-            raise ValueError("Game summaries contain a duplicate game ID")
-        contexts[summary.game_id] = summary
-
-    rows: list[PlayerGameStat] = []
-    for game in nested:
-        context = contexts.get(game.id)
-        if context is None:
-            raise ValueError("Player statistics have no matching game context")
-        for team in game.teams:
-            home = team.home_away == "home"
-            for category_ordinal, category in enumerate(team.categories):
-                for stat_type_ordinal, stat_type in enumerate(category.types):
-                    for athlete_ordinal, athlete in enumerate(stat_type.athletes):
-                        rows.append(
-                            PlayerGameStat(
-                                game_id=game.id,
-                                season=context.season,
-                                week=context.week,
-                                season_type=context.season_type,
-                                start_date=context.start_date,
-                                team_id=context.home_id if home else context.away_id,
-                                team=team.team,
-                                conference=team.conference,
-                                classification=(
-                                    context.home_classification
-                                    if home
-                                    else context.away_classification
-                                ),
-                                home_away=team.home_away,
-                                team_ordinal=0 if home else 1,
-                                team_points=team.points,
-                                athlete_id=athlete.id,
-                                athlete_name=athlete.name,
-                                category=category.name,
-                                stat_type=stat_type.name,
-                                stat=athlete.stat,
-                                category_ordinal=category_ordinal,
-                                stat_type_ordinal=stat_type_ordinal,
-                                athlete_ordinal=athlete_ordinal,
-                            )
-                        )
-    return sorted(
-        rows,
-        key=lambda row: (
-            row.season,
-            row.week,
-            row.game_id,
-            row.team_ordinal,
-            row.category_ordinal,
-            row.stat_type_ordinal,
-            row.athlete_ordinal,
-        ),
+    context = summaries.select(
+        "game_id",
+        "season",
+        "week",
+        "season_type",
+        "start_date",
+        "home_id",
+        "away_id",
+        "home_classification",
+        "away_classification",
+    ).with_columns(nw.lit(True).alias("__context"))
+    context = context.require_unique(
+        ("game_id",), message="Game summaries contain a duplicate game ID"
+    )
+    rows = (
+        nested.rename({"id": "game_id"})
+        .join(context, on=("game_id",), cardinality="many_to_one")
+        .require(
+            nw.col("__context").fill_null(False),
+            message="Player statistics have no matching game context",
+        )
+    )
+    rows = rows.explode_records(
+        "teams",
+        fields={
+            "team": "team",
+            "conference": "conference",
+            "home_away": "home_away",
+            "points": "team_points",
+            "categories": "__categories",
+        },
+        ordinal="__side",
+    )
+    rows = rows.explode_records(
+        "__categories",
+        fields={"name": "category", "types": "__types"},
+        ordinal="category_ordinal",
+    )
+    rows = rows.explode_records(
+        "__types",
+        fields={"name": "stat_type", "athletes": "__athletes"},
+        ordinal="stat_type_ordinal",
+    )
+    rows = rows.explode_records(
+        "__athletes",
+        fields={"id": "athlete_id", "name": "athlete_name", "stat": "stat"},
+        ordinal="athlete_ordinal",
+    )
+    home = nw.col("home_away") == "home"
+    return (
+        rows.with_columns(
+            nw.when(home)
+            .then(nw.col("home_id"))
+            .otherwise(nw.col("away_id"))
+            .cast(nw.Int64)
+            .alias("team_id"),
+            nw.when(home)
+            .then(nw.col("home_classification"))
+            .otherwise(nw.col("away_classification"))
+            .alias("classification"),
+            nw.when(home).then(nw.lit(0)).otherwise(nw.lit(1)).alias("team_ordinal"),
+        )
+        .select(*PlayerGameStat.model_fields)
+        .sort(
+            "season",
+            "week",
+            "game_id",
+            "team_ordinal",
+            "category_ordinal",
+            "stat_type_ordinal",
+            "athlete_ordinal",
+        )
     )
 
 
 @dataset(
     id="cfbd.player_game_stats",
-    revision=1,
+    revision=2,
     row=PlayerGameStat,
     grain="one athlete statistic observation in one team/game context",
     keys=("game_id", "team_id", "athlete_id", "category", "stat_type"),
@@ -175,7 +188,7 @@ def player_game_stats(
     category: str | None = None,
     game_id: int | None = None,
     classification: Classification | None = None,
-) -> RecipeRef[list[PlayerGameStat]]:
+) -> RecipeRef[Table]:
     """Build long-form player-game statistic observations.
 
     :param year: Season year used for grouped retrieval.

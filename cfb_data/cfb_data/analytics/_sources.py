@@ -53,6 +53,7 @@ from .observability import (
     AnalyticsEventType,
     AnalyticsOutcome,
 )
+from .results import ArtifactRef
 from .types import _CoverageAwareRow
 
 
@@ -151,6 +152,8 @@ class _SourceRunner:
         recompute_nodes: frozenset[str] = frozenset(),
         concurrency: int,
         dispatcher: _AnalyticsDispatcher,
+        native_tables: bool = False,
+        partition_rows: int = 16_384,
     ) -> None:
         """Initialize one run-scoped source coordinator."""
         if concurrency < 1:
@@ -167,6 +170,8 @@ class _SourceRunner:
         self._semaphore = asyncio.Semaphore(concurrency)
         self._dispatcher = dispatcher
         self._retrievals: dict[str, asyncio.Task[list[BaseModel]]] = {}
+        self._native_tables: bool = native_tables
+        self._partition_rows: int = partition_rows
 
     async def run_batch(
         self,
@@ -309,9 +314,9 @@ class _SourceRunner:
                     parameters,
                 )
             rows = contract.rows_adapter.validate_python(value)
-            checkpoint_eligible = self._checkpoint_eligible(node) and not any(
-                isinstance(row, _CoverageAwareRow) and row.coverage_state == "partial"
-                for row in rows
+            coverage_partial, warnings = _row_coverage(rows)
+            checkpoint_eligible = (
+                self._checkpoint_eligible(node) and not coverage_partial
             )
             artifact = await asyncio.to_thread(
                 self._store_and_bind_rows,
@@ -360,10 +365,22 @@ class _SourceRunner:
             duration=time.monotonic() - started,
         )
         return node.node_id, _NodeResult(
-            value=rows,
+            value=self._table_value(artifact, contract.row_model)
+            if self._native_tables
+            else rows,
             artifact=artifact,
             node_fingerprint=fingerprint,
             row_model=contract.row_model,
+            warnings=warnings,
+            coverage_partial=coverage_partial,
+        )
+
+    def _table_value(
+        self, artifact: _StoredArtifact, row_model: type[BaseModel]
+    ) -> ArtifactRef:
+        """Return an owned immutable source table reference without row models."""
+        return ArtifactRef._from_stored(
+            root=self._object_store.root, artifact=artifact, row_model=row_model
         )
 
     async def _retrieve[RequestT: BaseModel, RowT: BaseModel](
@@ -435,12 +452,30 @@ class _SourceRunner:
         candidate: _CheckpointCandidate,
     ) -> _NodeResult | None:
         try:
-            rows = await asyncio.to_thread(
-                self._load_rows,
-                contract,
-                identity,
-                candidate,
-            )
+            if self._native_tables:
+                reference = self._table_value(
+                    _StoredArtifact(
+                        candidate.binding.content_digest, candidate.manifest
+                    ),
+                    contract.row_model,
+                )
+                coverage_partial, warnings = await asyncio.to_thread(
+                    self._validate_candidate_coverage, contract, identity, candidate
+                )
+                value: object = reference
+            else:
+                rows = await asyncio.to_thread(
+                    self._load_rows,
+                    contract,
+                    identity,
+                    candidate,
+                )
+                value = rows
+                coverage_partial, warnings = _row_coverage(rows)
+            # Content is authoritative even when persisted eligibility metadata
+            # is stale. Partial sources must be retrieved again, not rebound.
+            if coverage_partial:
+                return None
             await asyncio.to_thread(
                 self._database.bind_reused_node,
                 run_id=self._run_id,
@@ -462,17 +497,54 @@ class _SourceRunner:
             node.node_id,
             outcome=AnalyticsOutcome.reused,
             artifact=candidate.binding.content_digest,
-            row_count=len(rows),
+            row_count=candidate.manifest.body.row_count,
         )
         return _NodeResult(
-            value=rows,
+            value=value,
             artifact=_StoredArtifact(
                 content_digest=candidate.binding.content_digest,
                 manifest=candidate.manifest,
             ),
             node_fingerprint=fingerprint,
             row_model=contract.row_model,
+            warnings=warnings,
+            coverage_partial=coverage_partial,
         )
+
+    def _validate_candidate_coverage(
+        self,
+        contract: _SourceContract,
+        identity: _AnalyticsTableIdentity,
+        candidate: _CheckpointCandidate,
+    ) -> tuple[bool, tuple[str, ...]]:
+        """Validate bounded source batches and retain model-level coverage evidence.
+
+        :param contract: Authoritative source row contract and validation adapter.
+        :param identity: Expected semantic identity of the source output.
+        :param candidate: Immutable source snapshot being considered for reuse.
+        :return: Partial-state flag and distinct warnings in source order.
+        :raises CFBDArtifactCorruptionError: If persisted content is malformed.
+        """
+        partial = False
+        warnings: dict[str, None] = {}
+        for table in _TableArtifactCodec().iter_tables(
+            directory=self._object_store.directory(candidate.binding.content_digest),
+            manifest=candidate.manifest,
+            row_model=contract.row_model,
+            identity=identity,
+        ):
+            for offset in range(0, max(1, table.num_rows), self._partition_rows):
+                rows = _analytics_models_from_arrow_table(
+                    row_model=contract.row_model,
+                    response_adapter=contract.rows_adapter,
+                    table=table.slice(offset, self._partition_rows),
+                    identity=identity,
+                )
+                batch_partial, batch_warnings = _row_coverage(rows)
+                partial = partial or batch_partial
+                for warning in batch_warnings:
+                    warnings.setdefault(warning, None)
+        return partial, tuple(warnings)
 
     def _store_and_bind_rows(
         self,
@@ -484,18 +556,25 @@ class _SourceRunner:
         checkpoint_eligible: bool,
     ) -> _StoredArtifact:
         """Stage, publish, and durably bind source rows under one reservation."""
-        table: pa.Table = _analytics_arrow_table_from_models(
-            row_model=row_model,
-            models=rows,
-            identity=identity,
-        )
         with self._object_store.staging_directory() as directory:
-            staged = _TableArtifactCodec().stage(
+            codec = (
+                _TableArtifactCodec(max_rows_per_part=self._partition_rows)
+                if self._native_tables
+                else _TableArtifactCodec()
+            )
+            writer = codec.writer(
                 directory=directory,
-                table=table,
                 row_model=row_model,
                 identity=identity,
             )
+            for offset in range(0, max(1, len(rows)), self._partition_rows):
+                table: pa.Table = _analytics_arrow_table_from_models(
+                    row_model=row_model,
+                    models=rows[offset : offset + self._partition_rows],
+                    identity=identity,
+                )
+                writer.append(table)
+            staged = writer.finish()
             artifact, _ = self._database.publish_completed_node(
                 run_id=self._run_id,
                 node_id=node_id,
@@ -605,6 +684,18 @@ def _source_contract(node: _CompiledNode) -> _SourceContract:
         rows_adapter=adapter,
         operation=endpoint_operation,
     )
+
+
+def _row_coverage(rows: Sequence[BaseModel]) -> tuple[bool, tuple[str, ...]]:
+    """Summarize validated source-row coverage at its model boundary."""
+    partial = False
+    warnings: dict[str, None] = {}
+    for row in rows:
+        if isinstance(row, _CoverageAwareRow):
+            partial = partial or row.coverage_state == "partial"
+            if row.coverage_warning is not None:
+                warnings.setdefault(row.coverage_warning, None)
+    return partial, tuple(warnings)
 
 
 async def _cancel_and_await[ValueT](

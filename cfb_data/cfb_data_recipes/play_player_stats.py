@@ -8,7 +8,9 @@ from cfb_data.analytics import (
     AdaptiveSourceContext,
     CFBDAttemptBudgetExceeded,
     RecipeRef,
+    Table,
     adaptive_source,
+    concat_tables,
     dataset,
     step,
 )
@@ -268,35 +270,28 @@ async def _complete_game(
     return _with_coverage(distinct, warning=warning)
 
 
-@step(id="cfbd.play_player_stats.merge_games", revision=1, output=PlayPlayerStatRow)
-def _merge_games(
-    groups: tuple[list[PlayPlayerStatRow], ...],
-) -> list[PlayPlayerStatRow]:
-    """Merge explicit game partitions in deterministic declared order."""
-    return sorted(
-        (row for group in groups for row in group),
-        key=lambda row: (
-            row.game_id,
-            row.play_id,
-            row.team,
-            row.athlete_id,
-            row.stat_type,
-        ),
+@step(id="cfbd.play_player_stats.merge_games", revision=2, output=PlayPlayerStatRow)
+def _merge_games(groups: tuple[Table, ...]) -> Table:
+    """Concatenate game partitions and sort through the native engine.
+
+    :param groups: Finite statically declared validated game tables.
+    :return: Native game/play/athlete/statistic ordered table.
+    """
+    return concat_tables(groups).sort(
+        "game_id", "play_id", "team", "athlete_id", "stat_type"
     )
 
 
 @dataset(
     id="cfbd.play_player_stats",
-    revision=1,
+    revision=2,
     row=PlayPlayerStatRow,
     grain="one athlete and named statistic association with a game play",
     keys=("game_id", "play_id", "team", "athlete_id", "stat_type"),
     order_by=("game_id", "play_id", "team", "athlete_id", "stat_type"),
     partition_by=("game_id",),
 )
-def play_player_stats(
-    *, game_ids: tuple[int, ...] | list[int]
-) -> RecipeRef[list[PlayPlayerStatRow]]:
+def play_player_stats(*, game_ids: tuple[int, ...] | list[int]) -> RecipeRef[Table]:
     """Build play-player statistics with explicit game-level coverage.
 
     :param game_ids: Nonempty sequence of unique positive game identifiers.

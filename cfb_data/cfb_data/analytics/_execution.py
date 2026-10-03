@@ -21,6 +21,8 @@ class _NodeResult:
     artifact: _StoredArtifact
     node_fingerprint: str | None
     row_model: type[BaseModel] | None
+    warnings: tuple[str, ...] = ()
+    coverage_partial: bool = False
 
 
 def _resolve_arguments(

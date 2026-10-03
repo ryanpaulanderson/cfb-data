@@ -2,6 +2,7 @@
 
 import subprocess
 import sys
+import tomllib
 from importlib.metadata import entry_points, metadata, version
 from importlib.resources import files as resource_files
 from pathlib import Path
@@ -23,7 +24,15 @@ import cfb_data
 def test_distribution_and_package_are_importable() -> None:
     """Verify an editable install exposes the package and its metadata."""
     assert cfb_data.__doc__
-    assert version("cfb-data") == "0.8.0"
+    project_data: object = tomllib.loads(
+        (Path(__file__).resolve().parents[3] / "pyproject.toml").read_text()
+    )
+    assert isinstance(project_data, dict)
+    project = project_data.get("project")
+    assert isinstance(project, dict)
+    project_version = project.get("version")
+    assert isinstance(project_version, str)
+    assert version("cfb-data") == project_version
     assert resource_files(cfb_data).joinpath("py.typed").is_file()
     assert resource_files("cfb_data.cache").joinpath("sql", "schema.sql").is_file()
 

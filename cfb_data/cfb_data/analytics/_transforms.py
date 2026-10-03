@@ -33,9 +33,11 @@ from ._checkpoints import (
 )
 from ._compiler import _digest
 from ._compute import _TransformExecutorSession
-from ._contracts import _table_row_model
+from ._contracts import _is_native_step, _table_row_model
+from ._dask import _DaskTransformProvider
 from ._execution import _NodeResult, _resolve_arguments
 from ._graph import _CompiledNode, _NodeRef, _ValueRef
+from ._native_execution import _local_native_parts, _next_partition
 from ._observability import _AnalyticsDispatcher
 from ._persistence import (
     _ArtifactObjectStore,
@@ -49,8 +51,11 @@ from .errors import (
     CFBDArtifactCorruptionError,
     CFBDPersistenceError,
     CFBDRecipeCompilationError,
+    CFBDTransformError,
 )
 from .observability import AnalyticsEvent, AnalyticsEventType, AnalyticsOutcome
+from .results import ArtifactRef
+from .tables import Table
 
 type _Backend = Literal["pandas", "polars"]
 
@@ -87,6 +92,8 @@ class _TransformRunner:
         compute_timeout_seconds: float | None = None,
         lease_ttl: timedelta = _DEFAULT_LEASE_TTL,
         lease_poll_seconds: float = _DEFAULT_LEASE_POLL_SECONDS,
+        partition_rows: int = 16_384,
+        native_tables: bool = False,
     ) -> None:
         """Initialize one run-scoped local transformation runner."""
         if lease_ttl.total_seconds() <= 0:
@@ -112,6 +119,8 @@ class _TransformRunner:
         self._compute_timeout_seconds = compute_timeout_seconds
         self._lease_ttl = lease_ttl
         self._lease_poll_seconds = lease_poll_seconds
+        self._partition_rows: int = partition_rows
+        self._native_tables: bool = native_tables
 
     async def run_batch(
         self,
@@ -241,19 +250,36 @@ class _TransformRunner:
                 await self._require_live_renewal(renewal)
                 value: object
                 if row_model is not None:
-                    rows, artifact, fingerprint = await asyncio.to_thread(
-                        self._validate_store_and_bind_table,
-                        raw,
-                        row_model,
-                        output_identity,
-                        node,
-                        fingerprint,
-                        placement,
-                        self._checkpoint_eligible(node),
-                        lease,
-                    )
-                    value = rows
-                    row_count: int | None = len(rows)
+                    if isinstance(raw, Table):
+                        value, artifact, fingerprint = await self._store_native_table(
+                            raw,
+                            row_model,
+                            output_identity,
+                            node,
+                            fingerprint,
+                            placement,
+                            self._checkpoint_eligible(node),
+                            lease,
+                        )
+                    else:
+                        value, artifact, fingerprint = await asyncio.to_thread(
+                            self._validate_store_and_bind_table,
+                            raw,
+                            row_model,
+                            output_identity,
+                            node,
+                            fingerprint,
+                            placement,
+                            self._checkpoint_eligible(node),
+                            lease,
+                        )
+                    row_count: int | None = artifact.manifest.body.row_count
+                    if self._native_tables and not isinstance(value, ArtifactRef):
+                        value = ArtifactRef._from_stored(
+                            root=self._object_store.root,
+                            artifact=artifact,
+                            row_model=row_model,
+                        )
                 else:
                     control_value, artifact, fingerprint = await asyncio.to_thread(
                         self._validate_store_and_bind_control,
@@ -314,8 +340,21 @@ class _TransformRunner:
         parameters: Mapping[str, object],
     ) -> object:
         if node.kind == "dataset":
-            return parameters["value"]
+            value = parameters["value"]
+            return (
+                value.scan(partition_rows=self._partition_rows)
+                if isinstance(value, ArtifactRef)
+                else value
+            )
         recipe = cast(StepRecipe[..., object], node.recipe)
+        if recipe.id == "cfb_data.operations.require_one":
+            only = parameters.get("rows")
+            if isinstance(only, ArtifactRef) and only.descriptor.row_count != 1:
+                raise CFBDTransformError("require_one expected exactly one row")
+        parameters = {
+            name: self._resolve_table_parameter(value, native=_is_native_step(recipe))
+            for name, value in parameters.items()
+        }
         for attempt in range(1, self._max_compute_attempts + 1):
             try:
                 if self._compute_timeout_seconds is None:
@@ -336,6 +375,101 @@ class _TransformRunner:
                     attempt_id=str(attempt),
                 )
         raise RuntimeError("Transform attempt loop exhausted")
+
+    def _resolve_table_parameter(self, value: object, *, native: bool) -> object:
+        """Bind immutable table references at an explicit typed step boundary."""
+        if isinstance(value, ArtifactRef):
+            return (
+                value.scan(partition_rows=self._partition_rows, source_ordinal=True)
+                if native
+                else value._load_rows()
+            )
+        if isinstance(value, tuple):
+            return tuple(
+                self._resolve_table_parameter(item, native=native) for item in value
+            )
+        if isinstance(value, list):
+            return [
+                self._resolve_table_parameter(item, native=native) for item in value
+            ]
+        return value
+
+    async def _store_native_table(
+        self,
+        raw: Table,
+        row_model: type[BaseModel],
+        identity: _AnalyticsTableIdentity,
+        node: _CompiledNode,
+        fingerprint: str | None,
+        placement: Literal["coordinator", "local", "dask"],
+        checkpoint_eligible: bool,
+        lease: _NodeLease | None,
+    ) -> tuple[ArtifactRef, _StoredArtifact, str]:
+        """Validate native global contracts and atomically publish streamed parts."""
+        if node.kind == "dataset":
+            if node.declaration.keys:
+                raw = raw.require_unique(
+                    node.declaration.keys,
+                    message="Dataset candidate keys are not unique",
+                )
+            if node.declaration.order_by:
+                raw = raw.sort(*node.declaration.order_by)
+        raw = raw.select(*row_model.model_fields)
+        with self._object_store.staging_directory() as directory:
+            writer = _TableArtifactCodec(max_rows_per_part=self._partition_rows).writer(
+                directory=directory,
+                row_model=row_model,
+                identity=identity,
+                dataset=_dataset_contract(node),
+            )
+            if isinstance(self._provider, _DaskTransformProvider):
+                async with asyncio.timeout(self._compute_timeout_seconds):
+                    async for part in self._provider.native_partitions(
+                        raw, row_model, identity
+                    ):
+                        await asyncio.to_thread(writer.append, part.table)
+                        self._dispatcher.emit(
+                            AnalyticsEvent(
+                                event_type=AnalyticsEventType.partition_completed,
+                                run_id=self._run_id,
+                                node_id=node.node_id,
+                                placement="dask",
+                                row_count=part.table.num_rows,
+                                byte_count=part.table.nbytes,
+                                duration_seconds=part.duration_seconds,
+                                worker_pid=part.worker_pid,
+                            )
+                        )
+            else:
+                iterator = _local_native_parts(
+                    raw, row_model, identity, 512 * 1024 * 1024
+                )
+                while True:
+                    next_part = await asyncio.to_thread(_next_partition, iterator)
+                    if next_part is None:
+                        break
+                    await asyncio.to_thread(writer.append, next_part.table)
+            staged = await asyncio.to_thread(writer.finish)
+            resolved_fingerprint = self._resolved_fingerprint(
+                node, fingerprint, staged.manifest.content_digest
+            )
+            artifact, _ = await asyncio.to_thread(
+                self._database.publish_completed_node,
+                run_id=self._run_id,
+                node_id=node.node_id,
+                output_name="value",
+                node_fingerprint=resolved_fingerprint,
+                staged=staged,
+                object_store=self._object_store,
+                placement=placement,
+                checkpoint_eligible=checkpoint_eligible,
+                lease_key=None if lease is None else lease.key,
+                lease_owner_token=None if lease is None else lease.owner_token,
+            )
+        reference = ArtifactRef._from_stored(
+            root=self._object_store.root, artifact=artifact, row_model=row_model
+        )
+        return reference, artifact, resolved_fingerprint
 
     def _validate_store_and_bind_table(
         self,
@@ -658,7 +792,7 @@ class _TransformRunner:
             placement=candidate.binding.placement,
             outcome=AnalyticsOutcome.reused,
             artifact=candidate.binding.content_digest,
-            row_count=len(rows),
+            row_count=candidate.manifest.body.row_count,
         )
         return _NodeResult(
             value=rows,
@@ -729,7 +863,18 @@ class _TransformRunner:
         row_model: type[BaseModel],
         identity: _AnalyticsTableIdentity,
         candidate: _CheckpointCandidate,
-    ) -> list[BaseModel]:
+    ) -> object:
+        if self._native_tables or _is_native_step(node.recipe):
+            reference = ArtifactRef._from_stored(
+                root=self._object_store.root,
+                artifact=_StoredArtifact(
+                    candidate.binding.content_digest, candidate.manifest
+                ),
+                row_model=row_model,
+            )
+            for _ in reference.batches(batch_rows=self._partition_rows):
+                pass
+            return reference
         table = _TableArtifactCodec().load(
             directory=self._object_store.directory(candidate.binding.content_digest),
             manifest=candidate.manifest,
@@ -868,12 +1013,14 @@ def _resolve_typevar_control(
 ) -> TypeAdapter[object]:
     """Resolve a generic control output from one matching table input."""
     for name, annotation in hints.items():
-        arguments = get_args(annotation)
-        if (
-            name == "return"
-            or get_origin(annotation) is not list
-            or len(arguments) != 1
-            or arguments[0] is not return_type
+        members = (
+            get_args(annotation)
+            if get_origin(annotation) is types.UnionType
+            else (annotation,)
+        )
+        if name == "return" or not any(
+            get_origin(member) is list and get_args(member) == (return_type,)
+            for member in members
         ):
             continue
         argument = node.arguments.get(name)

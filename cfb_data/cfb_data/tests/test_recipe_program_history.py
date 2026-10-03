@@ -207,7 +207,7 @@ async def test_workflow_has_four_way_artifact_and_graph_parity(
                 base_url=base_url,
                 dataframe_backend=backend,
                 retry_policy=RetryPolicy(max_attempts=1),
-                analytics=AnalyticsConfig(root=tmp_path / f"{backend}-{executor}"),
+                analytics=AnalyticsConfig(root=tmp_path / "portable-workflow"),
             ) as client:
                 policy = ExecutionPolicy(executor=executor, dask_max_workers=1)
                 plan = await program_history.plan(
@@ -224,6 +224,13 @@ async def test_workflow_has_four_way_artifact_and_graph_parity(
                     end_season=2024,
                     policy=policy,
                 )
+                if backend == "pandas" and executor == "local":
+                    assert any(
+                        node.node_kind == "step" and not node.reused
+                        for node in run.lineage
+                    )
+                else:
+                    assert run.reused_nodes > 0
             graph_fingerprints.append(plan.graph_fingerprint)
             artifact_digests.append(
                 {

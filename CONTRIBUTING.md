@@ -12,7 +12,7 @@ make docs
 make check
 ```
 
-`make install` creates `.venv` and installs `.[dev,polars,redis]` so the contributor
+`make install` creates `.venv` and installs `.[dev,polars,redis,dask,yaml]` so the contributor
 environment exercises the canonical PyArrow layer, default pandas backend,
 optional Polars backend, and Redis integration client. `make check` is the
 shared local and CI contract:
@@ -21,6 +21,28 @@ complete pytest suite. `make docs` writes the site to `docs/_build/html`. CI
 runs the shared contract on Python 3.12 and 3.13, separately smoke-tests base
 and Polars installations, and publishes the documentation from `main` through
 GitHub Pages.
+
+The default suite targets one to two minutes and runs in two isolated pytest
+workers, with the slowest test durations reported. For focused debugging, use
+`.venv/bin/python -m pytest -n 0 path/to/test.py`. Dataset parity fixtures
+compute fresh local and Dask results in separate stores, then reuse their
+backend-portable checkpoints for Polars presentation. Workflow parity reuses
+compatible artifacts across both frame and executor options; dataset and
+dedicated worker acceptance already exercise fresh computation. Packaging
+fixtures install plugins into isolated environments. Cancellation fixtures use
+explicit handshakes instead of long fixed sleeps. Live targets remain serial
+to preserve cumulative API quota ledgers and their Redis cache policy.
+
+CI divides the complete suite into three balanced groups per Python version,
+each using the same two-worker runner and `make check` contract. The existing
+Python-version checks each require that version's three groups to succeed,
+including after a failed or cancelled group. Independent version invocations
+share one reusable quality workflow. The checked-in `.test_durations` contains
+measured setup, execution, and cleanup times used by `pytest-split`; tests without
+a timing use the suite average and remain included. Refresh timings after substantial suite
+changes with `.venv/bin/python -m pytest --store-durations`, then run
+`.venv/bin/pre-commit run --all-files`. For a CI group reproduction, use
+`PYTEST_ADDOPTS="--splits 3 --group 1 --splitting-algorithm least_duration" make check`.
 
 Follow [`AGENTS.md`](AGENTS.md), the authoritative repository engineering and
 Git guide. Run `make format` before `make check`; report every failure, skip,

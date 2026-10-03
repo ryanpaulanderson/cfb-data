@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal
@@ -23,6 +23,7 @@ from pydantic import (
 )
 
 from cfb_data._tabular import (
+    _analytics_arrow_table_from_models,
     _analytics_logical_records_from_arrow_table,
     _AnalyticsTableIdentity,
     _assert_analytics_arrow_table,
@@ -139,6 +140,126 @@ class _StagedArtifact:
     manifest: _ArtifactManifest
 
 
+class _TablePartitionWriter:
+    """Own bounded row slicing and seal a canonical unpublished artifact."""
+
+    def __init__(
+        self,
+        *,
+        directory: Path,
+        row_model: type[BaseModel],
+        identity: _AnalyticsTableIdentity,
+        dataset: _DatasetContractEvidence | None,
+        max_rows: int,
+    ) -> None:
+        _require_empty_staging_directory(directory)
+        self._directory: Path = directory
+        self._row_model: type[BaseModel] = row_model
+        self._identity: _AnalyticsTableIdentity = identity
+        self._dataset: _DatasetContractEvidence | None = dataset
+        self._max_rows: int = max_rows
+        self._buffer: pa.Table | None = None
+        self._parts: list[_ArtifactPart] = []
+        self._row_count: int = 0
+        self._finished: bool = False
+
+    def append(self, table: pa.Table) -> None:
+        """Validate and slice incoming canonical rows with bounded buffering."""
+        if self._finished:
+            raise ValueError("Partition writer is already finished")
+        _assert_analytics_arrow_table(
+            row_model=self._row_model,
+            table=table,
+            identity=self._identity,
+        )
+        self._row_count += table.num_rows
+        offset = 0
+        while offset < table.num_rows:
+            retained = 0 if self._buffer is None else self._buffer.num_rows
+            length = min(self._max_rows - retained, table.num_rows - offset)
+            piece = table.slice(offset, length)
+            self._buffer = (
+                piece
+                if self._buffer is None
+                else pa.concat_tables(
+                    (self._buffer, piece),
+                    promote_options="none",
+                )
+            )
+            offset += length
+            if self._buffer.num_rows == self._max_rows:
+                self._write(self._buffer)
+                self._buffer = None
+
+    def _write(self, table: pa.Table) -> None:
+        name = f"part-{len(self._parts):05d}.parquet"
+        path = self._directory / name
+        pq.write_table(
+            table,
+            path,
+            version="2.6",
+            compression="zstd",
+            write_statistics=True,
+            use_compliant_nested_type=True,
+            store_schema=True,
+            row_group_size=65_536,
+            data_page_version="1.0",
+        )
+        _flush_file(path)
+        self._parts.append(
+            _ArtifactPart(
+                name=name,
+                media_type="application/vnd.apache.parquet",
+                digest=_file_digest(path),
+                size_bytes=path.stat().st_size,
+                row_count=table.num_rows,
+            )
+        )
+
+    def finish(self) -> _StagedArtifact:
+        """Seal and reread bounded parts before returning an unpublished manifest."""
+        if self._finished:
+            raise ValueError("Partition writer is already finished")
+        self._finished = True
+        if self._buffer is not None:
+            self._write(self._buffer)
+            self._buffer = None
+        if not self._parts:
+            self._write(
+                _analytics_arrow_table_from_models(
+                    row_model=self._row_model,
+                    models=[],
+                    identity=self._identity,
+                )
+            )
+        body = _ArtifactManifestBody(
+            kind="table",
+            codec_id=_TABLE_CODEC_ID,
+            codec_version=_TABLE_CODEC_VERSION,
+            media_type="application/vnd.apache.parquet",
+            output_id=self._identity.output_id,
+            output_revision=self._identity.revision,
+            schema_digest=_logical_schema_digest(_logical_schema(self._row_model)),
+            row_count=self._row_count,
+            table=_table_artifact_contract(
+                self._row_model,
+                row_count=self._row_count,
+                dataset=self._dataset,
+            ),
+            parts=tuple(self._parts),
+        )
+        manifest = _write_manifest(self._directory, body)
+        for _ in _TableArtifactCodec().iter_tables(
+            directory=self._directory,
+            manifest=manifest,
+            row_model=self._row_model,
+            identity=self._identity,
+            dataset=self._dataset,
+        ):
+            pass
+        return _StagedArtifact(directory=self._directory, manifest=manifest)
+
+
 class _TableArtifactCodec:
     """Encode canonical analytics tables as deterministic Parquet parts."""
 
@@ -155,6 +276,147 @@ class _TableArtifactCodec:
         if max_rows_per_part < 1:
             raise ValueError("max_rows_per_part must be positive")
         self._max_rows_per_part = max_rows_per_part
+
+    def writer(
+        self,
+        *,
+        directory: Path,
+        row_model: type[BaseModel],
+        identity: _AnalyticsTableIdentity,
+        dataset: _DatasetContractEvidence | None = None,
+    ) -> _TablePartitionWriter:
+        """Open an owned bounded canonical partition writer.
+
+        :param directory: Empty staging directory owned by the run.
+        :param row_model: Declared logical row contract.
+        :param identity: Stable output identity and revision.
+        :param dataset: Globally validated analytical semantics, if applicable.
+        :return: Writer whose finish method seals the unpublished manifest.
+        """
+        return _TablePartitionWriter(
+            directory=directory,
+            row_model=row_model,
+            identity=identity,
+            dataset=dataset,
+            max_rows=self._max_rows_per_part,
+        )
+
+    def iter_tables(
+        self,
+        *,
+        directory: Path,
+        manifest: _ArtifactManifest | None,
+        row_model: type[BaseModel],
+        identity: _AnalyticsTableIdentity,
+        dataset: _DatasetContractEvidence | None = None,
+    ) -> Iterator[pa.Table]:
+        """Read and validate bounded ordered parts without concatenating them.
+
+        :param directory: Immutable artifact directory.
+        :param manifest: Expected content-bound manifest, or ``None`` to read it.
+        :param row_model: Expected logical row contract.
+        :param identity: Expected semantic output identity.
+        :param dataset: Expected dataset semantics when available.
+        :return: Iterator of validated canonical parts in manifest order.
+        :raises CFBDArtifactCorruptionError: If any durable invariant fails.
+        """
+        checked = self.inspect(
+            directory=directory,
+            manifest=manifest,
+            row_model=row_model,
+            identity=identity,
+            dataset=dataset,
+        )
+        for part in checked.body.parts:
+            yield self.read_part(
+                directory=directory,
+                part=part,
+                row_model=row_model,
+                identity=identity,
+                content_digest=checked.content_digest,
+            )
+
+    def inspect(
+        self,
+        *,
+        directory: Path,
+        manifest: _ArtifactManifest | None,
+        row_model: type[BaseModel],
+        identity: _AnalyticsTableIdentity,
+        dataset: _DatasetContractEvidence | None = None,
+    ) -> _ArtifactManifest:
+        """Validate manifest and directory metadata without gathering row bodies."""
+        try:
+            checked = manifest or _read_manifest(directory)
+            if _read_manifest(directory) != checked:
+                raise ValueError("Artifact manifest differs from its bound reference")
+            _verify_manifest_codec(
+                checked,
+                kind="table",
+                codec_id=self.codec_id,
+                codec_version=self.codec_version,
+                identity=identity,
+            )
+            _verify_directory_members(directory, checked)
+            total = sum(part.row_count or 0 for part in checked.body.parts)
+            if checked.body.row_count != total:
+                raise ValueError("Artifact total row count is invalid")
+            if checked.body.schema_digest != _logical_schema_digest(
+                _logical_schema(row_model)
+            ):
+                raise ValueError("Artifact logical schema digest is invalid")
+            metadata = checked.body.table
+            if metadata is None or metadata.columns != _artifact_columns(row_model):
+                raise ValueError("Artifact column metadata is invalid")
+            if any(check.rows_checked != total for check in metadata.quality):
+                raise ValueError("Artifact quality row count is invalid")
+            if dataset is not None and metadata != _table_artifact_contract(
+                row_model,
+                row_count=total,
+                dataset=dataset,
+            ):
+                raise ValueError("Artifact table contract is incompatible")
+            return checked
+        except CFBDArtifactCorruptionError:
+            raise
+        except Exception as exc:
+            raise CFBDArtifactCorruptionError(
+                content_digest=None if manifest is None else manifest.content_digest,
+                category="table",
+            ) from exc
+
+    def read_part(
+        self,
+        *,
+        directory: Path,
+        part: _ArtifactPart,
+        row_model: type[BaseModel],
+        identity: _AnalyticsTableIdentity,
+        content_digest: str,
+    ) -> pa.Table:
+        """Read one content-verified part through its declared logical schema."""
+        try:
+            path = directory / part.name
+            _verify_part(path, part)
+            table = pq.read_table(path)
+            _assert_analytics_arrow_table(
+                row_model=row_model, table=table, identity=identity
+            )
+            _analytics_logical_records_from_arrow_table(
+                row_model=row_model,
+                table=table,
+                identity=identity,
+            )
+            if table.num_rows != part.row_count:
+                raise ValueError("Artifact part row count is invalid")
+            return table
+        except CFBDArtifactCorruptionError:
+            raise
+        except Exception as exc:
+            raise CFBDArtifactCorruptionError(
+                content_digest=content_digest,
+                category="table",
+            ) from exc
 
     def stage(
         self,
@@ -175,79 +437,11 @@ class _TableArtifactCodec:
         :raises CFBDArtifactCodecError: If staging ownership is invalid.
         :raises CFBDArtifactCorruptionError: If encoded content does not validate.
         """
-        _require_empty_staging_directory(directory)
-        try:
-            _assert_analytics_arrow_table(
-                row_model=row_model,
-                table=table,
-                identity=identity,
-            )
-            _analytics_logical_records_from_arrow_table(
-                row_model=row_model,
-                table=table,
-                identity=identity,
-            )
-        except (TypeError, ValueError) as exc:
-            raise CFBDArtifactCodecError(
-                codec_id=self.codec_id,
-                category="validation",
-            ) from exc
-
-        part_count = max(1, math.ceil(table.num_rows / self._max_rows_per_part))
-        parts: list[_ArtifactPart] = []
-        for ordinal in range(part_count):
-            offset = ordinal * self._max_rows_per_part
-            part_table = table.slice(offset, self._max_rows_per_part)
-            name = f"part-{ordinal:05d}.parquet"
-            path = directory / name
-            pq.write_table(
-                part_table,
-                path,
-                version="2.6",
-                compression="zstd",
-                write_statistics=True,
-                use_compliant_nested_type=True,
-                store_schema=True,
-                row_group_size=65_536,
-                data_page_version="1.0",
-            )
-            _flush_file(path)
-            parts.append(
-                _ArtifactPart(
-                    name=name,
-                    media_type=self.media_type,
-                    digest=_file_digest(path),
-                    size_bytes=path.stat().st_size,
-                    row_count=part_table.num_rows,
-                )
-            )
-
-        schema_digest = _logical_schema_digest(_logical_schema(row_model))
-        body = _ArtifactManifestBody(
-            kind="table",
-            codec_id=self.codec_id,
-            codec_version=self.codec_version,
-            media_type=self.media_type,
-            output_id=identity.output_id,
-            output_revision=identity.revision,
-            schema_digest=schema_digest,
-            row_count=table.num_rows,
-            table=_table_artifact_contract(
-                row_model,
-                row_count=table.num_rows,
-                dataset=dataset,
-            ),
-            parts=tuple(parts),
+        writer = self.writer(
+            directory=directory, row_model=row_model, identity=identity, dataset=dataset
         )
-        manifest = _write_manifest(directory, body)
-        self.load(
-            directory=directory,
-            manifest=manifest,
-            row_model=row_model,
-            identity=identity,
-            dataset=dataset,
-        )
-        return _StagedArtifact(directory=directory, manifest=manifest)
+        writer.append(table)
+        return writer.finish()
 
     def load(
         self,
@@ -267,63 +461,20 @@ class _TableArtifactCodec:
         :return: Canonical analytics Parquet codec 2 Arrow table.
         :raises CFBDArtifactCorruptionError: If any durable invariant fails.
         """
-        try:
-            checked = manifest or _read_manifest(directory)
-            _verify_manifest_codec(
-                checked,
-                kind="table",
-                codec_id=self.codec_id,
-                codec_version=self.codec_version,
+        tables = tuple(
+            self.iter_tables(
+                directory=directory,
+                manifest=manifest,
+                row_model=row_model,
                 identity=identity,
-            )
-            _verify_directory_members(directory, checked)
-            tables: list[pa.Table] = []
-            total_rows = 0
-            for part in checked.body.parts:
-                path = directory / part.name
-                _verify_part(path, part)
-                table = pq.read_table(path)
-                _assert_analytics_arrow_table(
-                    row_model=row_model,
-                    table=table,
-                    identity=identity,
-                )
-                _analytics_logical_records_from_arrow_table(
-                    row_model=row_model,
-                    table=table,
-                    identity=identity,
-                )
-                if part.row_count != table.num_rows:
-                    raise ValueError("Artifact part row count is invalid")
-                total_rows += table.num_rows
-                tables.append(table)
-            if checked.body.row_count != total_rows:
-                raise ValueError("Artifact total row count is invalid")
-            if checked.body.schema_digest != _logical_schema_digest(
-                _logical_schema(row_model)
-            ):
-                raise ValueError("Artifact logical schema digest is invalid")
-            metadata = checked.body.table
-            if metadata is None or metadata.columns != _artifact_columns(row_model):
-                raise ValueError("Artifact column metadata is invalid")
-            if any(result.rows_checked != total_rows for result in metadata.quality):
-                raise ValueError("Artifact quality evidence has an invalid row count")
-            if dataset is not None and metadata != _table_artifact_contract(
-                row_model,
-                row_count=total_rows,
                 dataset=dataset,
-            ):
-                raise ValueError("Artifact table contract is incompatible")
-            if len(tables) == 1:
-                return tables[0]
-            return pa.concat_tables(tables, promote_options="none")
-        except CFBDArtifactCorruptionError:
-            raise
-        except Exception as exc:
-            raise CFBDArtifactCorruptionError(
-                content_digest=(manifest.content_digest if manifest else None),
-                category="table",
-            ) from exc
+            )
+        )
+        return (
+            tables[0]
+            if len(tables) == 1
+            else pa.concat_tables(tables, promote_options="none")
+        )
 
 
 class _JsonArtifactCodec:

@@ -196,7 +196,7 @@ async def test_recipe_is_portable_across_frame_and_executor_options(
                 base_url=base_url,
                 dataframe_backend=backend,
                 retry_policy=RetryPolicy(max_attempts=1),
-                analytics=AnalyticsConfig(root=tmp_path / f"{backend}-{executor}"),
+                analytics=AnalyticsConfig(root=tmp_path / executor),
             ) as client:
                 run: RecipeRun[pd.DataFrame] = await game_summaries.run(
                     client,
@@ -206,6 +206,13 @@ async def test_recipe_is_portable_across_frame_and_executor_options(
                         dask_max_workers=1,
                     ),
                 )
+                if backend == "pandas":
+                    assert any(
+                        node.node_kind == "step" and not node.reused
+                        for node in run.lineage
+                    )
+                else:
+                    assert run.reused_nodes > 0
             digests.append(run.artifact.descriptor.content_digest)
             records.append(run.artifact.load().to_dict(orient="records"))
             if executor == "dask":
@@ -275,9 +282,7 @@ async def test_exact_game_enrichments_are_late_bound_and_four_way_portable(
                 base_url=base_url,
                 dataframe_backend=backend,
                 retry_policy=RetryPolicy(max_attempts=1),
-                analytics=AnalyticsConfig(
-                    root=tmp_path / f"enriched-{backend}-{executor}"
-                ),
+                analytics=AnalyticsConfig(root=tmp_path / f"enriched-{executor}"),
             ) as client:
                 plan = await game_summaries.plan(
                     client,
@@ -295,6 +300,13 @@ async def test_exact_game_enrichments_are_late_bound_and_four_way_portable(
                         dask_max_workers=1,
                     ),
                 )
+                if backend == "pandas":
+                    assert any(
+                        node.node_kind == "step" and not node.reused
+                        for node in run.lineage
+                    )
+                else:
+                    assert run.reused_nodes > 0
 
             assert plan.worst_case_http_attempts == 3
             media_node = next(
@@ -387,8 +399,8 @@ async def test_duplicate_game_media_fail_without_changing_base_rows(
                     include_media=True,
                 )
 
-    assert exc_info.value.node_id.endswith("cfbd.game_summaries.attach_enrichments@1")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.game_summaries.attach_enrichments@3")
+    assert exc_info.value.category == "CFBDTransformError"
 
 
 @pytest.mark.asyncio

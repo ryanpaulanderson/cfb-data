@@ -56,13 +56,13 @@ test-redis:
 	CFB_DATA_TEST_REDIS_URL=redis://127.0.0.1:6379/0 $(VENV_PYTHON) -m pytest -m redis
 
 test-live:
-	set -a; . ./.env; set +a; CFB_DATA_RUN_LIVE_API=1 $(VENV_PYTHON) -m pytest -m live_api
+	set -a; . ./.env; set +a; CFB_DATA_RUN_LIVE_API=1 $(VENV_PYTHON) -m pytest -n 0 -m live_api
 
 test-live-all:
-	set -a; . ./.env; set +a; CFB_DATA_RUN_LIVE_API_ALL=1 CFB_DATA_TEST_REDIS_URL=redis://127.0.0.1:6379/0 $(VENV_PYTHON) -m pytest cfb_data/cfb_data/tests/test_live_api_all.py -q
+	set -a; . ./.env; set +a; CFB_DATA_RUN_LIVE_API_ALL=1 CFB_DATA_TEST_REDIS_URL=redis://127.0.0.1:6379/0 $(VENV_PYTHON) -m pytest -n 0 cfb_data/cfb_data/tests/test_live_api_all.py -q
 
 test-live-analytics:
-	set -a; . ./.env; set +a; CFB_DATA_RUN_LIVE_ANALYTICS=1 CFB_DATA_TEST_REDIS_URL=redis://127.0.0.1:6379/0 $(VENV_PYTHON) -m pytest cfb_data/cfb_data/tests/test_live_analytics.py -q
+	set -a; . ./.env; set +a; CFB_DATA_RUN_LIVE_ANALYTICS=1 CFB_DATA_TEST_REDIS_URL=redis://127.0.0.1:6379/0 $(VENV_PYTHON) -m pytest -n 0 cfb_data/cfb_data/tests/test_live_analytics.py -q
 
 build:
 	$(VENV_PYTHON) -m build

@@ -10,29 +10,29 @@ from __future__ import annotations
 
 from typing import TypedDict
 
-from cfb_data.analytics import require_one, value, workflow
+from cfb_data.analytics import RecipeRef, Table, require_one, value, workflow
 from cfb_data.enums import MediaType
 
-from cfb_data_recipes.betting_lines import BettingLine, betting_lines
-from cfb_data_recipes.drives import DriveRow, drives
+from cfb_data_recipes.betting_lines import betting_lines
+from cfb_data_recipes.drives import drives
 from cfb_data_recipes.game_summaries import GameSummary, game_summaries
-from cfb_data_recipes.player_game_stats import PlayerGameStat, player_game_stats
-from cfb_data_recipes.plays import PlayRow, plays
-from cfb_data_recipes.team_games import TeamGame, team_games
+from cfb_data_recipes.player_game_stats import player_game_stats
+from cfb_data_recipes.plays import plays
+from cfb_data_recipes.team_games import team_games
 
 
 class SingleGameAnalysisRefs(TypedDict):
     """Describe the workflow's six explicitly named tabular outputs."""
 
-    game_summaries: list[GameSummary]
-    team_games: list[TeamGame]
-    player_game_stats: list[PlayerGameStat]
-    drives: list[DriveRow]
-    plays: list[PlayRow]
-    betting_lines: list[BettingLine]
+    game_summaries: Table
+    team_games: Table
+    player_game_stats: Table
+    drives: Table
+    plays: Table
+    betting_lines: Table
 
 
-@workflow(id="cfbd.single_game_analysis", revision=2)
+@workflow(id="cfbd.single_game_analysis", revision=3)
 def single_game_analysis(
     *,
     game_id: int,
@@ -60,7 +60,7 @@ def single_game_analysis(
         media_type=game_media_type,
         include_weather=include_game_weather,
     )
-    context = require_one(summaries)
+    context: RecipeRef[GameSummary] = require_one(summaries)
     season = value(context, path=("season",), expected_type=int)
     week = value(context, path=("week",), expected_type=int)
     team = value(context, path=("home_team",), expected_type=str)

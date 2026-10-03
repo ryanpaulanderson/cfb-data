@@ -252,7 +252,7 @@ async def test_requested_enrichments_preserve_universe_and_four_way_parity(
                 base_url=base_url,
                 dataframe_backend=backend,
                 retry_policy=RetryPolicy(max_attempts=1),
-                analytics=AnalyticsConfig(root=tmp_path / f"{backend}-{executor}"),
+                analytics=AnalyticsConfig(root=tmp_path / executor),
             ) as client:
                 run = await team_games.run(
                     client,
@@ -342,8 +342,8 @@ async def test_requested_incomplete_stats_fail_without_shrinking_base_rows(
                     include_team_stats=True,
                 )
 
-    assert exc_info.value.node_id.endswith("cfbd.team_games.normalize@1")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.team_games.normalize@2")
+    assert exc_info.value.category == "CFBDTransformError"
 
 
 @pytest.mark.asyncio
@@ -409,8 +409,8 @@ async def test_conflicting_enrichment_fails_with_game_context_intact(
                     include_advanced_stats=True,
                 )
 
-    assert exc_info.value.node_id.endswith("cfbd.team_games.normalize@1")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.team_games.normalize@2")
+    assert exc_info.value.category == "CFBDTransformError"
 
 
 @pytest.mark.asyncio

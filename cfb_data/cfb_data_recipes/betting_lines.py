@@ -10,8 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from cfb_data.analytics import RecipeRef, dataset, step
-from cfb_data.betting.models.pydantic.responses import BettingGame
+from cfb_data.analytics import RecipeRef, Table, dataset, step
 from cfb_data.betting.sources import betting_lines as betting_lines_source
 from cfb_data.enums import Classification, SeasonType
 from pydantic import BaseModel, ConfigDict, Field
@@ -88,56 +87,41 @@ class BettingLine(BaseModel):
 
 @step(
     id="cfbd.betting_lines.flatten",
-    revision=1,
+    revision=2,
     output=BettingLine,
     deterministic=True,
 )
-def flatten_betting_lines(games: list[BettingGame]) -> list[BettingLine]:
-    """Flatten provider quotes while preserving source order and nulls.
+def flatten_betting_lines(games: Table) -> Table:
+    """Explode all provider quotes through a bounded structural operation.
 
-    :param games: Validated betting games with nested provider quotes.
-    :return: Provider quote rows in deterministic game/source order.
+    :param games: Validated native game/quote source table.
+    :return: Every provider quote with its original within-game ordinal.
     """
-    rows: list[BettingLine] = []
-    for game in games:
-        for source_ordinal, line in enumerate(game.lines):
-            rows.append(
-                BettingLine(
-                    game_id=game.id,
-                    season=game.season,
-                    season_type=game.season_type,
-                    week=game.week,
-                    start_date=game.start_date,
-                    home_team_id=game.home_team_id,
-                    home_team=game.home_team,
-                    home_conference=game.home_conference,
-                    home_classification=game.home_classification,
-                    home_score=game.home_score,
-                    away_team_id=game.away_team_id,
-                    away_team=game.away_team,
-                    away_conference=game.away_conference,
-                    away_classification=game.away_classification,
-                    away_score=game.away_score,
-                    provider=line.provider,
-                    source_ordinal=source_ordinal,
-                    spread=line.spread,
-                    formatted_spread=line.formatted_spread,
-                    spread_open=line.spread_open,
-                    over_under=line.over_under,
-                    over_under_open=line.over_under_open,
-                    home_moneyline=line.home_moneyline,
-                    away_moneyline=line.away_moneyline,
-                )
-            )
-    return sorted(
-        rows,
-        key=lambda row: (row.season, row.week, row.game_id, row.source_ordinal),
+    quote_fields = (
+        "provider",
+        "spread",
+        "formatted_spread",
+        "spread_open",
+        "over_under",
+        "over_under_open",
+        "home_moneyline",
+        "away_moneyline",
+    )
+    return (
+        games.rename({"id": "game_id"})
+        .explode_records(
+            "lines",
+            fields={name: name for name in quote_fields},
+            ordinal="source_ordinal",
+        )
+        .select(*BettingLine.model_fields)
+        .sort("season", "week", "game_id", "source_ordinal")
     )
 
 
 @dataset(
     id="cfbd.betting_lines",
-    revision=1,
+    revision=2,
     row=BettingLine,
     grain="one provider quote per game and source ordinal",
     keys=("game_id", "provider", "source_ordinal"),
@@ -156,7 +140,7 @@ def betting_lines(
     away: str | None = None,
     conference: str | None = None,
     provider: str | None = None,
-) -> RecipeRef[list[BettingLine]]:
+) -> RecipeRef[Table]:
     """Build flattened historical provider quotes.
 
     :param game_id: Optional exact game identifier.

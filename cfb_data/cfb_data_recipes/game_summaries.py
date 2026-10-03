@@ -14,7 +14,9 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from cfb_data.analytics import RecipeRef, dataset, require_one, step, value
+import narwhals.stable.v2 as nw
+from cfb_data.analytics import RecipeRef, Table, dataset, require_one, step, value
+from cfb_data.analytics.tables import SOURCE_ORDINAL
 from cfb_data.enums import (
     Classification,
     MediaType,
@@ -23,7 +25,6 @@ from cfb_data.enums import (
     SeasonType,
 )
 from cfb_data.games.models.pydantic.responses import (
-    Game,
     GameMedia,
     GamePlayoff,
     GameWeather,
@@ -251,73 +252,141 @@ class GameSummary(BaseModel):
 
 @step(
     id="cfbd.game_summaries.normalize",
-    revision=2,
+    revision=3,
     output=GameSummary,
     deterministic=True,
 )
-def normalize_games(rows: list[Game]) -> list[GameSummary]:
-    """Normalize validated source games and derive conservative results.
+def normalize_games(rows: Table) -> Table:
+    """Derive conservative game results with native masked expressions.
 
-    :param rows: Validated source games in upstream order.
-    :return: Game summaries in declared deterministic order.
+    :param rows: Validated source-shaped native games.
+    :return: Ordered game summaries retaining null and incomplete evidence.
     """
-    summaries = [_normalize_game(row) for row in rows]
-    return sorted(
-        summaries,
-        key=lambda row: (row.season, row.week, row.game_id),
+    rows = rows.rename({"id": "game_id"})
+    proven = (
+        nw.col("completed")
+        & ~nw.col("home_points").is_null()
+        & ~nw.col("away_points").is_null()
     )
+    home = nw.col("home_points") > nw.col("away_points")
+    tie = nw.col("home_points") == nw.col("away_points")
+    result = (
+        nw.when(proven)
+        .then(
+            nw.when(tie)
+            .then(nw.lit("tie"))
+            .when(home)
+            .then(nw.lit("home_win"))
+            .otherwise(nw.lit("away_win"))
+        )
+        .otherwise(nw.lit(None))
+    )
+    rows = rows.with_columns(
+        result.alias("result_state"),
+        nw.when(proven)
+        .then(nw.col("home_points") + nw.col("away_points"))
+        .otherwise(nw.lit(None))
+        .alias("total_points"),
+        nw.when(proven)
+        .then((nw.col("home_points") - nw.col("away_points")).abs())
+        .otherwise(nw.lit(None))
+        .alias("margin"),
+        nw.when(proven & ~tie)
+        .then(nw.when(home).then(nw.col("home_id")).otherwise(nw.col("away_id")))
+        .otherwise(nw.lit(None))
+        .alias("winner_id"),
+        nw.when(proven & ~tie)
+        .then(nw.when(home).then(nw.col("away_id")).otherwise(nw.col("home_id")))
+        .otherwise(nw.lit(None))
+        .alias("loser_id"),
+        nw.lit("not_requested").alias("media_coverage"),
+        nw.lit(None).alias("media"),
+        nw.lit("not_requested").alias("weather_coverage"),
+        nw.lit(None).alias("weather"),
+    )
+    return rows.select(*GameSummary.model_fields).sort("season", "week", "game_id")
 
 
 @step(
     id="cfbd.game_summaries.select_exact_media",
-    revision=1,
+    revision=2,
     output=GameMedia,
     deterministic=True,
 )
-def select_exact_game_media(
-    rows: list[GameMedia],
-    *,
-    game_id: int,
-) -> list[GameMedia]:
-    """Select one game's media from the endpoint's containing partition.
+def select_exact_game_media(rows: Table, *, game_id: int) -> Table:
+    """Filter one game's media while retaining source retrieval semantics.
 
-    The media endpoint has no game-ID selector. This visible analytics step
-    preserves source retrieval while excluding other games returned by the
-    smallest bounded season/week/team partition.
-
-    :param rows: Validated source media in upstream order.
-    :param game_id: Stable game identifier selected by the dataset caller.
-    :return: Source-ordered media rows whose stable ID matches the game.
+    :param rows: Validated media table for the containing API partition.
+    :param game_id: Exact selected game identifier.
+    :return: Native source-ordered media table.
     """
-    return [row for row in rows if row.id == game_id]
+    return rows.filter(nw.col("id") == game_id).select(*GameMedia.model_fields)
 
 
 @step(
     id="cfbd.game_summaries.attach_enrichments",
-    revision=1,
+    revision=3,
     output=GameSummary,
     deterministic=True,
 )
 def attach_game_enrichments(
-    summaries: list[GameSummary],
-    *,
-    media: list[GameMedia] | None,
-    weather: list[GameWeather] | None,
-) -> list[GameSummary]:
-    """Attach requested media and weather without changing base rows.
+    summaries: Table, *, media: Table | None, weather: Table | None
+) -> Table:
+    """Join requested media and weather without changing the game universe.
 
-    :param summaries: Validated game-summary base universe.
-    :param media: Requested source media, or ``None`` when omitted.
-    :param weather: Requested source weather, or ``None`` when omitted.
-    :return: The same ordered game universe with explicit enrichment coverage.
-    :raises ValueError: If enrichment identity is duplicated or conflicts.
+    :param summaries: Validated native game-summary universe.
+    :param media: Requested native broadcasts, or omitted.
+    :param weather: Requested native weather, or omitted.
+    :return: Native game table carrying context and coverage checks.
     """
-    enriched = summaries
+    rows = summaries
     if media is not None:
-        enriched = _attach_media(enriched, media)
+        evidence = _checked_game_evidence(summaries, media, label="Game media")
+        evidence = evidence.require_unique(
+            ("game_id", "media_type", "outlet"),
+            message="Game media contain a duplicate game/type/outlet key",
+        )
+        packed = evidence.pack(
+            columns={
+                **{name: name for name in GameMedia.model_fields},
+                SOURCE_ORDINAL: SOURCE_ORDINAL,
+            },
+            into="__media_record",
+        )
+        grouped = packed.ordered_records(
+            keys=("game_id",),
+            column="__media_record",
+            into="__media_records",
+            ordinal_field=SOURCE_ORDINAL,
+        ).with_columns(nw.lit(True).alias("__media_present"))
+        rows = rows.drop("media", "media_coverage").join(
+            grouped, on=("game_id",), cardinality="one_to_one"
+        )
+        rows = (
+            rows.rename({"__media_records": "media"})
+            .fill_empty_lists("media")
+            .with_columns(
+                nw.when(nw.col("__media_present").fill_null(False))
+                .then(nw.lit("present"))
+                .otherwise(nw.lit("empty"))
+                .alias("media_coverage")
+            )
+        )
     if weather is not None:
-        enriched = _attach_weather(enriched, weather)
-    return enriched
+        evidence = _checked_game_evidence(
+            summaries, weather, label="Game weather", venue=True
+        )
+        rows = rows.drop("weather", "weather_coverage").enrich(
+            evidence,
+            on=("game_id",),
+            output="weather",
+            coverage="weather_coverage",
+            fields={name: name for name in GameWeather.model_fields},
+            outside="reject",
+            completeness="sparse",
+            message="Game weather contains duplicate or outside-universe game keys",
+        )
+    return rows.select(*GameSummary.model_fields).sort("season", "week", "game_id")
 
 
 @dataset(
@@ -346,7 +415,7 @@ def game_summaries(
     include_media: bool = False,
     media_type: MediaType | None = None,
     include_weather: bool = False,
-) -> RecipeRef[list[GameSummary]]:
+) -> RecipeRef[Table]:
     """Build game summaries from the registered Games source.
 
     :param year: Season year, required unless ``game_id`` is supplied.
@@ -384,9 +453,9 @@ def game_summaries(
     if media_type is not None and not include_media:
         raise ValueError("media_type requires include_media=True")
 
-    requested_media: RecipeRef[list[GameMedia]] | None = None
+    requested_media: RecipeRef[Table] | None = None
     if include_media and game_id is not None:
-        context = require_one(summaries)
+        context: RecipeRef[GameSummary] = require_one(summaries)
         requested_media = select_exact_game_media(
             game_media(
                 year=value(context, path=("season",), expected_type=int),
@@ -418,7 +487,7 @@ def game_summaries(
             classification=classification,
         )
 
-    requested_weather: RecipeRef[list[GameWeather]] | None = None
+    requested_weather: RecipeRef[Table] | None = None
     if include_weather and game_id is not None:
         requested_weather = game_weather(game_id=game_id)
     elif include_weather:
@@ -446,224 +515,60 @@ def game_summaries(
     )
 
 
-def _normalize_game(game: Game) -> GameSummary:
-    result_state, total_points, margin, winner_id, loser_id = _result(game)
-    return GameSummary(
-        game_id=game.id,
-        season=game.season,
-        week=game.week,
-        season_type=game.season_type,
-        start_date=game.start_date,
-        start_time_tbd=game.start_time_tbd,
-        completed=game.completed,
-        neutral_site=game.neutral_site,
-        conference_game=game.conference_game,
-        attendance=game.attendance,
-        venue_id=game.venue_id,
-        venue=game.venue,
-        home_id=game.home_id,
-        home_team=game.home_team,
-        home_conference=game.home_conference,
-        home_classification=game.home_classification,
-        home_points=game.home_points,
-        home_line_scores=game.home_line_scores,
-        home_postgame_win_probability=game.home_postgame_win_probability,
-        home_pregame_elo=game.home_pregame_elo,
-        home_postgame_elo=game.home_postgame_elo,
-        away_id=game.away_id,
-        away_team=game.away_team,
-        away_conference=game.away_conference,
-        away_classification=game.away_classification,
-        away_points=game.away_points,
-        away_line_scores=game.away_line_scores,
-        away_postgame_win_probability=game.away_postgame_win_probability,
-        away_pregame_elo=game.away_pregame_elo,
-        away_postgame_elo=game.away_postgame_elo,
-        excitement_index=game.excitement_index,
-        highlights=game.highlights,
-        notes=game.notes,
-        playoff=game.playoff,
-        result_state=result_state,
-        total_points=total_points,
-        margin=margin,
-        winner_id=winner_id,
-        loser_id=loser_id,
+def _checked_game_evidence(
+    base: Table, evidence: Table, *, label: str, venue: bool = False
+) -> Table:
+    """Require common game context through native comparisons and an ID join."""
+    comparison_fields = (
+        "season",
+        "week",
+        "season_type",
+        "start_date",
+        "home_team",
+        "away_team",
+        "home_conference",
+        "away_conference",
+        "venue_id",
+        "venue",
     )
-
-
-def _result(
-    game: Game,
-) -> tuple[GameResultState | None, int | None, int | None, int | None, int | None]:
-    if not game.completed or game.home_points is None or game.away_points is None:
-        return None, None, None, None, None
-    total = game.home_points + game.away_points
-    margin = abs(game.home_points - game.away_points)
-    if game.home_points == game.away_points:
-        return GameResultState.tie, total, margin, None, None
-    if game.home_points > game.away_points:
-        return GameResultState.home_win, total, margin, game.home_id, game.away_id
-    return GameResultState.away_win, total, margin, game.away_id, game.home_id
-
-
-def _attach_media(
-    summaries: list[GameSummary],
-    media: list[GameMedia],
-) -> list[GameSummary]:
-    """Attach source-ordered broadcasts by stable game ID.
-
-    :param summaries: Complete base game universe.
-    :param media: Validated media rows returned for the declared selector.
-    :return: The unchanged base universe with media coverage and rows attached.
-    :raises ValueError: If media are duplicated, conflicting, or out of scope.
-    """
-    base = {summary.game_id: summary for summary in summaries}
-    indexed: dict[int, list[GameMedia]] = {}
-    observed: set[tuple[int, MediaType, str]] = set()
-    for item in media:
-        key = (item.id, item.media_type, item.outlet)
-        if key in observed:
-            raise ValueError("Game media contain a duplicate game/type/outlet key")
-        observed.add(key)
-        summary = base.get(item.id)
-        if summary is None:
-            raise ValueError("Game media fall outside the base row universe")
-        _validate_game_enrichment(
-            summary,
-            season=item.season,
-            week=item.week,
-            season_type=item.season_type,
-            start_time=item.start_time,
-            home_team=item.home_team,
-            home_conference=item.home_conference,
-            away_team=item.away_team,
-            away_conference=item.away_conference,
-            label="Game media",
+    context = base.select(
+        "game_id", *(nw.col(name).alias(f"__base_{name}") for name in comparison_fields)
+    ).with_columns(nw.lit(True).alias("__base_present"))
+    joined = (
+        evidence.with_columns(nw.col("id").alias("game_id"))
+        .join(context, on=("game_id",), cardinality="many_to_one")
+        .require(
+            nw.col("__base_present").fill_null(False),
+            message=f"{label} fall outside the base row universe",
         )
-        indexed.setdefault(item.id, []).append(item)
-    return [
-        summary.model_copy(
-            update={
-                "media_coverage": (
-                    GameEnrichmentCoverage.present
-                    if summary.game_id in indexed
-                    else GameEnrichmentCoverage.empty
-                ),
-                "media": indexed.get(summary.game_id, []),
-            }
+    )
+    predicate = (
+        (nw.col("season") == nw.col("__base_season"))
+        & (nw.col("week") == nw.col("__base_week"))
+        & (nw.col("season_type") == nw.col("__base_season_type"))
+        & (nw.col("start_time") == nw.col("__base_start_date"))
+    )
+    for side in ("home", "away"):
+        joined = joined.normalize_text(
+            f"{side}_team", into=f"__source_{side}"
+        ).normalize_text(f"__base_{side}_team", into=f"__expected_{side}")
+        predicate = predicate & (
+            nw.col(f"__source_{side}") == nw.col(f"__expected_{side}")
         )
-        for summary in summaries
-    ]
-
-
-def _attach_weather(
-    summaries: list[GameSummary],
-    weather: list[GameWeather],
-) -> list[GameSummary]:
-    """Attach at most one weather observation by stable game ID.
-
-    :param summaries: Complete base game universe.
-    :param weather: Validated weather rows returned for the declared selector.
-    :return: The unchanged base universe with weather coverage attached.
-    :raises ValueError: If weather is duplicated, conflicting, or out of scope.
-    """
-    base = {summary.game_id: summary for summary in summaries}
-    indexed: dict[int, GameWeather] = {}
-    for item in weather:
-        if item.id in indexed:
-            raise ValueError("Game weather contains a duplicate game key")
-        summary = base.get(item.id)
-        if summary is None:
-            raise ValueError("Game weather falls outside the base row universe")
-        _validate_game_enrichment(
-            summary,
-            season=item.season,
-            week=item.week,
-            season_type=item.season_type,
-            start_time=item.start_time,
-            home_team=item.home_team,
-            home_conference=item.home_conference,
-            away_team=item.away_team,
-            away_conference=item.away_conference,
-            label="Game weather",
+        source = nw.col(f"{side}_conference")
+        expected = nw.col(f"__base_{side}_conference")
+        predicate = predicate & (
+            source.is_null() | expected.is_null() | (source == expected)
         )
-        if (
-            summary.venue_id is not None
-            and item.venue_id != summary.venue_id
-            or summary.venue is not None
-            and item.venue != summary.venue
-        ):
-            raise ValueError("Game weather conflicts with the selected venue")
-        indexed[item.id] = item
-    return [
-        summary.model_copy(
-            update={
-                "weather_coverage": (
-                    GameEnrichmentCoverage.present
-                    if summary.game_id in indexed
-                    else GameEnrichmentCoverage.empty
-                ),
-                "weather": indexed.get(summary.game_id),
-            }
-        )
-        for summary in summaries
-    ]
-
-
-def _validate_game_enrichment(
-    summary: GameSummary,
-    *,
-    season: int,
-    week: int,
-    season_type: SeasonType,
-    start_time: datetime,
-    home_team: str,
-    home_conference: str | None,
-    away_team: str,
-    away_conference: str | None,
-    label: str,
-) -> None:
-    """Validate common source context before attaching an enrichment.
-
-    :param summary: Selected base game.
-    :param season: Enrichment season.
-    :param week: Enrichment week.
-    :param season_type: Enrichment season phase.
-    :param start_time: Enrichment scheduled instant.
-    :param home_team: Enrichment home-team name.
-    :param home_conference: Enrichment home conference, when reported.
-    :param away_team: Enrichment away-team name.
-    :param away_conference: Enrichment away conference, when reported.
-    :param label: Safe enrichment label for a validation error.
-    :raises ValueError: If stable game context conflicts.
-    """
-    if (
-        season != summary.season
-        or week != summary.week
-        or season_type != summary.season_type
-        or start_time != summary.start_date
-        or _normalized_team(home_team) != _normalized_team(summary.home_team)
-        or _normalized_team(away_team) != _normalized_team(summary.away_team)
-        or (
-            home_conference is not None
-            and summary.home_conference is not None
-            and home_conference != summary.home_conference
-        )
-        or (
-            away_conference is not None
-            and summary.away_conference is not None
-            and away_conference != summary.away_conference
-        )
-    ):
-        raise ValueError(f"{label} conflict with the selected game context")
-
-
-def _normalized_team(value: str) -> str:
-    """Return a deterministic comparison form for one source team name.
-
-    :param value: Source team name.
-    :return: Whitespace-normalized, case-insensitive text.
-    """
-    return " ".join(value.split()).casefold()
+    if venue:
+        for field in ("venue_id", "venue"):
+            predicate = predicate & (
+                nw.col(f"__base_{field}").is_null()
+                | (nw.col(field) == nw.col(f"__base_{field}"))
+            )
+    return joined.require(
+        predicate, message=f"{label} conflict with the selected game context"
+    )
 
 
 __all__ = [

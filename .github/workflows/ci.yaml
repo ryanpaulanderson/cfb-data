@@ -86,8 +86,11 @@ jobs:
               option: importlib.util.find_spec(module) is not None
               for option, module in optional_modules.items()
           }
+          # Native dataframe execution is core; Dask also requires PyYAML.
+          assert importlib.util.find_spec("dask.dataframe") is not None
+          assert present_modules["yaml"]
           if expected == "base":
-              assert not any(present_modules.values())
+              assert not any(found for option, found in present_modules.items() if option != "yaml")
           elif expected == "all":
               assert all(present_modules.values())
           else:
@@ -133,28 +136,34 @@ jobs:
           asyncio.run(main())
           PY
 
+  check-groups-312:
+    name: Python 3.12
+    uses: ./.github/workflows/python-check-groups.yaml
+    with:
+      python-version: "3.12"
+
+  check-groups-313:
+    name: Python 3.13
+    uses: ./.github/workflows/python-check-groups.yaml
+    with:
+      python-version: "3.13"
+
   check:
     name: Python ${{ matrix.python-version }}
+    needs: [check-groups-312, check-groups-313]
+    if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 2
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13"]
-
+        include:
+          - python-version: "3.12"
+            group_job: check-groups-312
+          - python-version: "3.13"
+            group_job: check-groups-313
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: pyproject.toml
-
-      - name: Install project
-        run: make install
-
-      - name: Run shared quality contract
-        run: make check
+      - name: Require this Python version's test groups
+        env:
+          GROUP_RESULT: ${{ needs[matrix.group_job].result }}
+        run: test "$GROUP_RESULT" = success

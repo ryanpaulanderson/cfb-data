@@ -28,9 +28,23 @@ python -m pip install "cfb-data[yaml]"
 python -m pip install "cfb-data[redis]"
 ```
 
-The extras can be combined. Dask executes eligible pure transform steps; source
-retrieval, attempt budgets, validation, events, and durable artifact commits
-remain coordinator-owned.
+Dask depends on PyYAML, so base installations already include that parser.
+The `yaml` extra establishes the explicitly supported PyYAML version constraint
+for declarative authoring.
+
+The base package includes native Dask DataFrame processing over pandas
+partitions. The `dask` extra adds the distributed scheduler for parallel local
+workers. Sources, Redis response caching, HTTP attempt budgets, events, and
+atomic artifact publication remain coordinator-owned.
+
+All first-party table transformations compose native expressions, joins,
+groups, and structural operations through `Table`. Its `frame` exposes the
+Narwhals expression interface. Table graphs stay lazy between transformations;
+complete model lists are restricted to validated HTTP and explicit eager
+presentation boundaries. See [ADR 0007](../architecture/0007-native-table-execution.md)
+for execution ownership and [the migration audit](../architecture/recipe-dask-reengineering-audit.md)
+for the original inventory. Small data may run faster with the local scheduler;
+distributed workers add startup and scheduling costs.
 
 ## Call one dataset
 
@@ -268,6 +282,43 @@ Dataset-specific ``include_*`` parameters request explicit enrichments. They
 default to false and cannot change the base row universe. Paid sources preserve
 their access tier and fail visibly when requested but unavailable.
 
+## Keep large results lazy
+
+Choose the result boundary explicitly. A lazy run returns `Table` (or a named
+mapping of tables), and does not collect the whole dataset into coordinator
+memory:
+
+```python
+import narwhals.stable.v2 as nw
+from cfb_data.analytics import ExecutionPolicy
+
+run = await game_summaries.run(
+    client,
+    year=2024,
+    team="Penn State",
+    policy=ExecutionPolicy(
+        executor="dask", result_mode="lazy", table_partition_rows=16_384
+    ),
+)
+filtered = run.value.filter(nw.col("completed"))
+# An explicit eager boundary; the caller owns its memory cost.
+frame = filtered.collect()
+# Or consume bounded pandas batches without collecting the complete artifact.
+for batch in run.artifact.batches(batch_rows=4096):
+    print(batch[["game_id", "home_team", "away_team"]])
+# These operations remain usable after the original client has closed.
+scan = run.artifact.scan()
+```
+
+`table_partition_rows` is a compute partition target and a maximum stored-part
+row count. Native shuffles and explosions can change compute partition sizes;
+the finite transfer byte limit still applies. `partition_by` describes dataset
+semantics and does not replace compute partition sizing. Global candidate-key,
+join-cardinality, and coverage checks run before publication. Validation errors
+use `CFBDTransformError`; incompatible semantic revisions cannot reuse older
+checkpoints. `ArtifactRef.export_parquet()` streams validated parts to one
+atomically replaced file.
+
 ## Author an independent Python dataset
 
 Authors use the same decorators and public endpoint sources as the packaged
@@ -276,8 +327,9 @@ recipes:
 ```python
 from pydantic import BaseModel, ConfigDict, Field
 
-from cfb_data.analytics import RecipeRef, dataset, step
-from cfb_data.games.models.pydantic.responses import Game
+import narwhals.stable.v2 as nw
+
+from cfb_data.analytics import RecipeRef, Table, dataset, step
 from cfb_data.games.sources import games
 
 
@@ -293,19 +345,20 @@ class CompletedGame(BaseModel):
 
 
 @step(id="my.completed_games.normalize", revision=1, output=CompletedGame)
-def normalize_completed_games(rows: list[Game]) -> list[CompletedGame]:
-    return [
-        CompletedGame(
-            game_id=row.id,
-            season=row.season,
-            week=row.week,
-            home_team=row.home_team,
-            away_team=row.away_team,
-            total_points=row.home_points + row.away_points,
-        )
-        for row in rows
-        if row.completed and row.home_points is not None and row.away_points is not None
-    ]
+def normalize_completed_games(rows: Table) -> Table:
+    """Project completed games with both scores known."""
+    return rows.filter(
+        nw.col("completed")
+        & ~nw.col("home_points").is_null()
+        & ~nw.col("away_points").is_null()
+    ).select(
+        nw.col("id").alias("game_id"),
+        "season",
+        "week",
+        "home_team",
+        "away_team",
+        (nw.col("home_points") + nw.col("away_points")).alias("total_points"),
+    )
 
 
 @dataset(
@@ -321,7 +374,7 @@ def completed_games(
     *,
     year: int,
     team: str | None = None,
-) -> RecipeRef[list[CompletedGame]]:
+) -> RecipeRef[Table]:
     return normalize_completed_games(games(year=year, team=team))
 ```
 

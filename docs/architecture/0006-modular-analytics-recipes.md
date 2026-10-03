@@ -5,6 +5,32 @@
 - Accepted: 2026-08-19
 - Applies from: The modular analytics vertical slice
 
+## Execution policy amendment: October 2, 2026
+
+[Product constitution clause IX](../product-constitution.md)
+requires native partitioned Dask DataFrame execution for analytical table
+transformations when Dask is selected. The original whole-function worker
+contract below describes the shipped implementation and its acceptance
+evidence. It is insufficient for the new execution requirement.
+
+The [recipe execution audit](recipe-dask-reengineering-audit.md) inventories the
+remaining work and the required changes to step contracts, partitioned
+validation, persistence, planning, and recovery. Coordinator ownership of
+source I/O, policy, and authoritative commits remains required; worker results
+must be validated without requiring complete-dataset model reconstruction.
+The logical recipe identity and source semantics remain explainable, while
+executors may lower the logical graph to different physical task, partition,
+and shuffle graphs. The original identical-graph/placement-only parity wording
+below does not constrain that physical execution.
+
+Beta APIs, schemas, and eager/lazy return boundaries may change; the existing
+model-list and eager-output interfaces are not compatibility constraints.
+Choose dataframe-like analytical products or explicit collections and update
+their documented contracts, tests, revisions, and artifact compatibility.
+Native table execution is a migration target, not an implemented capability.
+Other decisions in this ADR remain in force unless explicitly revised by the
+new design.
+
 ## Context
 
 The endpoint client deliberately returns source-shaped validated responses.

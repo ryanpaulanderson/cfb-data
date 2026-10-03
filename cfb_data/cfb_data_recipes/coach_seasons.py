@@ -11,7 +11,8 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from cfb_data.analytics import RecipeRef, dataset, step
+import narwhals.stable.v2 as nw
+from cfb_data.analytics import RecipeRef, Table, dataset, step
 from cfb_data.coaches.models.pydantic.responses import (
     CoachCfpContext,
     CoachDraftContext,
@@ -21,8 +22,6 @@ from cfb_data.coaches.models.pydantic.responses import (
     CoachRecordSplits,
     CoachRecruitingContext,
     CoachScoring,
-    CoachTenure,
-    DetailedCoachSeason,
 )
 from cfb_data.coaches.sources import coach_seasons as coach_seasons_source
 from cfb_data.coaches.sources import coach_tenures
@@ -96,55 +95,91 @@ class CoachSeason(BaseModel):
 
 @step(
     id="cfbd.coach_seasons.normalize",
-    revision=1,
+    revision=2,
     output=CoachSeason,
     deterministic=True,
 )
-def normalize_coach_seasons(rows: list[DetailedCoachSeason]) -> list[CoachSeason]:
-    """Normalize detailed source rows without tenure enrichment.
+def normalize_coach_seasons(rows: Table) -> Table:
+    """Project attributed coach seasons through native expressions.
 
-    :param rows: Validated detailed coach seasons.
-    :return: Coach seasons in deterministic year/team/coach order.
+    :param rows: Validated detailed season table.
+    :return: Ordered native coach seasons with omitted tenure evidence.
     """
-    return _sort_rows([_normalize_season(row) for row in rows])
+    base = _coach_context(rows).with_columns(
+        nw.lit("not_requested").alias("tenure_coverage")
+    )
+    for name in CoachSeason.model_fields:
+        if name not in base.columns:
+            base = base.with_columns(nw.lit(None).alias(name))
+    return base.select(*CoachSeason.model_fields).sort("year", "team_id", "coach_id")
 
 
 @step(
     id="cfbd.coach_seasons.attach_tenure",
-    revision=1,
+    revision=2,
     output=CoachSeason,
     deterministic=True,
 )
-def attach_tenure_context(
-    rows: list[DetailedCoachSeason],
-    tenures: list[CoachTenure],
-) -> list[CoachSeason]:
-    """Attach one ID- and year-matched tenure to every season row.
+def attach_tenure_context(rows: Table, tenures: Table) -> Table:
+    """Match tenure intervals with native keyed joins and global cardinality.
 
-    :param rows: Validated detailed coach seasons.
+    :param rows: Validated attributed coach seasons.
     :param tenures: Validated continuous coaching tenures.
-    :return: Enriched coach seasons in deterministic order.
-    :raises ValueError: If tenure coverage is missing or ambiguous.
+    :return: Native coach seasons with exactly one matching tenure each.
     """
-    result: list[CoachSeason] = []
-    for row in rows:
-        matches = [
-            tenure
-            for tenure in tenures
-            if tenure.coach.id == row.coach.id
-            and tenure.team.id == row.team.id
-            and tenure.start_year <= row.year
-            and (tenure.end_year is None or row.year <= tenure.end_year)
-        ]
-        if len(matches) != 1:
-            raise ValueError("Requested tenure context is missing or ambiguous")
-        result.append(_normalize_season(row, tenure=matches[0]))
-    return _sort_rows(result)
+    base = _coach_context(rows)
+    evidence = tenures.nested("coach", fields={"id": "coach_id"}).nested(
+        "team", fields={"id": "team_id"}
+    )
+    aliases = {
+        "id": "tenure_id",
+        "start_year": "tenure_start_year",
+        "end_year": "tenure_end_year",
+        "active": "tenure_active",
+        "seasons": "tenure_seasons",
+        "record": "tenure_record",
+        "attribution_complete": "tenure_attribution_complete",
+    }
+    evidence = evidence.rename(aliases)
+    fields = tuple(
+        name
+        for name in CoachSeason.model_fields
+        if name in evidence.columns and name not in base.columns
+    )
+    matches = (
+        base.select("year", "team_id", "coach_id")
+        .join(
+            evidence.select("team_id", "coach_id", *fields),
+            on=("team_id", "coach_id"),
+            cardinality="many_to_many",
+            how="inner",
+        )
+        .filter(
+            (nw.col("tenure_start_year") <= nw.col("year"))
+            & (
+                nw.col("tenure_end_year").is_null()
+                | (nw.col("year") <= nw.col("tenure_end_year"))
+            )
+        )
+    )
+    keys = ("year", "team_id", "coach_id")
+    matches = matches.require_unique(
+        keys, message="Requested tenure context is missing or ambiguous"
+    ).with_columns(nw.lit(True).alias("__tenure_match"))
+    joined = base.join(matches, on=keys, cardinality="one_to_one").require(
+        nw.col("__tenure_match").fill_null(False),
+        message="Requested tenure context is missing or ambiguous",
+    )
+    return (
+        joined.with_columns(nw.lit("present").alias("tenure_coverage"))
+        .select(*CoachSeason.model_fields)
+        .sort(*keys)
+    )
 
 
 @dataset(
     id="cfbd.coach_seasons",
-    revision=1,
+    revision=2,
     row=CoachSeason,
     grain="one directly attributed coach/team season",
     keys=("year", "team_id", "coach_id"),
@@ -160,7 +195,7 @@ def coach_seasons(
     max_year: int | None = None,
     include_tenure: bool = False,
     active_tenure: bool | None = None,
-) -> RecipeRef[list[CoachSeason]]:
+) -> RecipeRef[Table]:
     """Build detailed coach seasons with optional tenure context.
 
     :param coach_id: Optional exact coach identifier.
@@ -192,61 +227,18 @@ def coach_seasons(
     )
 
 
-def _normalize_season(
-    row: DetailedCoachSeason,
-    *,
-    tenure: CoachTenure | None = None,
-) -> CoachSeason:
-    return CoachSeason(
-        year=row.year,
-        team_id=row.team.id,
-        school=row.team.school,
-        conference=row.team.conference,
-        coach_id=row.coach.id,
-        coach_first_name=row.coach.first_name,
-        coach_last_name=row.coach.last_name,
-        games=row.games,
-        wins=row.wins,
-        losses=row.losses,
-        ties=row.ties,
-        win_percentage=row.win_percentage,
-        preseason_rank=row.preseason_rank,
-        postseason_rank=row.postseason_rank,
-        srs=row.srs,
-        sp_overall=row.sp_overall,
-        sp_offense=row.sp_offense,
-        sp_defense=row.sp_defense,
-        team_metrics=row.team_metrics,
-        recruiting=row.recruiting,
-        poll_resume=row.poll_resume,
-        attribution_complete=row.attribution_complete,
-        record_splits=row.record_splits,
-        scoring=row.scoring,
-        cfp=row.cfp,
-        draft_following_season=row.draft_following_season,
-        tenure_coverage=(
-            TenureCoverage.present
-            if tenure is not None
-            else TenureCoverage.not_requested
-        ),
-        tenure_id=tenure.id if tenure is not None else None,
-        hire_date=tenure.hire_date if tenure is not None else None,
-        tenure_start_year=tenure.start_year if tenure is not None else None,
-        tenure_end_year=tenure.end_year if tenure is not None else None,
-        effective_start=tenure.effective_start if tenure is not None else None,
-        effective_end=tenure.effective_end if tenure is not None else None,
-        is_interim=tenure.is_interim if tenure is not None else None,
-        tenure_active=tenure.active if tenure is not None else None,
-        tenure_seasons=tenure.seasons if tenure is not None else None,
-        tenure_record=tenure.record if tenure is not None else None,
-        tenure_attribution_complete=(
-            tenure.attribution_complete if tenure is not None else None
-        ),
+def _coach_context(rows: Table) -> Table:
+    """Project stable coach and team identity from validated source structures."""
+    return rows.nested(
+        "coach",
+        fields={
+            "id": "coach_id",
+            "first_name": "coach_first_name",
+            "last_name": "coach_last_name",
+        },
+    ).nested(
+        "team", fields={"id": "team_id", "school": "school", "conference": "conference"}
     )
-
-
-def _sort_rows(rows: list[CoachSeason]) -> list[CoachSeason]:
-    return sorted(rows, key=lambda row: (row.year, row.team_id, row.coach_id))
 
 
 __all__ = ["CoachSeason", "TenureCoverage", "coach_seasons"]

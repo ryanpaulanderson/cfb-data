@@ -137,13 +137,20 @@ async def test_recipe_has_four_way_canonical_parity(
                 base_url=base_url,
                 dataframe_backend=backend,
                 retry_policy=RetryPolicy(max_attempts=1),
-                analytics=AnalyticsConfig(root=tmp_path / f"{backend}-{executor}"),
+                analytics=AnalyticsConfig(root=tmp_path / executor),
             ) as client:
                 run: RecipeRun[pd.DataFrame] = await recruiting_classes.run(
                     client,
                     class_year=2024,
                     policy=ExecutionPolicy(executor=executor, dask_max_workers=1),
                 )
+                if backend == "pandas":
+                    assert any(
+                        node.node_kind == "step" and not node.reused
+                        for node in run.lineage
+                    )
+                else:
+                    assert run.reused_nodes > 0
             digests.append(run.artifact.descriptor.content_digest)
             records.append(run.artifact.load().to_dict(orient="records"))
 
@@ -177,5 +184,5 @@ async def test_duplicate_recruit_ids_fail_instead_of_counting_twice(
             with pytest.raises(CFBDRunError) as exc_info:
                 await recruiting_classes(client, class_year=2024)
 
-    assert exc_info.value.node_id.endswith("cfbd.recruiting_classes.compose@1")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.recruiting_classes.compose@2")
+    assert exc_info.value.category == "CFBDTransformError"

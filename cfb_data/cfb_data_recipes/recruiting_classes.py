@@ -10,11 +10,12 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from cfb_data.analytics import RecipeRef, dataset, step
+import narwhals.stable.v2 as nw
+from cfb_data.analytics import RecipeRef, Table, dataset, step
+from cfb_data.analytics.tables import SOURCE_ORDINAL
 from cfb_data.enums import RecruitClassification
 from cfb_data.recruiting.models.pydantic.responses import (
     Recruit,
-    TeamRecruitingRanking,
 )
 from cfb_data.recruiting.sources import recruiting_players, recruiting_teams
 from pydantic import BaseModel, ConfigDict, Field
@@ -71,90 +72,102 @@ class RecruitingClass(BaseModel):
 
 @step(
     id="cfbd.recruiting_classes.compose",
-    revision=1,
+    revision=2,
     output=RecruitingClass,
     deterministic=True,
 )
-def compose_recruiting_classes(
-    rankings: list[TeamRecruitingRanking],
-    recruits: list[Recruit],
-) -> list[RecruitingClass]:
-    """Union ranked teams, commitments, and explicit uncommitted recruits.
+def compose_recruiting_classes(rankings: Table, recruits: Table) -> Table:
+    """Compose recruiting classes with native grouping and an outer join.
 
-    :param rankings: Validated team class rankings.
-    :param recruits: Validated individual recruits.
-    :return: Complete recruiting-class rows in deterministic year/rank order.
-    :raises ValueError: If a source candidate key is duplicated.
+    :param rankings: Validated team-ranking table.
+    :param recruits: Validated recruit table retaining source ordinals.
+    :return: Native class table with globally checked identity and ordering.
     """
-    ranking_by_key: dict[tuple[int, str], TeamRecruitingRanking] = {}
-    source_team_by_key: dict[tuple[int, str], str | None] = {}
-    for source_ranking in rankings:
-        key = (source_ranking.year, _team_key(source_ranking.team))
-        if key in ranking_by_key:
-            raise ValueError("Recruiting rankings contain duplicate team classes")
-        ranking_by_key[key] = source_ranking
-        source_team_by_key[key] = source_ranking.team
-
-    recruits_by_key: dict[tuple[int, str], list[Recruit]] = {}
-    recruit_ids: set[str] = set()
-    for recruit in recruits:
-        if recruit.id in recruit_ids:
-            raise ValueError("Recruiting players contain duplicate recruit IDs")
-        recruit_ids.add(recruit.id)
-        normalized_team = (
-            _team_key(recruit.committed_to)
-            if recruit.committed_to is not None
-            else "uncommitted"
+    keys = ("class_year", "class_key")
+    ranked = (
+        rankings.normalize_text("team", into="__team_key")
+        .with_columns(
+            nw.col("year").alias("class_year"),
+            nw.concat_str(nw.lit("team:"), nw.col("__team_key")).alias("class_key"),
+            nw.lit(True).alias("__ranked"),
         )
-        key = (recruit.year, normalized_team)
-        recruits_by_key.setdefault(key, []).append(recruit)
-        source_team_by_key.setdefault(key, recruit.committed_to)
-
-    rows: list[RecruitingClass] = []
-    for key in set(ranking_by_key) | set(recruits_by_key):
-        selected_ranking = ranking_by_key.get(key)
-        source_team = source_team_by_key[key]
-        if key[1] == "uncommitted":
-            status = RecruitingClassStatus.uncommitted
-        elif selected_ranking is None:
-            status = RecruitingClassStatus.commitments_only
-        else:
-            status = RecruitingClassStatus.ranked
-        selected_recruits = recruits_by_key.get(key, [])
-        rows.append(
-            RecruitingClass(
-                class_year=key[0],
-                class_key=key[1],
-                class_ordinal=0,
-                source_team=source_team,
-                status=status,
-                rank=(selected_ranking.rank if selected_ranking is not None else None),
-                points=(
-                    selected_ranking.points if selected_ranking is not None else None
-                ),
-                recruits=selected_recruits,
-                recruit_count=len(selected_recruits),
-            )
+        .select(
+            "class_year",
+            "class_key",
+            nw.col("team").alias("__ranked_team"),
+            "rank",
+            "points",
+            "__ranked",
         )
-    ordered = sorted(
-        rows,
-        key=lambda row: (
-            row.class_year,
-            row.status is RecruitingClassStatus.uncommitted,
-            row.rank is None,
-            row.rank if row.rank is not None else 0,
-            row.class_key,
+    )
+    ranked = ranked.require_unique(
+        keys, message="Recruiting rankings contain duplicate team classes"
+    )
+    commitments = recruits.require_unique(
+        ("id",), message="Recruiting players contain duplicate recruit IDs"
+    )
+    commitments = commitments.normalize_text(
+        "committed_to", into="__team_key"
+    ).with_columns(
+        nw.col("year").alias("class_year"),
+        nw.when(nw.col("committed_to").is_null())
+        .then(nw.lit("uncommitted"))
+        .otherwise(nw.concat_str(nw.lit("team:"), nw.col("__team_key")))
+        .alias("class_key"),
+    )
+    records = commitments.pack(
+        columns={
+            **{name: name for name in Recruit.model_fields},
+            SOURCE_ORDINAL: SOURCE_ORDINAL,
+        },
+        into="__recruit",
+    )
+    grouped = records.ordered_records(
+        keys=keys, column="__recruit", into="recruits", ordinal_field=SOURCE_ORDINAL
+    )
+    counts = commitments.aggregate(
+        keys=keys,
+        expressions=(
+            nw.len().alias("recruit_count"),
+            nw.col(SOURCE_ORDINAL).min().alias("__first"),
         ),
     )
-    return [
-        row.model_copy(update={"class_ordinal": ordinal})
-        for ordinal, row in enumerate(ordered)
-    ]
+    first = commitments.select(
+        *keys,
+        nw.col(SOURCE_ORDINAL).alias("__first"),
+        nw.col("committed_to").alias("__committed_team"),
+    )
+    grouped = (
+        grouped.join(counts, on=keys, cardinality="one_to_one")
+        .join(first, on=(*keys, "__first"), cardinality="many_to_one")
+        .drop("__first")
+    )
+    classes = ranked.join(grouped, on=keys, how="full", cardinality="one_to_one")
+    classes = classes.with_columns(
+        nw.when(nw.col("__ranked").fill_null(False))
+        .then(nw.col("__ranked_team"))
+        .otherwise(nw.col("__committed_team"))
+        .alias("source_team"),
+        nw.when(nw.col("class_key") == "uncommitted")
+        .then(nw.lit("uncommitted"))
+        .when(nw.col("__ranked").fill_null(False))
+        .then(nw.lit("ranked"))
+        .otherwise(nw.lit("commitments_only"))
+        .alias("status"),
+        nw.col("recruit_count").fill_null(0).cast(nw.Int64).alias("recruit_count"),
+        (nw.col("class_key") == "uncommitted").alias("__uncommitted"),
+        nw.col("rank").is_null().alias("__rank_null"),
+    ).fill_empty_lists("recruits")
+    return (
+        classes.sort("class_year", "__uncommitted", "__rank_null", "rank", "class_key")
+        .with_group_index("class_ordinal", keys=("class_year",))
+        .select(*RecruitingClass.model_fields)
+    )
 
 
 @dataset(
     id="cfbd.recruiting_classes",
-    revision=1,
+    revision=2,
     row=RecruitingClass,
     grain="one team recruiting class or uncommitted year bucket",
     keys=("class_year", "class_key"),
@@ -168,7 +181,7 @@ def recruiting_classes(
     position: str | None = None,
     state: str | None = None,
     classification: RecruitClassification | None = None,
-) -> RecipeRef[list[RecruitingClass]]:
+) -> RecipeRef[Table]:
     """Build recruiting classes from rankings and individual recruits.
 
     :param class_year: Required recruiting class year.
@@ -188,10 +201,6 @@ def recruiting_classes(
             classification=classification,
         ),
     )
-
-
-def _team_key(value: str) -> str:
-    return f"team:{' '.join(value.split()).casefold()}"
 
 
 __all__ = ["RecruitingClass", "RecruitingClassStatus", "recruiting_classes"]

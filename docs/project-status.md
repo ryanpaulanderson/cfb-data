@@ -8,7 +8,7 @@ workflows are usable and carefully tested. The user-facing API and
 documentation continue to be shaped around what is most useful in real
 analyses.
 
-The current package version is 0.8.0 and the endpoint reference was checked
+The current package version is 0.9.0 and the endpoint reference was checked
 against CFBD API v5.24.0 on August 13, 2026. The Python API, cache formats, and
 analytics artifact formats may still change before 1.0.
 
@@ -61,6 +61,16 @@ columns; malformed or conflicting source data still fails validation.
 Retrieval remains source-faithful. Filtering, joining, flattening, missing-data
 policy, and derived metrics live in each visible versioned recipe or in user
 code. Optional enrichments never change a base dataset's declared row universe.
+
+All thirteen first-party dataset transforms and three workflows now compose
+native partitioned table operations. `Table` carries lazy Narwhals/Dask graphs,
+global validation, and explicit schema metadata. Durable results support lazy
+scans and bounded pandas batches; eager pandas/Polars results remain an explicit
+presentation boundary. The [native execution decision](architecture/0007-native-table-execution.md)
+describes ownership and return contracts. The [original recipe audit](architecture/recipe-dask-reengineering-audit.md)
+remains the baseline inventory. The [migration verification report](architecture/native-table-verification.md)
+records multipartition correctness, backend/executor parity, Redis-backed live
+testing, and measured overhead. Worker placement alone is not a speed claim.
 
 The foundation's release evidence includes 651 default-suite tests, 20
 separately enabled Redis tests, a 12-combination clean-wheel matrix across

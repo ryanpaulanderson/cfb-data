@@ -299,13 +299,14 @@ async def test_source_failure_cancels_and_awaits_ready_siblings(
     tmp_path: Path,
 ) -> None:
     slow_started = asyncio.Event()
+    release_response = asyncio.Event()
 
     async def handler(request: web.Request) -> web.Response:
         if request.query.get("team") == "Failing Team":
             await slow_started.wait()
             return web.Response(status=400)
         slow_started.set()
-        await asyncio.sleep(10)
+        await release_response.wait()
         return web.json_response([game_response])
 
     @workflow(id="tests.failed_source_batch", revision=1)
@@ -329,13 +330,17 @@ async def test_source_failure_cancels_and_awaits_ready_siblings(
             ) as client:
                 bridge = client._analytics_bridge()
                 run_id = _run(database, credential_scope=bridge.credential_scope)
-                with pytest.raises(CFBDHTTPError):
-                    await _runner(
-                        client,
-                        database,
-                        store,
-                        run_id=run_id,
-                    ).run_batch(nodes, {})
+                try:
+                    async with asyncio.timeout(5):
+                        with pytest.raises(CFBDHTTPError):
+                            await _runner(
+                                client,
+                                database,
+                                store,
+                                run_id=run_id,
+                            ).run_batch(nodes, {})
+                finally:
+                    release_response.set()
 
                 await asyncio.sleep(0)
                 live_source_tasks = [

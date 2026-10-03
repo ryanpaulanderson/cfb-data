@@ -637,13 +637,20 @@ async def test_same_output_across_backends_and_executors(
                 base_url=base_url,
                 dataframe_backend=backend,
                 retry_policy=RetryPolicy(max_attempts=1),
-                analytics=AnalyticsConfig(root=tmp_path / f"{backend}-{executor}"),
+                analytics=AnalyticsConfig(root=tmp_path / executor),
             ) as client:
                 run: RecipeRun[pd.DataFrame] = await play_player_stats.run(
                     client,
                     game_ids=(game_id,),
                     policy=ExecutionPolicy(executor=executor, dask_max_workers=1),
                 )
+                if backend == "pandas":
+                    assert any(
+                        node.node_kind == "step" and not node.reused
+                        for node in run.lineage
+                    )
+                else:
+                    assert run.reused_nodes > 0
             digests.append(run.artifact.descriptor.content_digest)
             assert run.artifact.load().loc[0, "play_id"] == "play-0001"
 

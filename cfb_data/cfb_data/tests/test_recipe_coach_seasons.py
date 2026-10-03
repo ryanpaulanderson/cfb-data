@@ -157,7 +157,7 @@ async def test_requested_tenure_has_four_way_canonical_parity(
                 base_url=base_url,
                 dataframe_backend=backend,
                 retry_policy=RetryPolicy(max_attempts=1),
-                analytics=AnalyticsConfig(root=tmp_path / f"{backend}-{executor}"),
+                analytics=AnalyticsConfig(root=tmp_path / executor),
             ) as client:
                 run: RecipeRun[pd.DataFrame] = await coach_seasons.run(
                     client,
@@ -165,6 +165,13 @@ async def test_requested_tenure_has_four_way_canonical_parity(
                     include_tenure=True,
                     policy=ExecutionPolicy(executor=executor, dask_max_workers=1),
                 )
+                if backend == "pandas":
+                    assert any(
+                        node.node_kind == "step" and not node.reused
+                        for node in run.lineage
+                    )
+                else:
+                    assert run.reused_nodes > 0
             digests.append(run.artifact.descriptor.content_digest)
             records.append(run.artifact.load().to_dict(orient="records"))
 
@@ -195,5 +202,5 @@ async def test_missing_requested_tenure_fails_closed(
             with pytest.raises(CFBDRunError) as exc_info:
                 await coach_seasons(client, year=2024, include_tenure=True)
 
-    assert exc_info.value.node_id.endswith("cfbd.coach_seasons.attach_tenure@1")
-    assert exc_info.value.category == "ValueError"
+    assert exc_info.value.node_id.endswith("cfbd.coach_seasons.attach_tenure@2")
+    assert exc_info.value.category == "CFBDTransformError"
