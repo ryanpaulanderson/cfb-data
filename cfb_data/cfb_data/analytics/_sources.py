@@ -314,9 +314,9 @@ class _SourceRunner:
                     parameters,
                 )
             rows = contract.rows_adapter.validate_python(value)
-            checkpoint_eligible = self._checkpoint_eligible(node) and not any(
-                isinstance(row, _CoverageAwareRow) and row.coverage_state == "partial"
-                for row in rows
+            coverage_partial, warnings = _row_coverage(rows)
+            checkpoint_eligible = (
+                self._checkpoint_eligible(node) and not coverage_partial
             )
             artifact = await asyncio.to_thread(
                 self._store_and_bind_rows,
@@ -371,14 +371,8 @@ class _SourceRunner:
             artifact=artifact,
             node_fingerprint=fingerprint,
             row_model=contract.row_model,
-            warnings=tuple(
-                dict.fromkeys(
-                    row.coverage_warning
-                    for row in rows
-                    if isinstance(row, _CoverageAwareRow)
-                    and row.coverage_warning is not None
-                )
-            ),
+            warnings=warnings,
+            coverage_partial=coverage_partial,
         )
 
     def _table_value(
@@ -465,15 +459,19 @@ class _SourceRunner:
                     ),
                     contract.row_model,
                 )
-                await asyncio.to_thread(self._validate_reference, reference)
+                coverage_partial, warnings = await asyncio.to_thread(
+                    self._validate_reference, reference
+                )
                 value: object = reference
             else:
-                value = await asyncio.to_thread(
+                rows = await asyncio.to_thread(
                     self._load_rows,
                     contract,
                     identity,
                     candidate,
                 )
+                value = rows
+                coverage_partial, warnings = _row_coverage(rows)
             await asyncio.to_thread(
                 self._database.bind_reused_node,
                 run_id=self._run_id,
@@ -505,12 +503,37 @@ class _SourceRunner:
             ),
             node_fingerprint=fingerprint,
             row_model=contract.row_model,
+            warnings=warnings,
+            coverage_partial=coverage_partial,
         )
 
-    def _validate_reference(self, reference: ArtifactRef) -> None:
-        """Validate checkpoint contents in bounded batches before reuse."""
-        for _ in reference.batches(batch_rows=self._partition_rows):
-            pass
+    def _validate_reference(
+        self, reference: ArtifactRef
+    ) -> tuple[bool, tuple[str, ...]]:
+        """Validate checkpoint batches and retain their source coverage evidence.
+
+        :param reference: Immutable source snapshot being considered for reuse.
+        :return: Partial-state flag and distinct warnings in source order.
+        :raises CFBDArtifactCorruptionError: If persisted evidence is malformed.
+        """
+        partial = False
+        warnings: dict[str, None] = {}
+        for batch in reference.batches(batch_rows=self._partition_rows):
+            if not {"coverage_state", "coverage_warning"} <= set(batch.columns):
+                continue
+            partial = partial or bool(batch["coverage_state"].eq("partial").any())
+            observed: object = batch["coverage_warning"].dropna().unique().tolist()
+            if not isinstance(observed, list) or not all(
+                isinstance(item, str) for item in observed
+            ):
+                raise CFBDArtifactCorruptionError(
+                    content_digest=reference.descriptor.content_digest,
+                    category="source_coverage",
+                )
+            for warning in observed:
+                if isinstance(warning, str):
+                    warnings.setdefault(warning, None)
+        return partial, tuple(warnings)
 
     def _store_and_bind_rows(
         self,
@@ -650,6 +673,18 @@ def _source_contract(node: _CompiledNode) -> _SourceContract:
         rows_adapter=adapter,
         operation=endpoint_operation,
     )
+
+
+def _row_coverage(rows: Sequence[BaseModel]) -> tuple[bool, tuple[str, ...]]:
+    """Summarize validated source-row coverage at its model boundary."""
+    partial = False
+    warnings: dict[str, None] = {}
+    for row in rows:
+        if isinstance(row, _CoverageAwareRow):
+            partial = partial or row.coverage_state == "partial"
+            if row.coverage_warning is not None:
+                warnings.setdefault(row.coverage_warning, None)
+    return partial, tuple(warnings)
 
 
 async def _cancel_and_await[ValueT](

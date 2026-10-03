@@ -76,6 +76,25 @@ the bounded parallel suite passed all 689 tests with the same 23 skips in
 warning-free documentation, took 81.77 seconds. These are measured local
 durations; supported-version CI results are verified separately on the PR.
 
+The repaired unsplit CI suites passed on Python 3.12 in 266.95 seconds and
+Python 3.13 in 251.09 seconds. Those remote durations remain above the
+one-to-two-minute target despite the faster local result.
+
+## Review regressions
+
+Source recovery now retains coverage warnings while validating reused snapshots
+in bounded batches. A reusable source carrying a warning preserves that
+warning in the public result after recovery. Explicitly partial sources remain
+ineligible for checkpoint reuse, including those whose reason is unknown;
+their public coverage remains partial even without a warning. HTTP-boundary
+regressions fail against the original engine and pass with the correction.
+
+Nested record ordering accepts native integral values, including signed and
+unsigned NumPy integers. pandas and multipartition Dask regressions reproduce
+the previous rejection and verify deterministic ordering. Booleans, floats,
+strings, and missing ordinals remain invalid. The full corrected local suite
+passed 698 tests with 23 opt-in skips in 75.26 seconds.
+
 ## Redis-backed live evidence
 
 The bounded live recipe acceptance test passed in 103.98 seconds. Its persistent

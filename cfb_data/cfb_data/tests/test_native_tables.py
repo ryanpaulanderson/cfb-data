@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
+from contextlib import AbstractAsyncContextManager
+from enum import StrEnum
 from pathlib import Path
+from typing import Literal
 
 import narwhals.stable.v2 as nw
+import numpy as np
 import pandas as pd
 import pytest
+from aiohttp import web
 from cfb_data.analytics import (
     AnalyticsConfig,
     AnalyticsEvent,
@@ -20,13 +26,21 @@ from cfb_data.analytics import (
     SourceContext,
     Table,
     dataset,
+    require_one,
     source,
     step,
+    value,
     workflow,
 )
+from cfb_data.games.sources import games
 from pydantic import BaseModel, Field
 
-from cfb_data import CFBDClient
+from cfb_data import CFBDClient, RetryPolicy
+
+type _ServerFactory = Callable[
+    [Callable[[web.Request], Awaitable[web.StreamResponse]]],
+    AbstractAsyncContextManager[str],
+]
 
 
 class _Input(BaseModel):
@@ -208,6 +222,163 @@ def test_shared_global_checks_preserve_contract_order(
             table.collect()
     else:
         assert table.collect()["id"].tolist() == identifiers
+
+
+class _CoverageStatus(StrEnum):
+    """Describe complete or partial source evidence in the canonical row schema."""
+
+    complete = "complete"
+    partial = "partial"
+
+
+class _CoverageRow(BaseModel):
+    """Retain partial evidence with an optional known explanation."""
+
+    id: int
+    coverage_state: _CoverageStatus
+    coverage_warning: str | None
+
+
+@source(id="tests.native.coverage_input", revision=1, output=_CoverageRow, cost=0)
+async def _coverage_input(
+    context: SourceContext[_CoverageRow], *, warning: str | None
+) -> list[_CoverageRow]:
+    """Provide coverage evidence before a dependent HTTP boundary."""
+    del context
+    return [
+        _CoverageRow(
+            id=401628347,
+            coverage_state=_CoverageStatus.complete
+            if warning is not None
+            else _CoverageStatus.partial,
+            coverage_warning=warning,
+        )
+    ]
+
+
+@step(id="tests.native.coverage_finish", revision=1, output=_CoverageRow)
+def _coverage_finish(rows: Table, gate: Table) -> Table:
+    """Keep the partial rows after the dependent source succeeds."""
+    del gate
+    return rows.select(*_CoverageRow.model_fields)
+
+
+@dataset(
+    id="tests.native.coverage_recovery",
+    revision=1,
+    row=_CoverageRow,
+    grain="one identifier",
+    keys=("id",),
+)
+def _coverage_recovery(*, warning: str | None) -> RecipeRef[Table]:
+    """Retrieve a partial snapshot before an independently recoverable HTTP failure."""
+    rows = _coverage_input(warning=warning)
+    identity = require_one(rows)
+    return _coverage_finish(
+        rows, games(game_id=value(identity, path=("id",), expected_type=int))
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("warning", ("Coverage caveat", None))
+async def test_source_coverage_survives_recovery(
+    api_server: _ServerFactory,
+    game_response: dict[str, object],
+    tmp_path: Path,
+    warning: str | None,
+) -> None:
+    """Retain reusable warnings and refresh partial sources with unknown reasons."""
+    corrected = False
+
+    async def handler(request: web.Request) -> web.Response:
+        del request
+        return (
+            web.json_response([game_response])
+            if corrected
+            else web.Response(status=400)
+        )
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "coverage-fixture",
+            base_url=base_url,
+            retry_policy=RetryPolicy(max_attempts=1),
+            analytics=AnalyticsConfig(root=tmp_path / "analytics"),
+        ) as client:
+            with pytest.raises(CFBDRunError) as failure:
+                await _coverage_recovery.run(client, warning=warning)
+            corrected = True
+            recovered = await _coverage_recovery.run(
+                client,
+                warning=warning,
+                resume_from=failure.value.run_id,
+            )
+    coverage = next(
+        item
+        for item in recovered.source_coverage
+        if item.operation_id == "tests.native.coverage_input"
+    )
+    assert coverage.state == "partial"
+    assert recovered.warnings == (() if warning is None else (warning,))
+    evidence = next(
+        node
+        for node in recovered.lineage
+        if "source:tests.native.coverage_input@1" in node.node_id
+    )
+    assert evidence.reused is (warning is not None)
+    assert recovered.value["coverage_state"].tolist() == [
+        "complete" if warning is not None else "partial"
+    ]
+
+
+@pytest.mark.parametrize("backend", ("pandas", "dask"))
+def test_ordered_records_accept_numpy_integer_ordinals(
+    backend: Literal["pandas", "dask"],
+) -> None:
+    """Order valid native integer record positions across groups and partitions."""
+    frame = pd.DataFrame(
+        {
+            "id": [1, 1],
+            "record": [
+                {"ordinal": np.int64(2), "label": "second"},
+                {"ordinal": np.uint32(1), "label": "first"},
+            ],
+        }
+    )
+    native: object = frame
+    if backend == "dask":
+        import dask
+        import dask.dataframe as dd
+
+        with dask.config.set({"dataframe.convert-string": False}):
+            native = dd.from_pandas(frame, npartitions=2, sort=False)
+    wrapped = nw.from_native(native)
+    lazy = wrapped.lazy() if isinstance(wrapped, nw.DataFrame) else wrapped
+    result = (
+        Table(lazy)
+        .ordered_records(
+            keys=("id",),
+            column="record",
+            into="records",
+            ordinal_field="ordinal",
+        )
+        .collect()
+    )
+    assert result["records"].tolist() == [[{"label": "first"}, {"label": "second"}]]
+
+
+@pytest.mark.parametrize("ordinal", (True, np.bool_(False), 1.5, "2", None))
+def test_ordered_records_reject_noninteger_ordinals(ordinal: object) -> None:
+    """Reject booleans and malformed positions without weakening nested ordering."""
+    table = Table(
+        nw.from_native(
+            pd.DataFrame({"id": [1], "record": [{"ordinal": ordinal}]})
+        ).lazy()
+    )
+    with pytest.raises(CFBDTransformError, match="integer ordinal"):
+        table.ordered_records(
+            keys=("id",), column="record", into="records", ordinal_field="ordinal"
+        ).collect()
 
 
 @step(id="tests.native.invalid_fields", revision=1, output=_Output)

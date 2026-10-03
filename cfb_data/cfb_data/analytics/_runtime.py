@@ -10,8 +10,6 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, Protocol, cast
 
-from pydantic import BaseModel
-
 from cfb_data._dataframes import _DataFrameAdapter
 from cfb_data._executor import _EndpointExecutor
 from cfb_data._observability import _failure_category
@@ -51,7 +49,6 @@ from .results import (
     RunNodeEvidence,
     WorkflowOutputs,
 )
-from .types import _CoverageAwareRow
 
 type SourceBehavior = Literal["preserve_snapshot", "normal_freshness", "refresh"]
 
@@ -625,29 +622,8 @@ async def _public_result(
         row_count = results[node.node_id].artifact.manifest.body.row_count
         if row_count is None:
             raise CFBDRecipeCompilationError("Source row count is unavailable")
-        source_value = results[node.node_id].value
-        source_rows = (
-            cast(Sequence[BaseModel], source_value)
-            if isinstance(source_value, (list, tuple))
-            else ()
-        )
-        partial_rows = (
-            row
-            for row in source_rows
-            if isinstance(row, _CoverageAwareRow) and row.coverage_state == "partial"
-        )
-        source_warnings = tuple(
-            dict.fromkeys(
-                (
-                    *results[node.node_id].warnings,
-                    *(
-                        row.coverage_warning
-                        for row in partial_rows
-                        if row.coverage_warning is not None
-                    ),
-                )
-            )
-        )
+        source_result = results[node.node_id]
+        source_warnings = source_result.warnings
         coverage_warnings.extend(source_warnings)
         source_coverage.append(
             RecipeSourceCoverage(
@@ -662,7 +638,7 @@ async def _public_result(
                 ),
                 state=(
                     "partial"
-                    if source_warnings
+                    if source_result.coverage_partial or source_warnings
                     else "empty"
                     if row_count == 0
                     else "present"

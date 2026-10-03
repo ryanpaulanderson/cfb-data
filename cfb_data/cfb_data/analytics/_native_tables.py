@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from functools import partial
+from numbers import Integral
 from typing import Protocol, cast
 
 import narwhals.stable.v2 as nw
@@ -217,7 +218,7 @@ def _sort_nested_records(
                 raise CFBDTransformError("Nested aggregate contains an invalid struct")
             record = cast(dict[str, object], item)
             position = record.get(ordinal_field)
-            if not isinstance(position, int) or isinstance(position, bool):
+            if isinstance(position, bool) or not isinstance(position, Integral):
                 raise CFBDTransformError("Nested aggregate lacks an integer ordinal")
             records.append(record)
         ordered = sorted(records, key=partial(_record_ordinal, field=ordinal_field))
@@ -237,9 +238,9 @@ def _sort_nested_records(
 
 def _record_ordinal(record: Mapping[str, object], *, field: str) -> int:
     value = record[field]
-    if not isinstance(value, int) or isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, Integral):
         raise CFBDTransformError("Nested record ordinal is invalid")
-    return value
+    return int(value)
 
 
 def _fill_lists(frame: pd.DataFrame, columns: Sequence[str]) -> pd.DataFrame:
@@ -421,7 +422,6 @@ def _ordered_values(
 
 def _sort_scalar_lists(frame: pd.DataFrame, column: str, limit: int) -> pd.DataFrame:
     """Order one already-grouped bounded scalar evidence list."""
-    from numbers import Integral
 
     def order(value: object) -> list[int]:
         if (
