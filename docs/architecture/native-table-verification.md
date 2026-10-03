@@ -84,8 +84,8 @@ CI now runs three duration-balanced groups per supported Python version with
 the same two-worker runner. Measured setup, execution, and teardown timings
 are checked in for all 721 collected cases; unknown tests receive an average
 duration and remain included. Collection verification proves the groups are
-disjoint and their union equals the complete suite. Both existing required
-Python-version checks fail if any supported-version group fails or is cancelled.
+disjoint and their union equals the complete suite. Each existing required
+Python-version check fails if one of its groups fails or is cancelled.
 The full local suite with the splitter installed passed 698 tests with 23
 opt-in skips in 74.32 seconds. Remote group timings must be measured separately.
 
@@ -93,8 +93,10 @@ The first grouped remote run took 63.00, 97.46, and 116.90 seconds on Python
 3.12 and 59.85, 55.37, and 104.72 seconds on Python 3.13. One Python 3.13 group
 exposed an existing cancellation fixture that assumed its worker had started
 after a 10-millisecond sleep. The fixture now waits for an explicit worker-start
-handshake and releases the worker during cleanup. Both required version checks
-correctly failed when that group failed; a complete rerun verifies the correction.
+handshake and releases the worker during cleanup. The original combined gate
+failed both required version checks when that group failed; independent version
+invocations now attribute each failure to its own version. A complete rerun
+verifies the correction.
 
 ## Review regressions
 
@@ -110,6 +112,28 @@ unsigned NumPy integers. pandas and multipartition Dask regressions reproduce
 the previous rejection and verify deterministic ordering. Booleans, floats,
 strings, and missing ordinals remain invalid. The full corrected local suite
 passed 698 tests with 23 opt-in skips in 75.26 seconds.
+
+Subsequent review found that coverage recovery depended on both evidence
+attributes being dataframe columns. Source row models can expose these
+attributes as properties derived from persisted fields. Recovery now decodes
+bounded canonical batches using the same model contract and coverage protocol
+as fresh retrieval. Tests cover two derived properties and a field/property
+combination across successive failed-run recovery.
+
+Fresh partial sources already have ineligible immutable bindings, and both
+parent and global database queries filter eligibility. Sources themselves only
+consult parent ancestry during snapshot recovery. A restored binding with
+incorrect eligibility can nevertheless expose partial content to that path.
+Validated partial content now causes a fresh retrieval rather than rebinding,
+including when the invalid eligibility persists in an older ancestor. An
+isolated restored-metadata fixture preserves immutable original content and
+proves this behavior through the public recipe interface.
+
+The corrected full local quality contract passed 701 tests with 23 opt-in skips
+in 79.58 seconds of pytest execution. Collection verification assigns all 724
+cases to exactly one group. Version-gate routing checks cover failures,
+cancellations, and skipped groups for each supported version without attributing
+the other version's result to that check.
 
 ## Redis-backed live evidence
 

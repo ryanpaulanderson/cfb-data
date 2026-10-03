@@ -35,10 +35,11 @@ to preserve cumulative API quota ledgers and their Redis cache policy.
 
 CI divides the complete suite into three balanced groups per Python version,
 each using the same two-worker runner and `make check` contract. The existing
-Python-version checks require every group to succeed, including after a failed
-or cancelled group. The checked-in `.test_durations` contains measured setup,
-execution, and cleanup times used by `pytest-split`; tests without a timing use
-the suite average and remain included. Refresh timings after substantial suite
+Python-version checks each require that version's three groups to succeed,
+including after a failed or cancelled group. Independent version invocations
+share one reusable quality workflow. The checked-in `.test_durations` contains
+measured setup, execution, and cleanup times used by `pytest-split`; tests without
+a timing use the suite average and remain included. Refresh timings after substantial suite
 changes with `.venv/bin/python -m pytest --store-durations`, then run
 `.venv/bin/pre-commit run --all-files`. For a CI group reproduction, use
 `PYTEST_ADDOPTS="--splits 3 --group 1 --splitting-algorithm least_duration" make check`.
