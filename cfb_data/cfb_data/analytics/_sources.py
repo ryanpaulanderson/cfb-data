@@ -460,7 +460,7 @@ class _SourceRunner:
                     contract.row_model,
                 )
                 coverage_partial, warnings = await asyncio.to_thread(
-                    self._validate_reference, reference
+                    self._validate_candidate_coverage, contract, identity, candidate
                 )
                 value: object = reference
             else:
@@ -472,6 +472,10 @@ class _SourceRunner:
                 )
                 value = rows
                 coverage_partial, warnings = _row_coverage(rows)
+            # Content is authoritative even when persisted eligibility metadata
+            # is stale. Partial sources must be retrieved again, not rebound.
+            if coverage_partial:
+                return None
             await asyncio.to_thread(
                 self._database.bind_reused_node,
                 run_id=self._run_id,
@@ -507,31 +511,38 @@ class _SourceRunner:
             coverage_partial=coverage_partial,
         )
 
-    def _validate_reference(
-        self, reference: ArtifactRef
+    def _validate_candidate_coverage(
+        self,
+        contract: _SourceContract,
+        identity: _AnalyticsTableIdentity,
+        candidate: _CheckpointCandidate,
     ) -> tuple[bool, tuple[str, ...]]:
-        """Validate checkpoint batches and retain their source coverage evidence.
+        """Validate bounded source batches and retain model-level coverage evidence.
 
-        :param reference: Immutable source snapshot being considered for reuse.
+        :param contract: Authoritative source row contract and validation adapter.
+        :param identity: Expected semantic identity of the source output.
+        :param candidate: Immutable source snapshot being considered for reuse.
         :return: Partial-state flag and distinct warnings in source order.
-        :raises CFBDArtifactCorruptionError: If persisted evidence is malformed.
+        :raises CFBDArtifactCorruptionError: If persisted content is malformed.
         """
         partial = False
         warnings: dict[str, None] = {}
-        for batch in reference.batches(batch_rows=self._partition_rows):
-            if not {"coverage_state", "coverage_warning"} <= set(batch.columns):
-                continue
-            partial = partial or bool(batch["coverage_state"].eq("partial").any())
-            observed: object = batch["coverage_warning"].dropna().unique().tolist()
-            if not isinstance(observed, list) or not all(
-                isinstance(item, str) for item in observed
-            ):
-                raise CFBDArtifactCorruptionError(
-                    content_digest=reference.descriptor.content_digest,
-                    category="source_coverage",
+        for table in _TableArtifactCodec().iter_tables(
+            directory=self._object_store.directory(candidate.binding.content_digest),
+            manifest=candidate.manifest,
+            row_model=contract.row_model,
+            identity=identity,
+        ):
+            for offset in range(0, max(1, table.num_rows), self._partition_rows):
+                rows = _analytics_models_from_arrow_table(
+                    row_model=contract.row_model,
+                    response_adapter=contract.rows_adapter,
+                    table=table.slice(offset, self._partition_rows),
+                    identity=identity,
                 )
-            for warning in observed:
-                if isinstance(warning, str):
+                batch_partial, batch_warnings = _row_coverage(rows)
+                partial = partial or batch_partial
+                for warning in batch_warnings:
                     warnings.setdefault(warning, None)
         return partial, tuple(warnings)
 

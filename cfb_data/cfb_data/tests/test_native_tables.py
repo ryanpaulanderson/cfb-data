@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from enum import StrEnum
@@ -239,6 +240,37 @@ class _CoverageRow(BaseModel):
     coverage_warning: str | None
 
 
+class _PropertyCoverageRow(BaseModel):
+    """Derive coverage evidence from persisted source fields."""
+
+    id: int
+    status: _CoverageStatus
+    reason: str | None
+
+    @property
+    def coverage_state(self) -> Literal["complete", "partial"]:
+        """Return the source completeness carried by the persisted status."""
+        return "partial" if self.status == _CoverageStatus.partial else "complete"
+
+    @property
+    def coverage_warning(self) -> str | None:
+        """Return the explanation carried by the persisted reason."""
+        return self.reason
+
+
+class _MixedCoverageRow(BaseModel):
+    """Expose state as a field and its explanation as a model property."""
+
+    id: int
+    coverage_state: _CoverageStatus
+    reason: str | None
+
+    @property
+    def coverage_warning(self) -> str | None:
+        """Return the explanation carried by the persisted reason."""
+        return self.reason
+
+
 @source(id="tests.native.coverage_input", revision=1, output=_CoverageRow, cost=0)
 async def _coverage_input(
     context: SourceContext[_CoverageRow], *, warning: str | None
@@ -329,6 +361,165 @@ async def test_source_coverage_survives_recovery(
     assert recovered.value["coverage_state"].tolist() == [
         "complete" if warning is not None else "partial"
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("row_model", (_PropertyCoverageRow, _MixedCoverageRow))
+async def test_model_coverage_properties_survive_recovery(
+    api_server: _ServerFactory,
+    game_response: dict[str, object],
+    tmp_path: Path,
+    row_model: type[BaseModel],
+) -> None:
+    """Preserve derived evidence through successive resumed snapshots."""
+    corrected = False
+    executions = 0
+
+    @source(id="tests.native.property_input", revision=1, output=row_model, cost=0)
+    async def property_input(context: SourceContext[BaseModel]) -> list[BaseModel]:
+        """Return one reusable source with a coverage explanation."""
+        nonlocal executions
+        del context
+        executions += 1
+        state_field = (
+            "status" if row_model is _PropertyCoverageRow else "coverage_state"
+        )
+        return [
+            row_model.model_validate(
+                {"id": 401628347, state_field: "complete", "reason": "Derived warning"}
+            )
+        ]
+
+    @step(id="tests.native.property_finish", revision=1, output=row_model)
+    def property_finish(rows: Table, gate: Table) -> Table:
+        """Return the persisted source fields after its dependent source succeeds."""
+        del gate
+        return rows.select(*row_model.model_fields)
+
+    @dataset(
+        id="tests.native.property_recovery",
+        revision=1,
+        row=row_model,
+        grain="one identifier",
+        keys=("id",),
+    )
+    def property_recovery() -> RecipeRef[Table]:
+        """Wait for source evidence before attempting the recoverable request."""
+        rows = property_input()
+        identity = require_one(rows)
+        return property_finish(
+            rows, games(game_id=value(identity, path=("id",), expected_type=int))
+        )
+
+    async def handler(request: web.Request) -> web.Response:
+        del request
+        return (
+            web.json_response([game_response])
+            if corrected
+            else web.Response(status=400)
+        )
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "coverage-properties",
+            base_url=base_url,
+            retry_policy=RetryPolicy(max_attempts=1),
+            analytics=AnalyticsConfig(root=tmp_path / "analytics"),
+        ) as client:
+            with pytest.raises(CFBDRunError) as failure:
+                await property_recovery.run(
+                    client, policy=ExecutionPolicy(table_partition_rows=1)
+                )
+            with pytest.raises(CFBDRunError) as second_failure:
+                await property_recovery.run(
+                    client,
+                    resume_from=failure.value.run_id,
+                    policy=ExecutionPolicy(table_partition_rows=1),
+                )
+            corrected = True
+            recovered = await property_recovery.run(
+                client,
+                resume_from=second_failure.value.run_id,
+                policy=ExecutionPolicy(table_partition_rows=1),
+            )
+    assert recovered.warnings == ("Derived warning",)
+    coverage = next(
+        item
+        for item in recovered.source_coverage
+        if item.operation_id == "tests.native.property_input"
+    )
+    assert coverage.state == "partial"
+    assert recovered.value["reason"].tolist() == ["Derived warning"]
+    assert next(
+        node
+        for node in recovered.lineage
+        if "source:tests.native.property_input@1" in node.node_id
+    ).reused
+    assert executions == 1
+
+
+@pytest.mark.asyncio
+async def test_partial_checkpoint_with_stale_eligibility_is_refetched(
+    api_server: _ServerFactory,
+    game_response: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Reject partial content despite stale persisted eligibility metadata."""
+    corrected = False
+    root = tmp_path / "analytics"
+
+    async def handler(request: web.Request) -> web.Response:
+        del request
+        return (
+            web.json_response([game_response])
+            if corrected
+            else web.Response(status=400)
+        )
+
+    async with api_server(handler) as base_url:
+        async with CFBDClient(
+            "coverage-stale-eligibility",
+            base_url=base_url,
+            retry_policy=RetryPolicy(max_attempts=1),
+            analytics=AnalyticsConfig(root=root),
+        ) as client:
+            with pytest.raises(CFBDRunError) as failure:
+                await _coverage_recovery.run(client, warning=None)
+            # Emulate a restored binding with stale eligibility metadata.
+            # Preserve the original immutable binding and artifact content.
+            with sqlite3.connect(root / "runs.sqlite3") as connection:
+                cursor = connection.execute(
+                    "INSERT INTO node_artifact_bindings "
+                    "(run_id, node_id, output_name, node_fingerprint, content_digest, "
+                    "placement, checkpoint_eligible, committed_at) "
+                    "SELECT run_id, node_id || ':restored', output_name, "
+                    "node_fingerprint, content_digest, placement, 1, committed_at "
+                    "FROM node_artifact_bindings "
+                    "WHERE run_id = ? AND node_id LIKE ? AND checkpoint_eligible = 0",
+                    (failure.value.run_id, "%source:tests.native.coverage_input@1%"),
+                )
+                assert cursor.rowcount == 1
+            with pytest.raises(CFBDRunError) as second_failure:
+                await _coverage_recovery.run(
+                    client, warning=None, resume_from=failure.value.run_id
+                )
+            corrected = True
+            recovered = await _coverage_recovery.run(
+                client, warning=None, resume_from=second_failure.value.run_id
+            )
+    assert (
+        next(
+            item
+            for item in recovered.source_coverage
+            if item.operation_id == "tests.native.coverage_input"
+        ).state
+        == "partial"
+    )
+    assert not next(
+        node
+        for node in recovered.lineage
+        if "source:tests.native.coverage_input@1" in node.node_id
+    ).reused
 
 
 @pytest.mark.parametrize("backend", ("pandas", "dask"))
