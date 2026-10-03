@@ -315,11 +315,16 @@ async def test_dataset_duplicate_keys_fail_without_successful_binding(
 
 @pytest.mark.asyncio
 async def test_cancelled_transform_awaits_started_thread_work(tmp_path: Path) -> None:
+    worker_started = asyncio.Event()
+    worker_release = threading.Event()
     worker_finished = threading.Event()
+    loop = asyncio.get_running_loop()
 
     @step(id="tests.cancellable_rows", revision=1, output=_CleanRow)
     def slow() -> list[_CleanRow]:
-        time.sleep(0.05)
+        loop.call_soon_threadsafe(worker_started.set)
+        if not worker_release.wait(timeout=10):
+            raise TimeoutError("Cancellation fixture worker was not released")
         worker_finished.set()
         return [_CleanRow(id=1, label="done")]
 
@@ -348,11 +353,18 @@ async def test_cancelled_transform_awaits_started_thread_work(tmp_path: Path) ->
                 lease_ttl=timedelta(seconds=0.2),
             ).run_batch((node,), {})
         )
-        await asyncio.sleep(0.01)
-        task.cancel()
-
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        try:
+            await asyncio.wait_for(worker_started.wait(), timeout=10)
+            task.cancel()
+            assert not worker_finished.is_set()
+            worker_release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, timeout=10)
+        finally:
+            worker_release.set()
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
 
         assert worker_finished.is_set()
         assert database.node_state(run_id, node.node_id) == "cancelled"

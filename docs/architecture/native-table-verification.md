@@ -89,6 +89,13 @@ Python-version checks fail if any supported-version group fails or is cancelled.
 The full local suite with the splitter installed passed 698 tests with 23
 opt-in skips in 74.32 seconds. Remote group timings must be measured separately.
 
+The first grouped remote run took 63.00, 97.46, and 116.90 seconds on Python
+3.12 and 59.85, 55.37, and 104.72 seconds on Python 3.13. One Python 3.13 group
+exposed an existing cancellation fixture that assumed its worker had started
+after a 10-millisecond sleep. The fixture now waits for an explicit worker-start
+handshake and releases the worker during cleanup. Both required version checks
+correctly failed when that group failed; a complete rerun verifies the correction.
+
 ## Review regressions
 
 Source recovery now retains coverage warnings while validating reused snapshots
