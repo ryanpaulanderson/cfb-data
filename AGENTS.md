@@ -233,8 +233,11 @@ tracked in [issue #55](https://github.com/ryanpaulanderson/cfb-data/issues/55).
 - Target one to two minutes for the default suite on ordinary development and
   CI machines. Use small representative fixtures, event handshakes instead of
   fixed waiting periods, and the bounded parallel runner configured in
-  `pyproject.toml`. Keep dependencies installed by packaging tests in isolated
-  environments. Reuse backend-portable checkpoints for presentation parity;
+  `pyproject.toml`. CI splits the full suite into three duration-balanced groups
+  per supported Python version; retain complete coverage and fail required
+  checks when any group fails or is cancelled. Refresh checked-in timing data
+  after substantial changes. Keep dependencies installed by packaging tests in
+  isolated environments. Reuse backend-portable checkpoints for presentation parity;
   retain fresh local and Dask dataset execution and dedicated multipartition,
   failure, cancellation, and worker-lifecycle acceptance. Report measured
   durations, and keep quota-ledgered live checks explicitly enabled and serial.

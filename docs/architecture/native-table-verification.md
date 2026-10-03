@@ -80,6 +80,15 @@ The repaired unsplit CI suites passed on Python 3.12 in 266.95 seconds and
 Python 3.13 in 251.09 seconds. Those remote durations remain above the
 one-to-two-minute target despite the faster local result.
 
+CI now runs three duration-balanced groups per supported Python version with
+the same two-worker runner. Measured setup, execution, and teardown timings
+are checked in for all 721 collected cases; unknown tests receive an average
+duration and remain included. Collection verification proves the groups are
+disjoint and their union equals the complete suite. Both existing required
+Python-version checks fail if any supported-version group fails or is cancelled.
+The full local suite with the splitter installed passed 698 tests with 23
+opt-in skips in 74.32 seconds. Remote group timings must be measured separately.
+
 ## Review regressions
 
 Source recovery now retains coverage warnings while validating reused snapshots

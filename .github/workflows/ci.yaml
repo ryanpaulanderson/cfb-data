@@ -136,14 +136,15 @@ jobs:
           asyncio.run(main())
           PY
 
-  check:
-    name: Python ${{ matrix.python-version }}
+  check-groups:
+    name: Python ${{ matrix.python-version }} / test group ${{ matrix.group }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.13"]
+        group: [1, 2, 3]
 
     steps:
       - name: Check out repository
@@ -160,4 +161,22 @@ jobs:
         run: make install
 
       - name: Run shared quality contract
+        env:
+          PYTEST_ADDOPTS: --splits 3 --group ${{ matrix.group }} --splitting-algorithm least_duration
         run: make check
+
+  check:
+    name: Python ${{ matrix.python-version }}
+    needs: check-groups
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - name: Require every supported-version test group
+        env:
+          GROUP_RESULT: ${{ needs.check-groups.result }}
+        run: test "$GROUP_RESULT" = success
