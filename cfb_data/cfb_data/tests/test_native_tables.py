@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractAsyncContextManager
 from enum import StrEnum
 from pathlib import Path
@@ -42,6 +43,65 @@ type _ServerFactory = Callable[
     [Callable[[web.Request], Awaitable[web.StreamResponse]]],
     AbstractAsyncContextManager[str],
 ]
+
+
+def test_owned_native_tables_compose_and_enforce_bounded_collection() -> None:
+    source = pd.DataFrame(
+        {"id": [1, 2, 3, 4], "group": ["a", "b", "a", "b"], "value": [1, 2, 3, 4]}
+    )
+    table = Table.from_pandas(source, partition_rows=1)
+    source.loc[0, "value"] = 999
+    totals = table.aggregate(
+        keys=("group",), expressions=(nw.col("value").sum().alias("total"),)
+    )
+    labels = Table.from_pandas(
+        pd.DataFrame({"group": ["a", "b"], "label": ["A", "B"]}), partition_rows=1
+    )
+    result = totals.join(labels, on=("group",), cardinality="one_to_one").sort("group")
+    assert result.collect_bounded(max_rows=2).to_dict("records") == [
+        {"group": "a", "total": 4, "label": "A"},
+        {"group": "b", "total": 6, "label": "B"},
+    ]
+    with pytest.raises(CFBDTransformError, match="row bound"):
+        table.collect_bounded(max_rows=3)
+    with pytest.raises(CFBDTransformError, match="positive values"):
+        table.require(nw.col("value") > 1, message="positive values").collect_bounded(
+            max_rows=4
+        )
+    with pytest.raises(ValueError, match="positive integer"):
+        Table.from_pandas(source, partition_rows=0)
+
+
+def test_concurrent_native_construction_preserves_structs_and_caller_settings() -> None:
+    import dask
+
+    before = dict(dask.config.get("dataframe"))
+
+    def project(number: int) -> dict[str, object]:
+        table = Table.from_pandas(
+            pd.DataFrame(
+                {"id": [number], "clock": [{"minutes": number, "seconds": 0}]}
+            ),
+            partition_rows=1,
+        )
+        return (
+            table.nested(
+                "clock", fields={"minutes": "minutes"}, dtypes={"minutes": "Int64"}
+            )
+            .collect_bounded(max_rows=1)
+            .iloc[0]
+            .to_dict()
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = tuple(pool.map(project, range(16)))
+    for number, record in enumerate(results):
+        assert record == {
+            "id": number,
+            "clock": {"minutes": number, "seconds": 0},
+            "minutes": number,
+        }
+    assert dict(dask.config.get("dataframe")) == before
 
 
 class _Input(BaseModel):

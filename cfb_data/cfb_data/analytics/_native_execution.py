@@ -7,6 +7,7 @@ import os
 import time
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 from types import GenericAlias
 from typing import Protocol, cast
 
@@ -20,6 +21,7 @@ from cfb_data._tabular import (
     _AnalyticsTableIdentity,
 )
 
+from ._native_tables import _stable_shuffle_lowering
 from .errors import CFBDTransformError
 from .tables import Table
 
@@ -95,7 +97,9 @@ def _validation_tasks(table: Table) -> tuple[object, ...]:
     combined = cast(_ConcatSummaries, concat)(summaries, ignore_unknown_divisions=True)
     if not isinstance(combined, DataFrame):
         raise CFBDTransformError("Combined validation did not produce a dataframe")
-    parts = cast(_Computable, combined).to_delayed(optimize_graph=False)
+    parts = _stable_shuffle_lowering(
+        partial(cast(_Computable, combined).to_delayed, optimize_graph=False)
+    )
     if not isinstance(parts, list) or len(parts) != len(summaries):
         raise CFBDTransformError("Global validation changed its summary partitions")
     return tuple(parts[index] for index in summary_indices)
@@ -197,7 +201,9 @@ def _local_native_parts(
         return
     if not isinstance(native, DataFrame):
         raise CFBDTransformError("Native execution requires a dataframe")
-    delayed_parts: object = cast(_Computable, native).to_delayed(optimize_graph=False)
+    delayed_parts = _stable_shuffle_lowering(
+        partial(cast(_Computable, native).to_delayed, optimize_graph=False)
+    )
     if not isinstance(delayed_parts, list):
         raise CFBDTransformError("Dask partition graph is invalid")
     for part in delayed_parts:

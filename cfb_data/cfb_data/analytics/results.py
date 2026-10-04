@@ -167,12 +167,12 @@ class ArtifactRef:
         :raises CFBDArtifactCorruptionError: If manifest or computed parts fail validation.
         :raises ValueError: If partition sizing is invalid.
         """
-        import dask
         import dask.dataframe as dd
         import narwhals.stable.v2 as nw
         from dask.delayed import Delayed, delayed
         from narwhals.stable.v2.typing import IntoLazyFrame
 
+        from ._native_tables import _native_config
         from .tables import SOURCE_ORDINAL
 
         if (
@@ -213,7 +213,7 @@ class ArtifactRef:
                 )
             )
             offset += part.row_count or 0
-        with dask.config.set({"dataframe.convert-string": False}):
+        with _native_config({"dataframe.convert-string": False}):
             native = dd.from_delayed(tasks, meta=meta, verify_meta=True)
             desired = max(1, (offset + partition_rows - 1) // partition_rows)
             native = native.repartition(npartitions=desired)

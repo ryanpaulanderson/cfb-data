@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from types import MappingProxyType, UnionType
 from typing import Union, get_args, get_origin, get_type_hints
 
-from pydantic import ConfigDict, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
 from .errors import CFBDRecipeConfigurationError, CFBDRecipeParameterError
 
@@ -57,9 +57,7 @@ def _bind_graph_parameters(
             ):
                 validated[name] = None
                 continue
-            adapter: TypeAdapter[object] = TypeAdapter(
-                hints[name], config=ConfigDict(strict=True)
-            )
+            adapter = _parameter_adapter(hints[name])
             validated[name] = _require_finite(
                 adapter.validate_python(value, strict=True)
             )
@@ -124,9 +122,14 @@ def _validate_call_parameters(
     try:
         for name, value in bound.arguments.items():
             annotation = hints[name]
-            adapter: TypeAdapter[object] = TypeAdapter(
-                annotation, config=ConfigDict(strict=True)
-            )
+            if (
+                value is None
+                and get_origin(annotation) in {UnionType, Union}
+                and type(None) in get_args(annotation)
+            ):
+                validated[name] = None
+                continue
+            adapter = _parameter_adapter(annotation)
             validated[name] = _require_finite(
                 adapter.validate_python(value, strict=True)
             )
@@ -135,11 +138,20 @@ def _validate_call_parameters(
     return _ValidatedParameters(MappingProxyType(validated), provided)
 
 
+def _parameter_adapter(annotation: object) -> TypeAdapter[object]:
+    """Respect model-owned configuration while retaining strict call validation."""
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return TypeAdapter(annotation)
+    return TypeAdapter(annotation, config=ConfigDict(strict=True))
+
+
 def _require_finite(value: object) -> object:
     """Return a value after rejecting all nested non-finite floats."""
     if isinstance(value, float) and not math.isfinite(value):
         raise ValueError("non-finite values are not supported")
-    if isinstance(value, Mapping):
+    if isinstance(value, BaseModel):
+        _require_finite(value.model_dump(mode="python"))
+    elif isinstance(value, Mapping):
         for item in value.values():
             _require_finite(item)
     elif isinstance(value, (list, tuple, set, frozenset)):
