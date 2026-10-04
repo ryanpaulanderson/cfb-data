@@ -7,10 +7,12 @@ types. Public recipe code uses the typed Narwhals interface and ``Table``.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from functools import partial
 from numbers import Integral
-from typing import Protocol, cast
+from threading import RLock
+from typing import Final, Protocol, cast
 
 import narwhals.stable.v2 as nw
 import pandas as pd
@@ -18,6 +20,36 @@ from narwhals.stable.v2.typing import IntoLazyFrame
 
 from .errors import CFBDTransformError
 from .tables import PartitionFunction, Table
+
+_NATIVE_CONFIG_LOCK: Final = RLock()
+
+
+@contextmanager
+def _native_config(settings: Mapping[str, object]) -> Iterator[None]:
+    """Own and restore Dask's process-wide native-construction settings.
+
+    Artifact scans and graph preparation run in coordinator threads. Overlapping
+    ``dask.config.set`` scopes can otherwise restore one another's settings,
+    silently converting nested object columns to strings. Serialize only these
+    short construction/lowering scopes, never dataframe execution.
+    """
+    import dask
+
+    with _NATIVE_CONFIG_LOCK, dask.config.set(dict(settings)):
+        yield
+
+
+def _stable_shuffle_lowering[R](operation: Callable[[], R]) -> R:
+    """Lower one graph with deterministic task-owned shuffle resources.
+
+    Disk shuffle lowering creates fresh resource dependencies under stable
+    expression keys, which collide between validation and publication in one
+    distributed scheduler. Task shuffles keep those dependencies deterministic.
+    Serialize the brief configuration scope and restore Dask's caller settings;
+    the lock owns Dask's shared configuration, not table execution or data.
+    """
+    with _native_config({"dataframe.shuffle.method": "tasks"}):
+        return operation()
 
 
 class _NativePartitionFrame(Protocol):
@@ -41,6 +73,26 @@ def _require_lazy(value: object) -> nw.LazyFrame[IntoLazyFrame]:
     if not isinstance(value, nw.LazyFrame):
         raise TypeError("Native table operation did not return a lazy frame")
     return cast(nw.LazyFrame[IntoLazyFrame], value)
+
+
+class _PandasFactory(Protocol):
+    """Type the dynamic Dask constructor used at the owned-frame boundary."""
+
+    def __call__(self, data: pd.DataFrame, *, chunksize: int, sort: bool) -> object: ...
+
+
+def _from_pandas(
+    frame: pd.DataFrame, partition_rows: int
+) -> nw.LazyFrame[IntoLazyFrame]:
+    """Copy an already-owned relation into declared native Dask partitions."""
+    import dask.dataframe as dd
+
+    factory = cast(_PandasFactory, dd.from_pandas)
+    with _native_config({"dataframe.convert-string": False}):
+        native = factory(frame.copy(deep=True), chunksize=partition_rows, sort=False)
+    if not isinstance(native, dd.DataFrame):
+        raise TypeError("Dask owned-frame construction changed dataframe type")
+    return _require_lazy(nw.from_native(native))
 
 
 def _pandas_meta(frame: nw.LazyFrame[IntoLazyFrame]) -> pd.DataFrame:
@@ -77,6 +129,11 @@ def _map_partitions(
     if not isinstance(result, DataFrame):
         raise TypeError("Partition mapping changed the native dataframe type")
     return _require_lazy(nw.from_native(result))
+
+
+def _identity_partition(frame: pd.DataFrame) -> pd.DataFrame:
+    """Retain partition rows while invalidating intermediate shuffle metadata."""
+    return frame
 
 
 def _normalization_kernel(column: str, into: str) -> PartitionFunction:
@@ -316,7 +373,6 @@ def _with_row_index(
     frame: nw.LazyFrame[IntoLazyFrame], name: str
 ) -> nw.LazyFrame[IntoLazyFrame]:
     """Build prefix-offset metadata tasks and native partition assignments."""
-    import dask
     import dask.dataframe as dd
     from dask.delayed import Delayed, delayed
 
@@ -327,7 +383,9 @@ def _with_row_index(
         raise CFBDTransformError("Indexing requires a native dataframe")
     meta = _pandas_meta(frame)
     meta[name] = pd.Series(dtype="int64")
-    parts = cast(_PartitionGraph, native).to_delayed(optimize_graph=False)
+    parts = _stable_shuffle_lowering(
+        partial(cast(_PartitionGraph, native).to_delayed, optimize_graph=False)
+    )
     if not isinstance(parts, list):
         raise CFBDTransformError("Native partition graph is invalid")
     offset: object = 0
@@ -335,7 +393,7 @@ def _with_row_index(
     for part in parts:
         indexed.append(delayed(_index_partition)(part, offset, name))
         offset = delayed(_add_lengths)(offset, delayed(len)(part))
-    with dask.config.set({"dataframe.convert-string": False}):
+    with _native_config({"dataframe.convert-string": False}):
         result = dd.from_delayed(indexed, meta=meta)
     return _require_lazy(nw.from_native(result))
 

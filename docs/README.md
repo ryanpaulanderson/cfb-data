@@ -26,6 +26,9 @@ deployment.
   first request, backend selection, and basic error handling.
 - [`guides/modular-analytics.md`](guides/modular-analytics.md) — callable
   datasets and workflows, planning, durability, Dask, YAML, and user authoring.
+- [`guides/calculated-football-metrics.md`](guides/calculated-football-metrics.md)
+  — raw-play Success Rate and opponent/situation-adjusted College ALY, with
+  equations, calibration, priors, coverage, uncertainty, and Redis examples.
 - [`guides/common-recipes.md`](guides/common-recipes.md) — notebook examples for
   common data, IDs, minimal hydration, joins, and async concurrency.
 - [`guides/`](guides/) — request rules and allowed values, result shapes,
@@ -49,6 +52,10 @@ deployment.
   identity-routing architecture.
 - [`architecture/0006-modular-analytics-recipes.md`](architecture/0006-modular-analytics-recipes.md)
   — accepted modular recipe, discovery, durable execution, and Dask boundary.
+- [`architecture/advanced-statistics-research.md`](architecture/advanced-statistics-research.md)
+  — source-backed math, data feasibility, and proposed native recipes for
+  independently calculated Success Rate, opponent-adjusted ALY,
+  an SRS-derived team-strength model, and EPA.
 - [`notices-of-decision/`](notices-of-decision/README.md) — decision notices
   explaining the evidence, alternatives, and reasoning behind consequential
   project choices.

@@ -359,7 +359,13 @@ async def _prepare_native[**P, R](
     function: Callable[P, R], *args: P.args, **kwargs: P.kwargs
 ) -> R:
     """Finish owned synchronous graph preparation before propagating cancellation."""
-    preparation = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+    from functools import partial
+
+    from ._native_tables import _stable_shuffle_lowering
+
+    preparation = asyncio.create_task(
+        asyncio.to_thread(_stable_shuffle_lowering, partial(function, *args, **kwargs))
+    )
     try:
         return await asyncio.shield(preparation)
     except asyncio.CancelledError:

@@ -62,6 +62,32 @@ class Table:
     _universe: _EnrichmentUniverse | None = None
     _known_empty: bool = False
 
+    @classmethod
+    def from_pandas(
+        cls, frame: pd.DataFrame, *, partition_rows: int = 100_000
+    ) -> Table:
+        """Create a lazy partitioned graph from an explicitly owned eager relation.
+
+        Use this boundary for bounded configuration or coefficient tables and
+        caller-owned inputs, never to gather an existing native table graph.
+        The frame is copied; external data still needs a declared validation
+        contract before publication.
+
+        :param frame: Existing eager relation whose memory the caller already owns.
+        :param partition_rows: Maximum rows per initial partition.
+        :return: Native table composable with artifact-backed Dask inputs.
+        :raises ValueError: If the partition bound is not a positive integer.
+        """
+        if (
+            isinstance(partition_rows, bool)
+            or not isinstance(partition_rows, int)
+            or partition_rows < 1
+        ):
+            raise ValueError("partition_rows must be a positive integer")
+        from ._native_tables import _from_pandas
+
+        return cls(_from_pandas(frame, partition_rows), _known_empty=frame.empty)
+
     @property
     def columns(self) -> tuple[str, ...]:
         """Return declared columns without evaluating the graph."""
@@ -235,8 +261,16 @@ class Table:
         :param expressions: Native aggregation expressions with output names.
         :return: Grouped table carrying inherited validation.
         """
-        return replace(
+        from ._native_tables import _identity_partition, _pandas_meta
+
+        grouped = replace(
             self, frame=self.frame.group_by(*keys).agg(*expressions), _universe=None
+        )
+        # Dask's named reduction temporarily uses MultiIndex columns. Clear its
+        # stale shuffle-key metadata after Narwhals restores flat column names,
+        # so downstream joins cannot mistake the intermediate names for keys.
+        return grouped.map_partitions(
+            _identity_partition, meta=_pandas_meta(grouped.frame)
         )
 
     def distinct(self, *keys: str) -> Table:
@@ -670,6 +704,28 @@ class Table:
         from ._native_tables import _collect_table
 
         return _collect_table(self)
+
+    def collect_bounded(self, *, max_rows: int) -> pd.DataFrame:
+        """Materialize a declared small relation after proving its row bound.
+
+        Use this explicit boundary for coefficient metadata and reduced model
+        statistics, rather than observations between analytical transforms.
+        Deferred checks still run before either result is returned.
+
+        :param max_rows: Maximum permitted rows in the complete relation.
+        :return: Validated pandas relation within the declared bound.
+        :raises ValueError: If the bound is not a positive integer.
+        :raises CFBDTransformError: If validation or the row bound fails.
+        """
+        if isinstance(max_rows, bool) or not isinstance(max_rows, int) or max_rows < 1:
+            raise ValueError("The collection row bound must be a positive integer")
+        count = self.select(nw.len().alias("rows")).collect()
+        if int(count.iloc[0, 0]) > max_rows:
+            raise CFBDTransformError("The explicit collection row bound was exceeded")
+        result = self.collect()
+        if len(result) > max_rows:
+            raise CFBDTransformError("The explicit collection row bound was exceeded")
+        return result
 
 
 def concat_tables(tables: Iterable[Table]) -> Table:
