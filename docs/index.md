@@ -41,6 +41,7 @@ signatures.
 
 getting-started
 guides/modular-analytics
+guides/calculated-football-metrics
 guides/common-recipes
 guides/requests
 guides/results
@@ -88,6 +89,8 @@ architecture/0007-native-table-execution
 architecture/native-table-verification
 architecture/analytics-foundation-plan
 architecture/recipe-dask-reengineering-audit
+architecture/advanced-statistics-research
+architecture/calculated-metrics-verification
 notices-of-decision/README
 notices-of-decision/0001-canonical-nested-tabular-representation
 ```

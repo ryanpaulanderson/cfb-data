@@ -34,8 +34,8 @@ installation to a DataFrame.
 
 ## Modular analytics is available
 
-The separate ``cfb_data_recipes`` package ships thirteen independently authored
-dataset modules and three workflow modules. They are callable directly,
+The separate ``cfb_data_recipes`` package ships independently authored
+dataset and workflow modules. They are callable directly,
 compose through ordinary function calls, and use the same public decorators,
 discovery, compiler, scheduler, persistence, and events as user recipes. There
 is no client dataset/workflow manager or central recipe index.
@@ -49,7 +49,11 @@ YAML composition boundary. Redis remains only the API response cache.
 The included datasets cover game summaries, team games, player-game stats,
 drives, plays, play-player stats, rosters, team seasons, player seasons,
 rankings, betting lines, recruiting classes, and coach seasons. The workflows
-cover a team season, one game, and bounded program history. See [Build durable
+cover a team season, one game, bounded program history, calculated Success Rate,
+and full opponent/situation-adjusted College ALY. Their shared play evidence
+and centered-model engine steps derive statistics from raw sources. See the
+[metric guide](guides/calculated-football-metrics.md) for math, parameter
+selection, uncertainty, and limitations. See [Build durable
 analyses with modular recipes](guides/modular-analytics.md) for usage and
 authoring.
 
@@ -62,7 +66,7 @@ Retrieval remains source-faithful. Filtering, joining, flattening, missing-data
 policy, and derived metrics live in each visible versioned recipe or in user
 code. Optional enrichments never change a base dataset's declared row universe.
 
-All thirteen first-party dataset transforms and three workflows now compose
+First-party dataset transforms and workflows compose
 native partitioned table operations. `Table` carries lazy Narwhals/Dask graphs,
 global validation, and explicit schema metadata. Durable results support lazy
 scans and bounded pandas batches; eager pandas/Polars results remain an explicit
@@ -71,6 +75,10 @@ describes ownership and return contracts. The [original recipe audit](architectu
 remains the baseline inventory. The [migration verification report](architecture/native-table-verification.md)
 records multipartition correctness, backend/executor parity, Redis-backed live
 testing, and measured overhead. Worker placement alone is not a speed claim.
+The [calculated-metrics verification report](architecture/calculated-metrics-verification.md)
+records independent model math, fresh metric execution, persistent Redis reuse,
+and native task, partition, memory and encoding measurements. Its HTTP inputs
+are fixtures; live CFBD metric testing remains unverified without a key.
 
 The foundation's release evidence includes 651 default-suite tests, 20
 separately enabled Redis tests, a 12-combination clean-wheel matrix across

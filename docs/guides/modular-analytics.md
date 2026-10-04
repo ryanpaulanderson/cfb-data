@@ -48,6 +48,11 @@ distributed workers add startup and scheduling costs.
 
 ## Call one dataset
 
+For raw-play-derived Success Rate and full opponent/situation-adjusted College
+ALY, see [Calculate football metrics](calculated-football-metrics.md). Their
+shared play dataset and reusable modeling steps follow the same execution and
+artifact contracts described here.
+
 Import a recipe from its independent module and pass the client explicitly:
 
 ```python

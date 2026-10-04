@@ -112,8 +112,10 @@ Use ``.plan()`` for a pure no-I/O execution plan and ``.run()`` for durable
 artifacts, lineage, source coverage, quality results, and recovery evidence.
 Workflows return explicit named outputs rather than choosing a hidden primary
 table. See [Build durable analyses with modular
-recipes](docs/guides/modular-analytics.md) for the thirteen included datasets,
-three workflows, Dask execution, safe YAML, recovery, and user authoring.
+recipes](docs/guides/modular-analytics.md) for the included datasets and
+workflows, Dask execution, safe YAML, recovery, and user authoring. The
+[calculated football metrics](docs/guides/calculated-football-metrics.md) guide
+documents raw-play Success Rate and opponent/situation-adjusted College ALY.
 
 ## Find the data you need
 
