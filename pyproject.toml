@@ -28,7 +28,7 @@ dependencies = [
     "pandas>=3.0,<4",
     "platformdirs>=4.11,<5",
     "pydantic>=2.12,<3",
-    "pyarrow>=25,<26",
+    "pyarrow>=25,<27",
 ]
 
 [project.optional-dependencies]
