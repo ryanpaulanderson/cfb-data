@@ -298,7 +298,8 @@ class ArtifactRef:
         )
         table = self._load_table()
         annotation = types.GenericAlias(list, self._row_model)
-        adapter = cast(TypeAdapter[list[BaseModel]], TypeAdapter(annotation))
+        # The alias is a list of the declared Pydantic row model.
+        adapter = cast(TypeAdapter[list[BaseModel]], TypeAdapter(annotation))  # type: ignore[arg-type]
         return _analytics_models_from_arrow_table(
             row_model=self._row_model,
             response_adapter=adapter,
@@ -314,7 +315,9 @@ def _part_frame(
 ) -> pd.DataFrame:
     """Decode and validate one bounded canonical partition into pandas."""
     adapter = cast(
-        TypeAdapter[list[BaseModel]], TypeAdapter(types.GenericAlias(list, row_model))
+        TypeAdapter[list[BaseModel]],
+        # The alias is a list of the declared Pydantic row model.
+        TypeAdapter(types.GenericAlias(list, row_model)),  # type: ignore[arg-type]
     )
     rows = _analytics_models_from_arrow_table(
         row_model=row_model,

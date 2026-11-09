@@ -603,7 +603,8 @@ def _build_recipe(
         default: object = inspect.Parameter.empty
         if "default" in parameter.model_fields_set:
             try:
-                default = TypeAdapter(annotation).validate_python(
+                # The annotation is constructed from the validated YAML type.
+                default = TypeAdapter(annotation).validate_python(  # type: ignore[arg-type]
                     parameter.default,
                     strict=True,
                 )

@@ -123,8 +123,9 @@ def _execute_transform_worker(
         annotation = parameter.annotation
         if annotation is None:
             raise ValueError("JSON parameter lacks its contract")
+        # The coordinator supplies the recipe parameter annotation.
         adapter: TypeAdapter[object] = TypeAdapter(
-            annotation,
+            annotation,  # type: ignore[arg-type]
             config=ConfigDict(strict=True),
         )
         decoded[name] = adapter.validate_json(parameter.payload, strict=True)
@@ -311,7 +312,8 @@ def _list_row_model(annotation: object) -> type[BaseModel] | None:
 
 def _row_list_adapter(row_model: type[BaseModel]) -> TypeAdapter[list[BaseModel]]:
     list_type = GenericAlias(list, row_model)
-    return cast(TypeAdapter[list[BaseModel]], TypeAdapter(list_type))
+    # The alias is a list of the declared Pydantic row model.
+    return cast(TypeAdapter[list[BaseModel]], TypeAdapter(list_type))  # type: ignore[arg-type]
 
 
 def _validate_json_bytes(payload: bytes) -> None:

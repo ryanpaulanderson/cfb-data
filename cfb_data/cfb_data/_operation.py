@@ -159,7 +159,8 @@ class _OneEndpointOperation[RequestT: BaseModel, RowT: BaseModel](
     def rows_adapter(self) -> TypeAdapter[list[RowT]]:
         """Return the normalized analytical row-list adapter."""
         annotation = GenericAlias(list, self.row_model)
-        return TypeAdapter(annotation)
+        # The alias is a list of the declared Pydantic row model.
+        return TypeAdapter(annotation)  # type: ignore[arg-type]
 
     @property
     def response_contract(self) -> str:

@@ -1167,7 +1167,8 @@ def _row_list_adapter(
 ) -> TypeAdapter[list[BaseModel]]:
     """Build a typed list adapter from a runtime-declared row model."""
     annotation = types.GenericAlias(list, row_model)
-    return cast(TypeAdapter[list[BaseModel]], TypeAdapter(annotation))
+    # The alias is a list of the declared Pydantic row model.
+    return cast(TypeAdapter[list[BaseModel]], TypeAdapter(annotation))  # type: ignore[arg-type]
 
 
 __all__: tuple[str, ...] = ()

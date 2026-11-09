@@ -674,7 +674,8 @@ def _source_contract(node: _CompiledNode) -> _SourceContract:
         if endpoint_operation is not None
         else cast(
             TypeAdapter[list[BaseModel]],
-            TypeAdapter(GenericAlias(list, row_model)),
+            # The alias is a list of the declared Pydantic row model.
+            TypeAdapter(GenericAlias(list, row_model)),  # type: ignore[arg-type]
         )
     )
     return _SourceContract(
