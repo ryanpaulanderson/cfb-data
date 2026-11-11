@@ -141,7 +141,9 @@ def _encode_partition(
     raw: object = frame.to_dict(orient="records")
     cleaned = _logical_value(raw)
     adapter = cast(
-        TypeAdapter[list[BaseModel]], TypeAdapter(GenericAlias(list, row_model))
+        TypeAdapter[list[BaseModel]],
+        # The alias is a list of the declared Pydantic row model.
+        TypeAdapter(GenericAlias(list, row_model)),  # type: ignore[arg-type]
     )
     rows = adapter.validate_python(cleaned)
     table = _analytics_arrow_table_from_models(

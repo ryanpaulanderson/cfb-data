@@ -162,7 +162,8 @@ def _artifact_columns(row_model: type[BaseModel]) -> tuple[_ArtifactColumn, ...]
 def _annotation_accepts_none(annotation: object) -> bool:
     """Return whether the authoritative field annotation accepts null."""
     try:
-        TypeAdapter(annotation).validate_python(None)
+        # Pydantic validates the model field annotation at runtime.
+        TypeAdapter(annotation).validate_python(None)  # type: ignore[arg-type]
     except ValidationError:
         return False
     return True

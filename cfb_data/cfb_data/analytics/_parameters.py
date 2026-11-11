@@ -142,7 +142,8 @@ def _parameter_adapter(annotation: object) -> TypeAdapter[object]:
     """Respect model-owned configuration while retaining strict call validation."""
     if isinstance(annotation, type) and issubclass(annotation, BaseModel):
         return TypeAdapter(annotation)
-    return TypeAdapter(annotation, config=ConfigDict(strict=True))
+    # Pydantic validates the runtime annotation obtained from the recipe signature.
+    return TypeAdapter(annotation, config=ConfigDict(strict=True))  # type: ignore[arg-type]
 
 
 def _require_finite(value: object) -> object:
